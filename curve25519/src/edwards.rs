@@ -1813,7 +1813,7 @@ mod test {
 
     use rand::RngExt;
 
-#[cfg(feature = "precomputed-tables")]
+    #[cfg(feature = "precomputed-tables")]
     use crate::constants::ED25519_BASEPOINT_TABLE;
 
     /// X coordinate of the basepoint.
@@ -2413,7 +2413,9 @@ mod test {
         /// Test double_scalar_mul_vartime vs ed25519.py
         #[test]
         fn double_scalar_mul_basepoint_vs_ed25519py() {
-            let A = A_TIMES_BASEPOINT.decompress().expect("test point should decompress");
+            let A = A_TIMES_BASEPOINT
+                .decompress()
+                .expect("test point should decompress");
             let result =
                 EdwardsPoint::vartime_double_scalar_mul_basepoint(&A_SCALAR, &A, &B_SCALAR);
             assert_eq!(result.compress(), DOUBLE_SCALAR_MULT_RESULT);
@@ -2422,7 +2424,9 @@ mod test {
         #[test]
         #[cfg(feature = "alloc")]
         fn multiscalar_mul_vs_ed25519py() {
-            let A = A_TIMES_BASEPOINT.decompress().expect("test point should decompress");
+            let A = A_TIMES_BASEPOINT
+                .decompress()
+                .expect("test point should decompress");
             let result = EdwardsPoint::vartime_multiscalar_mul(
                 &[A_SCALAR, B_SCALAR],
                 &[A, constants::ED25519_BASEPOINT_POINT],
@@ -2433,7 +2437,9 @@ mod test {
         #[test]
         #[cfg(feature = "alloc")]
         fn multiscalar_mul_vartime_vs_consttime() {
-            let A = A_TIMES_BASEPOINT.decompress().expect("test point should decompress");
+            let A = A_TIMES_BASEPOINT
+                .decompress()
+                .expect("test point should decompress");
             let result_vartime = EdwardsPoint::vartime_multiscalar_mul(
                 &[A_SCALAR, B_SCALAR],
                 &[A, constants::ED25519_BASEPOINT_POINT],

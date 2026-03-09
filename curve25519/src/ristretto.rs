@@ -1357,7 +1357,9 @@ mod test {
     #[test]
     fn decompress_id() {
         let compressed_id = CompressedRistretto::identity();
-        let id = compressed_id.decompress().expect("identity should decompress");
+        let id = compressed_id
+            .decompress()
+            .expect("identity should decompress");
         let mut identity_in_coset = false;
         for P in &id.coset4() {
             if P.compress() == CompressedEdwardsY::identity() {
@@ -1376,7 +1378,10 @@ mod test {
     #[test]
     fn basepoint_roundtrip() {
         let bp_compressed_ristretto = constants::RISTRETTO_BASEPOINT_POINT.compress();
-        let bp_recaf = bp_compressed_ristretto.decompress().expect("basepoint should decompress").0;
+        let bp_recaf = bp_compressed_ristretto
+            .decompress()
+            .expect("basepoint should decompress")
+            .0;
         // Check that bp_recaf differs from bp by a point of order 4
         let diff = constants::RISTRETTO_BASEPOINT_POINT.0 - bp_recaf;
         let diff4 = diff.mul_by_pow_2(2);
