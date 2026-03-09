@@ -1328,20 +1328,20 @@ mod test {
         let s2 = Scalar::from(333u64);
         let P2 = BASE * s2;
 
-        let vec = vec![P1, P2];
-        let sum: RistrettoPoint = vec.iter().sum();
+        let arr = [P1, P2];
+        let sum: RistrettoPoint = arr.iter().sum();
 
         assert_eq!(sum, P1 + P2);
 
         // Test that sum works for the empty iterator
-        let empty_vector: Vec<RistrettoPoint> = vec![];
-        let sum: RistrettoPoint = empty_vector.iter().sum();
+        let empty_array: [RistrettoPoint; 0] = [];
+        let sum: RistrettoPoint = empty_array.iter().sum();
 
         assert_eq!(sum, RistrettoPoint::identity());
 
         // Test that sum works on owning iterators
         let s = Scalar::from(2u64);
-        let mapped = vec.iter().map(|x| x * s);
+        let mapped = arr.iter().map(|x| x * s);
         let sum: RistrettoPoint = mapped.sum();
 
         assert_eq!(sum, P1 * s + P2 * s);
@@ -1357,7 +1357,7 @@ mod test {
     #[test]
     fn decompress_id() {
         let compressed_id = CompressedRistretto::identity();
-        let id = compressed_id.decompress().unwrap();
+        let id = compressed_id.decompress().expect("identity should decompress");
         let mut identity_in_coset = false;
         for P in &id.coset4() {
             if P.compress() == CompressedEdwardsY::identity() {
@@ -1376,7 +1376,7 @@ mod test {
     #[test]
     fn basepoint_roundtrip() {
         let bp_compressed_ristretto = constants::RISTRETTO_BASEPOINT_POINT.compress();
-        let bp_recaf = bp_compressed_ristretto.decompress().unwrap().0;
+        let bp_recaf = bp_compressed_ristretto.decompress().expect("basepoint should decompress").0;
         // Check that bp_recaf differs from bp by a point of order 4
         let diff = constants::RISTRETTO_BASEPOINT_POINT.0 - bp_recaf;
         let diff4 = diff.mul_by_pow_2(2);

@@ -550,12 +550,12 @@ mod test {
         // sign bit = 0 => basepoint
         assert_eq!(
             constants::ED25519_BASEPOINT_POINT,
-            constants::X25519_BASEPOINT.to_edwards(0).unwrap()
+            constants::X25519_BASEPOINT.to_edwards(0).expect("sign bit 0 should decompress")
         );
         // sign bit = 1 => minus basepoint
         assert_eq!(
             -constants::ED25519_BASEPOINT_POINT,
-            constants::X25519_BASEPOINT.to_edwards(1).unwrap()
+            constants::X25519_BASEPOINT.to_edwards(1).expect("sign bit 1 should decompress")
         );
     }
 
@@ -668,15 +668,15 @@ mod test {
             // Make a random point P on the curve or its twist
             let p_montgomery = {
                 let mut buf = [0u8; 32];
-                csprng.try_fill_bytes(&mut buf).unwrap();
+                csprng.try_fill_bytes(&mut buf).expect("rng should not fail");
                 MontgomeryPoint(buf)
             };
 
             // Compute two big integers b₁ and b₂
             let mut bigint1 = [0u8; 64];
             let mut bigint2 = [0u8; 64];
-            csprng.try_fill_bytes(&mut bigint1[..]).unwrap();
-            csprng.try_fill_bytes(&mut bigint2[..]).unwrap();
+            csprng.try_fill_bytes(&mut bigint1[..]).expect("rng should not fail");
+            csprng.try_fill_bytes(&mut bigint2[..]).expect("rng should not fail");
 
             // Compute b₁P and b₂P
             let bigint1_bits_be = bytestring_bits_le(&bigint1).rev();
@@ -708,7 +708,7 @@ mod test {
         for _ in 0..100 {
             // This will be reduced mod l with probability l / 2^256 ≈ 6.25%
             let mut a_bytes = [0u8; 32];
-            csprng.try_fill_bytes(&mut a_bytes).unwrap();
+            csprng.try_fill_bytes(&mut a_bytes).expect("rng should not fail");
 
             assert_eq!(
                 MontgomeryPoint::mul_base_clamped(a_bytes),

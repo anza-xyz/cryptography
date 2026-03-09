@@ -1813,10 +1813,7 @@ mod test {
 
     use rand::RngExt;
 
-    #[cfg(feature = "alloc")]
-    use alloc::vec::Vec;
-
-    #[cfg(feature = "precomputed-tables")]
+#[cfg(feature = "precomputed-tables")]
     use crate::constants::ED25519_BASEPOINT_TABLE;
 
     /// X coordinate of the basepoint.
@@ -1880,7 +1877,7 @@ mod test {
         let base_X = FieldElement::from_bytes(&BASE_X_COORD_BYTES);
         let bp = constants::ED25519_BASEPOINT_COMPRESSED
             .decompress()
-            .unwrap();
+            .expect("basepoint should decompress");
         assert!(bp.is_valid());
         // Check that decompression actually gives the correct X coordinate
         assert_eq!(base_X, bp.X);
@@ -1895,7 +1892,7 @@ mod test {
         minus_basepoint_bytes[31] |= 1 << 7;
         let minus_basepoint = CompressedEdwardsY(minus_basepoint_bytes)
             .decompress()
-            .unwrap();
+            .expect("minus basepoint should decompress");
         // Test projective coordinates exactly since we know they should
         // only differ by a flipped sign.
         assert_eq!(minus_basepoint.X, -(&constants::ED25519_BASEPOINT_POINT.X));
@@ -2158,20 +2155,20 @@ mod test {
         let s2 = Scalar::from(333u64);
         let P2 = BASE * s2;
 
-        let vec = vec![P1, P2];
-        let sum: EdwardsPoint = vec.iter().sum();
+        let arr = [P1, P2];
+        let sum: EdwardsPoint = arr.iter().sum();
 
         assert_eq!(sum, P1 + P2);
 
         // Test that sum works for the empty iterator
-        let empty_vector: Vec<EdwardsPoint> = vec![];
-        let sum: EdwardsPoint = empty_vector.iter().sum();
+        let empty_array: [EdwardsPoint; 0] = [];
+        let sum: EdwardsPoint = empty_array.iter().sum();
 
         assert_eq!(sum, EdwardsPoint::identity());
 
         // Test that sum works on owning iterators
         let s = Scalar::from(2u64);
-        let mapped = vec.iter().map(|x| x * s);
+        let mapped = arr.iter().map(|x| x * s);
         let sum: EdwardsPoint = mapped.sum();
 
         assert_eq!(sum, P1 * s + P2 * s);
@@ -2416,7 +2413,7 @@ mod test {
         /// Test double_scalar_mul_vartime vs ed25519.py
         #[test]
         fn double_scalar_mul_basepoint_vs_ed25519py() {
-            let A = A_TIMES_BASEPOINT.decompress().unwrap();
+            let A = A_TIMES_BASEPOINT.decompress().expect("test point should decompress");
             let result =
                 EdwardsPoint::vartime_double_scalar_mul_basepoint(&A_SCALAR, &A, &B_SCALAR);
             assert_eq!(result.compress(), DOUBLE_SCALAR_MULT_RESULT);
@@ -2425,7 +2422,7 @@ mod test {
         #[test]
         #[cfg(feature = "alloc")]
         fn multiscalar_mul_vs_ed25519py() {
-            let A = A_TIMES_BASEPOINT.decompress().unwrap();
+            let A = A_TIMES_BASEPOINT.decompress().expect("test point should decompress");
             let result = EdwardsPoint::vartime_multiscalar_mul(
                 &[A_SCALAR, B_SCALAR],
                 &[A, constants::ED25519_BASEPOINT_POINT],
@@ -2436,7 +2433,7 @@ mod test {
         #[test]
         #[cfg(feature = "alloc")]
         fn multiscalar_mul_vartime_vs_consttime() {
-            let A = A_TIMES_BASEPOINT.decompress().unwrap();
+            let A = A_TIMES_BASEPOINT.decompress().expect("test point should decompress");
             let result_vartime = EdwardsPoint::vartime_multiscalar_mul(
                 &[A_SCALAR, B_SCALAR],
                 &[A, constants::ED25519_BASEPOINT_POINT],

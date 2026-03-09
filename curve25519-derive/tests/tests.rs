@@ -106,14 +106,20 @@ mod inner_spec {
 
     #[test]
     fn test_specialized() {
-        assert!(!IS_AVX2);
+        #[allow(clippy::assertions_on_constants)]
+        {
+            assert!(!IS_AVX2);
+        }
     }
 
     #[cfg(test)]
     mod tests {
         #[test]
         fn test_specialized_inner() {
-            assert!(!super::IS_AVX2);
+            #[allow(clippy::assertions_on_constants)]
+            {
+                assert!(!super::IS_AVX2);
+            }
         }
     }
 }
