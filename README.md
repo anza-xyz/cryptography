@@ -14,10 +14,10 @@ method and a reduced set of well-tested backends.
 
 | Crate | Description |
 |---|---|
-| [`curve25519`](./curve25519) | Fork of `curve25519-dalek`. Core elliptic-curve arithmetic over Curve25519, Edwards, Ristretto, and Short-Weierstrass forms, with HEEA scalar decomposition and a narrowed backend set. |
+| [`curve25519`](./curve25519) | Fork of `curve25519-dalek`. Core elliptic-curve arithmetic over Curve25519, Edwards, Ristretto, and Short-Weierstrass forms, with HEEA scalar decomposition and a narrowed backend set (removed `u32` and constraint device supports). |
 | [`ed25519-heea`](./ed25519-heea) | Fork of `ed25519-zebra`. ZIP-215-compliant Ed25519 with an added `verify_heea` fast-path that uses HEEA half-size scalars. |
 | [`curve25519-cuda`](./curve25519-cuda) | GPU-accelerated multi-scalar multiplication (MSM) via CUDA/SPPARK. Falls back to CPU when CUDA is unavailable. |
-| [`curve25519-derive`](./curve25519-derive) | Helper proc-macro crate (`#[unsafe_target_feature]`) inherited from upstream; required to write clean SIMD code. |
+| [`curve25519-derive`](./curve25519-derive) | Helper proc-macro crate (`#[unsafe_target_feature]`) inherited from upstream; required to write clean SIMD code. Identical to the one in dalek 0.5.0 |
 
 ---
 
