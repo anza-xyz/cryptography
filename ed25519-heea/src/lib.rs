@@ -1,14 +1,21 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+#![deny(missing_docs)]
+#![doc = include_str!("../README.md")]
+#![cfg_attr(not(feature = "std"), no_std)]
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+//! Docs require the `nightly` feature until RFC 1990 lands.
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
+#[cfg(feature = "alloc")]
+pub mod batch;
+mod error;
+mod signing_key;
+mod verification_key;
+
+// Allows importing traits used by `Signature`.
+pub use ed25519;
+pub use ed25519::Signature;
+pub use error::Error;
+pub use signing_key::SigningKey;
+pub use verification_key::{VerificationKey, VerificationKeyBytes};
