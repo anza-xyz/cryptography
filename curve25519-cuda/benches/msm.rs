@@ -13,8 +13,10 @@ fn cpu_msm(points: &[SwPoint], scalars: &[Scalar]) -> SwPoint {
         .map(|point| point.to_edwards().expect("valid sw point"))
         .collect();
 
-    let chunk_size =
-        (ed_points.len().max(1) + rayon::current_num_threads() - 1) / rayon::current_num_threads();
+    let chunk_size = ed_points
+        .len()
+        .max(1)
+        .div_ceil(rayon::current_num_threads());
     let out = ed_points
         .par_chunks(chunk_size)
         .zip(scalars.par_chunks(chunk_size))
