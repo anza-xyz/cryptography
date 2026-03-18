@@ -76,7 +76,7 @@ fn bench_batch_verify(c: &mut Criterion) {
 fn bench_single_verify(c: &mut Criterion) {
     let mut group = c.benchmark_group("Single Verification");
 
-    group.bench_function("ed25519_heea", |b| {
+    group.bench_function("ed25519", |b| {
         let sk = SigningKey::new(thread_rng());
         let vk = VerificationKey::from(&sk);
         let sig = sk.sign(b"");
