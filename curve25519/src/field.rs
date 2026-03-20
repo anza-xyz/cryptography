@@ -758,36 +758,46 @@ mod test {
     fn from_bytes_wide() {
         // Do the 64-byte input ones first
         for (input_bytes, expected_reduced) in FROM_BYTES_WIDE_KAT_BIG {
-            let reduce_fe = FieldElement::from_bytes_wide(
-                &hex::decode(input_bytes)
-                    .unwrap()
-                    .as_slice()
-                    .try_into()
-                    .unwrap(),
-            );
+            let decoded_input =
+                hex::decode(input_bytes).expect("64-byte reduction test vector hex must decode");
+            let decoded_input: [u8; 64] = decoded_input
+                .as_slice()
+                .try_into()
+                .expect("64-byte reduction test vector must decode to 64 bytes");
+            let reduce_fe = FieldElement::from_bytes_wide(&decoded_input);
             assert_eq!(
                 &reduce_fe.to_bytes(),
-                hex::decode(expected_reduced).unwrap().as_slice()
+                hex::decode(expected_reduced)
+                    .expect("reduction result test vector hex must decode")
+                    .as_slice()
             );
         }
 
         // Now do the 48-byte inputs
         for (input_bytes, expected_reduced) in FROM_BYTES_WIDE_KAT_MEDIUM {
             let mut padded_input_bytes = [0u8; 64];
-            padded_input_bytes[..48].copy_from_slice(&hex::decode(input_bytes).unwrap());
+            padded_input_bytes[..48].copy_from_slice(
+                &hex::decode(input_bytes).expect("48-byte reduction test vector hex must decode"),
+            );
             let reduce_fe = FieldElement::from_bytes_wide(&padded_input_bytes);
             assert_eq!(
                 &reduce_fe.to_bytes(),
-                hex::decode(expected_reduced).unwrap().as_slice()
+                hex::decode(expected_reduced)
+                    .expect("reduction result test vector hex must decode")
+                    .as_slice()
             );
         }
     }
 
     #[cfg(feature = "digest")]
     fn fe_from_test_vector(expected_hex: &str) -> FieldElement {
-        let mut expected_hash = hex::decode(expected_hex).unwrap();
+        let mut expected_hash =
+            hex::decode(expected_hex).expect("hash-to-field test vector hex must decode");
         expected_hash.reverse();
-        FieldElement::from_bytes(&expected_hash.try_into().unwrap())
+        let expected_hash: [u8; 32] = expected_hash
+            .try_into()
+            .expect("hash-to-field test vector must decode to 32 bytes");
+        FieldElement::from_bytes(&expected_hash)
     }
 
     /// Hash to field test vectors from

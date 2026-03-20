@@ -106,7 +106,7 @@ use core::ops::{Mul, MulAssign};
 
 #[cfg(feature = "digest")]
 use digest::{
-    FixedOutput, HashMarker, array::typenum::U64, consts::True, crypto_common::BlockSizeUser,
+    FixedOutput, HashMarker, array::typenum::U64, block_api::BlockSizeUser, consts::True,
     typenum::IsGreater,
 };
 
@@ -2517,9 +2517,12 @@ mod test {
 
     #[cfg(all(feature = "alloc", feature = "digest"))]
     fn hex_str_to_fe(hex_str: &str) -> FieldElement {
-        let mut bytes = hex::decode(hex_str).unwrap().to_vec();
+        let mut bytes = hex::decode(hex_str).expect("RFC test vector hex must decode");
         bytes.reverse();
-        FieldElement::from_bytes(&bytes.try_into().unwrap())
+        let bytes: [u8; 32] = bytes
+            .try_into()
+            .expect("RFC test vector field element must be 32 bytes");
+        FieldElement::from_bytes(&bytes)
     }
 
     #[test]
@@ -2535,7 +2538,7 @@ mod test {
                 AffinePoint { x, y }.to_edwards()
             };
 
-            let computed = EdwardsPoint::encode_to_curve::<sha2::Sha512>(&[&input], &[dst]);
+            let computed = EdwardsPoint::encode_to_curve::<sha2::Sha512>(&[input], &[dst]);
             assert_eq!(computed, expected_output, "Failed in test {}", index);
         }
     }
@@ -2594,7 +2597,7 @@ mod test {
                 AffinePoint { x, y }.to_edwards()
             };
 
-            let computed = EdwardsPoint::hash_to_curve::<sha2::Sha512>(&[&input], &[dst]);
+            let computed = EdwardsPoint::hash_to_curve::<sha2::Sha512>(&[input], &[dst]);
 
             assert_eq!(expected_output, computed, "Failed in test {}", index);
         }
