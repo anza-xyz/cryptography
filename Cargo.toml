@@ -1,11 +1,12 @@
 [workspace]
-members = [ 
-    "curve25519-cuda",
-    "curve25519",
-    "curve25519-derive",
-    "ed25519-heea",
+members = [
+    "curve25519/curve25519-cuda",
+    "curve25519/curve25519",
+    "curve25519/curve25519-derive",
+    "curve25519/ed25519-heea",
 ]
 resolver = "2"
 
 [profile.dev]
 opt-level = 2
+
