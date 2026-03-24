@@ -1,144 +1,137 @@
-# curve25519 (curve25519-sol)
+# curve25519-sol
 
-**A pure-Rust implementation of group operations on Ristretto and Curve25519, forked from
-[curve25519-dalek] with HEEA scalar decomposition and a reduced backend set.**
+A high-performance, opinionated fork of [curve25519-dalek] and [ed25519-zebra] focused on
+accelerated Ed25519 signature verification via the **HEEA** (Half-Extended Euclidean Algorithm)
+method and a reduced set of well-tested backends.
 
-> For the original curve25519-dalek documentation see [README_dalek.md](README_dalek.md).
-
-This crate is part of the [curve25519-sol](../README.md) workspace.
+> Original library READMEs: [README_dalek.md](README_dalek.md) (workspace) ·
+> [curve25519/README_dalek.md](curve25519/README_dalek.md) ·
+> [ed25519-heea/README_zebra.md](ed25519-heea/README_zebra.md)
 
 ---
 
-## Changes from curve25519-dalek
+## Crates
 
-### HEEA Scalar Decomposition
+| Crate | Description |
+|---|---|
+| [`curve25519`](./curve25519) | Fork of `curve25519-dalek`. Core elliptic-curve arithmetic over Curve25519, Edwards, Ristretto, and Short-Weierstrass forms, with HEEA scalar decomposition and a narrowed backend set (removed `u32` and constraint device supports). |
+| [`ed25519-heea`](./ed25519-heea) | Fork of `ed25519-zebra`. ZIP-215-compliant Ed25519 with an added `verify_heea` fast-path that uses HEEA half-size scalars. |
+| [`curve25519-cuda`](./curve25519-cuda) | GPU-accelerated multi-scalar multiplication (MSM) via CUDA/SPPARK. Falls back to CPU when CUDA is unavailable. |
+| [`curve25519-derive`](./curve25519-derive) | Helper proc-macro crate (`#[unsafe_target_feature]`) inherited from upstream; required to write clean SIMD code. Identical to the one in dalek 0.5.0 |
 
-A new `HEEADecomposition` trait and implementation have been added in:
+---
 
-- [`src/scalar/heea.rs`](src/scalar/heea.rs) – `curve25519_heea_vartime`, the core
-  half-extended Euclidean algorithm
-- [`src/traits.rs`](src/traits.rs) – `HEEADecomposition` trait (`heea_decompose`)
-- [`src/backend/serial/scalar_mul/vartime_triple_base.rs`](src/backend/serial/scalar_mul/vartime_triple_base.rs) –
-  `mul_128_128_256`, a four-variable MSM optimised for two 128-bit and one 256-bit scalar
+## Key Changes from Upstream
 
-Given a 256-bit hash scalar `h`, `heea_decompose` returns `(ρ, τ, flip_h)` such that:
+### HEEA Signature Verification
 
-```text
-ρ ≡ ±τ·h  (mod ℓ)     // ρ and τ are both ≤ 128 bits
+Standard Ed25519 verification checks **sB = R + hA**, where `h` is a 256-bit scalar.
+HEEA (from the TCHES 2025 paper _"Accelerating EdDSA Signature Verification with Faster Scalar
+Size Halving"_) transforms this into a 4-point MSM with ~128-bit scalars:
+
+```
+τs_lo · B + τs_hi · (2¹²⁸·B) = τ·R + ρ·A
 ```
 
-This allows verification of `sB = R + hA` to be rewritten as a 4-point MSM over ~128-bit
-scalars, reducing the number of point doublings required and yielding roughly **~15% faster**
-verification in practice.
+where `ρ` and `τ` are half-size (~127-bit) values derived from `h` via a half-extended
+Euclidean algorithm, and `τs = τs_hi · 2¹²⁸ + τs_lo`.  All four scalars are ≤128 bits, and
+two of the bases (`B` and `2¹²⁸B`) use precomputed tables.  In practice this yields roughly
+**~15% faster** verification compared to the standard double-scalar-multiplication path.
 
-See the [TCHES 2025 paper] for the full algorithm description.
+The algorithm is implemented in:
+- [`curve25519/src/scalar/heea.rs`](curve25519/src/scalar/heea.rs) – `curve25519_heea_vartime`
+- [`curve25519/src/traits.rs`](curve25519/src/traits.rs) – `HEEADecomposition` trait
+- [`curve25519/src/backend/serial/scalar_mul/vartime_triple_base.rs`](curve25519/src/backend/serial/scalar_mul/vartime_triple_base.rs) – optimised 128+128+256 MSM
+- [`ed25519-heea/src/verification_key.rs`](ed25519-heea/src/verification_key.rs) – `VerificationKey::verify_heea`
 
-### Reduced Backends
+### Reduced Backend Set
 
-Only the following backends are maintained in this fork:
+Upstream `curve25519-dalek` supports serial, fiat-crypto, AVX2, and unstable AVX512 backends.
+This fork retains only the backends actively tested and maintained here:
 
-| Backend | Selection | Notes |
+| Backend | Platform | Selection |
 |---|---|---|
-| `serial` | Automatic fallback | Pure Rust, 64-bit word size on 64-bit targets |
-| `simd` / AVX2 | Runtime on x86-64 | Vectorised 4-wide field arithmetic |
-| CUDA | Opt-in (`curve25519-cuda` crate) | GPU MSM via SPPARK/BLST |
+| `serial` | All (macOS, Linux, …) | Automatic fallback |
+| `simd` / AVX2 | x86-64 with AVX2 | Runtime CPU detection |
+| CUDA (separate crate) | NVIDIA GPU | Opt-in via `curve25519-cuda` |
 
-The `fiat` (formally-verified fiat-crypto) and `unstable_avx512` backends present in upstream
-have been removed.
+The `fiat` (formally-verified) and `unstable_avx512` backends have been removed to reduce
+maintenance surface. If you need them, use upstream `curve25519-dalek` directly.
 
 ---
 
-## Use
+## Usage
+
+Add the relevant crate to `Cargo.toml`:
 
 ```toml
+# Core curve arithmetic with HEEA
 curve25519-sol = { git = "https://github.com/zz-sol/ed25519-sol" }
+
+# Ed25519 signatures with fast HEEA verification
+ed25519-heea = { git = "https://github.com/zz-sol/ed25519-sol" }
 ```
 
-### HEEA decomposition example
+### Standard Ed25519 verification
 
-```rust,ignore
-use curve25519::traits::HEEADecomposition;
-use curve25519::scalar::Scalar;
-use sha2::{Sha512, Digest};
+```rust
+use ed25519_heea::{SigningKey, VerificationKey};
+use rand::thread_rng;
 
-// h is a typical 256-bit hash scalar
-let h = Scalar::from_hash(Sha512::new().chain_update(b"some message"));
+let msg = b"hello world";
+let sk = SigningKey::new(thread_rng());
+let sig = sk.sign(msg);
+let vk = VerificationKey::from(&sk);
 
-// Decompose into two ~128-bit scalars
-let (rho, tau, flip_h) = h.heea_decompose();
-// rho ≡ ±tau·h  (mod ℓ)
+// Standard ZIP-215-compliant verification
+vk.verify(&sig, msg).expect("valid signature");
+```
+
+### HEEA-accelerated verification
+
+```rust
+// Fast path: ~15% faster via half-size scalars (same result)
+vk.verify_heea(&sig, msg).expect("valid signature");
 ```
 
 ---
 
-## Feature Flags
-
-The feature flags are inherited from upstream with no additions:
-
-| Feature | Default? | Description |
-|---|:---:|---|
-| `alloc` | ✓ | Multiscalar multiplication, batch inversion, batch compress. |
-| `zeroize` | ✓ | `Zeroize` for all scalar and point types. |
-| `precomputed-tables` | ✓ | Precomputed basepoint tables (~400 KB, ~4× faster basepoint mul). |
-| `rand_core` | | `Scalar::random`, `RistrettoPoint::random`. |
-| `digest` | | Hash-to-curve and `Scalar::from_hash`. |
-| `serde` | | Serialization for all point and scalar types. |
-| `legacy_compatibility` | | `Scalar::from_bits` (broken arithmetic, use only if required). |
-| `group` | | `group` and `ff` crate trait impls. |
-| `group-bits` | | `ff::PrimeFieldBits` for `Scalar`. |
-| `lizard` | | Bytestring-to-Ristretto-point injection. |
-
----
-
-## Backends
-
-### Serial (default)
-
-Pure-Rust, available on all targets.  64-bit arithmetic on 64-bit platforms.
-
-### AVX2 (automatic on x86-64)
-
-Runtime CPU-feature detection via `cpufeatures`.  4-wide vectorised field elements in
-radix-25.5 representation.  Automatically selected when the CPU supports AVX2; falls through to
-`serial` otherwise.
-
-To hard-code AVX2 at compile time:
+## Building
 
 ```sh
+# Standard build
+cargo build --release
+
+# With AVX2 (automatic on x86-64 at runtime; or force compile-time)
 RUSTFLAGS='-C target-feature=+avx2' cargo build --release
+
+# Run benchmarks
+cargo bench --features "rand_core" -p curve25519
+cargo bench -p ed25519-heea
 ```
-
-### CUDA (opt-in)
-
-See the [`curve25519-cuda`](../curve25519-cuda) crate.  Provides GPU-accelerated
-multi-scalar multiplication using the [SPPARK] library.
-
----
-
-## Safety
-
-All point types enforce validity invariants at the type level (no invalid `EdwardsPoint` can be
-constructed).  All secret-operand operations use constant-time logic via the [`subtle`] crate.
-Variable-time functions are explicitly marked `vartime`.
-
-The SIMD backend uses `unsafe` internally for SIMD intrinsics, guarded by runtime CPU-feature
-checks.
-
----
-
-## MSRV
-
-Rust **1.85.0** (Edition 2024).
 
 ---
 
 ## References
 
-- [TCHES 2025 paper] – _Accelerating EdDSA Signature Verification with Faster Scalar Size Halving_
-- [curve25519-dalek] – upstream library (isis lovecruft, Henry de Valence)
-- [Original curve25519-dalek README](README_dalek.md)
+- [Accelerating EdDSA Signature Verification with Faster Scalar Size Halving](https://tches.iacr.org/index.php/TCHES/article/view/11971) — TCHES 2025
+- [ZIP 215](https://zips.z.cash/zip-0215) — Ed25519 validation rules used by Zcash
+- [curve25519-dalek](https://github.com/dalek-cryptography/curve25519-dalek) — upstream curve library
+- [ed25519-zebra](https://github.com/ZcashFoundation/ed25519-zebra) — upstream signature library
 
-[TCHES 2025 paper]: https://tches.iacr.org/index.php/TCHES/article/view/11971
+---
+
+## License
+
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+
+at your option.
+
+Portions of this library are derived from [curve25519-dalek] (isis lovecruft, Henry de Valence)
+and [ed25519-zebra] (Zcash Foundation), both dual-licensed MIT/Apache-2.0.
+
 [curve25519-dalek]: https://github.com/dalek-cryptography/curve25519-dalek
-[SPPARK]: https://github.com/supranational/sppark
-[subtle]: https://docs.rs/subtle
+[ed25519-zebra]: https://github.com/ZcashFoundation/ed25519-zebra
