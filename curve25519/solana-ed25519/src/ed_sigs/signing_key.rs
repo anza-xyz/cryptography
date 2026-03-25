@@ -7,12 +7,12 @@ const ALGORITHM_ID: AlgorithmIdentifierRef = AlgorithmIdentifierRef {
 };
 
 use super::Error;
+use crate::{constants, scalar::Scalar};
 #[cfg(all(feature = "pem", feature = "pkcs8"))]
 use alloc::string::String;
 use core::convert::TryFrom;
 #[cfg(feature = "pkcs8")]
 use core::convert::TryInto;
-use crate::{constants, scalar::Scalar};
 use rand_core::{CryptoRng, Rng};
 use sha2::{Digest, Sha512, digest::Update};
 use subtle::ConstantTimeEq;

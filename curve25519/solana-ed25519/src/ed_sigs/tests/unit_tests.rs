@@ -2,7 +2,6 @@
 
 use core::convert::TryFrom;
 
-
 use crate::ed_sigs::{Signature, SigningKey, VerificationKey, VerificationKeyBytes};
 
 #[test]

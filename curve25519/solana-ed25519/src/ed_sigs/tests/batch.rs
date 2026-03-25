@@ -1,7 +1,7 @@
 #![cfg(feature = "alloc")]
 
-use alloc::vec::Vec;
 use crate::ed_sigs::*;
+use alloc::vec::Vec;
 
 #[test]
 fn batch_verify() {

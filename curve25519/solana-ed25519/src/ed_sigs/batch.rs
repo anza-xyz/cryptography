@@ -199,8 +199,8 @@ impl Verifier {
             A_coeffs.push(A_coeff);
         }
 
-        use core::iter::once;
         use crate::constants::ED25519_BASEPOINT_POINT as B;
+        use core::iter::once;
         let check = EdwardsPoint::vartime_multiscalar_mul(
             once(&B_coeff).chain(A_coeffs.iter()).chain(R_coeffs.iter()),
             once(&B).chain(As.iter()).chain(Rs.iter()),

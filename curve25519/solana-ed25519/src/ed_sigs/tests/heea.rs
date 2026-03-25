@@ -1,7 +1,6 @@
 use crate::ed_sigs::SigningKey;
 use crate::ed_sigs::VerificationKey;
 
-
 #[test]
 fn test_verify_heea_invalid_signature() {
     let mut rng = rand::rng();

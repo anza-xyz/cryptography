@@ -2,9 +2,9 @@
 #![allow(dead_code)]
 #![cfg(feature = "std")]
 
-use color_eyre::{Report, eyre::eyre};
-use crate::edwards::{CompressedEdwardsY, EdwardsPoint};
 use crate::ed_sigs as ed25519_heea_zip215;
+use crate::edwards::{CompressedEdwardsY, EdwardsPoint};
+use color_eyre::{Report, eyre::eyre};
 
 use core::convert::TryFrom;
 

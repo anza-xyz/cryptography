@@ -5,8 +5,8 @@
 //! in consensus.rs.
 #![cfg(feature = "serde")]
 
-use ed25519::Signature;
 use crate::ed_sigs::*;
+use ed25519::Signature;
 
 fn rfc8032_test_case(sk_bytes: Vec<u8>, pk_bytes: Vec<u8>, sig_bytes: Vec<u8>, msg: Vec<u8>) {
     let sk: SigningKey = bincode::deserialize(&sk_bytes).expect("sk should deserialize");

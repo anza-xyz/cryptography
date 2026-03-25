@@ -1,10 +1,10 @@
 #![cfg(feature = "std")]
 
-use color_eyre::Report;
 use crate::{
     constants::EIGHT_TORSION, digest::Update, edwards::CompressedEdwardsY, scalar::Scalar,
     traits::IsIdentity,
 };
+use color_eyre::Report;
 use once_cell::sync::Lazy;
 use sha2::Sha512;
 
@@ -86,9 +86,9 @@ fn conformance() -> Result<(), Report> {
 #[cfg(feature = "alloc")]
 #[test]
 fn individual_matches_batch_verification() -> Result<(), Report> {
+    use crate::ed_sigs::{VerificationKey, VerificationKeyBytes, batch};
     use core::convert::TryFrom;
     use ed25519::Signature;
-    use crate::ed_sigs::{VerificationKey, VerificationKeyBytes, batch};
 
     for case in SMALL_ORDER_SIGS.iter() {
         let msg = b"Zcash";

@@ -12,12 +12,12 @@
 //   Halving" (TCHES 2025) for the algorithm.
 // - `verify` and all ZIP-215 consensus logic are unchanged from ed25519-zebra.
 
-use core::convert::{TryFrom, TryInto};
 use crate::{
     edwards::{CompressedEdwardsY, EdwardsPoint},
     scalar::Scalar,
     traits::{HEEADecomposition, IsIdentity},
 };
+use core::convert::{TryFrom, TryInto};
 use sha2::{Sha512, digest::Update};
 use zeroize::DefaultIsZeroes;
 
