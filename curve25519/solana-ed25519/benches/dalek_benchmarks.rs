@@ -1,6 +1,7 @@
 #![allow(non_snake_case)]
 
-use rand::{RngCore, TryRngCore, rng, rngs::SysRng};
+use rand::rng;
+use rand_core::Rng as RngCore;
 
 use criterion::{
     BatchSize, BenchmarkGroup, BenchmarkId, Criterion, criterion_main, measurement::Measurement,
@@ -31,10 +32,10 @@ mod edwards_benches {
                 BenchmarkId::new("Batch EdwardsPoint compression", batch_size),
                 &batch_size,
                 |b, &size| {
-                    let mut rng = SysRng.unwrap_err();
+                    let mut rng = rng();
                     let points: Vec<EdwardsPoint> =
                         (0..size).map(|_| EdwardsPoint::random(&mut rng)).collect();
-                    b.iter(|| EdwardsPoint::compress_batch_alloc(&points));
+                    b.iter(|| EdwardsPoint::compress_batch(&points));
                 },
             );
         }
@@ -301,9 +302,9 @@ mod ristretto_benches {
                 BenchmarkId::new("Batch Ristretto double-and-encode", *batch_size),
                 &batch_size,
                 |b, &&size| {
-                    let mut rng = SysRng;
+                    let mut rng = rng();
                     let points: Vec<RistrettoPoint> = (0..size)
-                        .map(|_| RistrettoPoint::try_from_rng(&mut rng).unwrap())
+                        .map(|_| RistrettoPoint::random(&mut rng))
                         .collect();
                     b.iter(|| RistrettoPoint::double_and_compress_batch(&points));
                 },
@@ -388,7 +389,7 @@ mod scalar_benches {
                 BenchmarkId::new("Batch scalar inversion", *batch_size),
                 &batch_size,
                 |b, &&size| {
-                    let mut rng = SysRng.unwrap_err();
+                    let mut rng = rng();
                     let scalars: Vec<Scalar> =
                         (0..size).map(|_| Scalar::random(&mut rng)).collect();
                     b.iter(|| {

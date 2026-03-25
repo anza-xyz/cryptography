@@ -1,12 +1,10 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 
-use core::convert::TryFrom;
-use ed25519_heea::*;
-use rand::thread_rng;
+use curve25519::ed_sigs::*;
 
 fn sigs_with_distinct_pubkeys() -> impl Iterator<Item = (VerificationKeyBytes, Signature)> {
     std::iter::repeat_with(|| {
-        let sk = SigningKey::new(thread_rng());
+        let sk = SigningKey::new(rand::rng());
         let pk_bytes = VerificationKeyBytes::from(&sk);
         let sig = sk.sign(b"");
         (pk_bytes, sig)
@@ -14,7 +12,7 @@ fn sigs_with_distinct_pubkeys() -> impl Iterator<Item = (VerificationKeyBytes, S
 }
 
 fn sigs_with_same_pubkey() -> impl Iterator<Item = (VerificationKeyBytes, Signature)> {
-    let sk = SigningKey::new(thread_rng());
+    let sk = SigningKey::new(rand::rng());
     let pk_bytes = VerificationKeyBytes::from(&sk);
     std::iter::repeat_with(move || {
         let sig = sk.sign(b"");
@@ -30,11 +28,11 @@ fn bench_batch_verify(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("Unbatched verification", n),
             &sigs,
-            |b, sigs| {
+            |b, sigs: &Vec<(VerificationKeyBytes, Signature)>| {
                 b.iter(|| {
                     for (vk_bytes, sig) in sigs.iter() {
                         let _ =
-                            VerificationKey::try_from(*vk_bytes).and_then(|vk| vk.verify(sig, b""));
+                            VerificationKey::try_from(*vk_bytes).and_then(|vk: VerificationKey| vk.verify(sig, b""));
                     }
                 })
             },
@@ -43,13 +41,13 @@ fn bench_batch_verify(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("Signatures with Distinct Pubkeys", n),
             &sigs,
-            |b, sigs| {
+            |b, sigs: &Vec<(VerificationKeyBytes, Signature)>| {
                 b.iter(|| {
                     let mut batch = batch::Verifier::new();
                     for (vk_bytes, sig) in sigs.iter().cloned() {
                         batch.queue((vk_bytes, sig, b""));
                     }
-                    batch.verify(thread_rng())
+                    batch.verify(rand::rng())
                 })
             },
         );
@@ -59,13 +57,13 @@ fn bench_batch_verify(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("Signatures with the Same Pubkey", n),
             &sigs,
-            |b, sigs| {
+            |b, sigs: &Vec<(VerificationKeyBytes, Signature)>| {
                 b.iter(|| {
                     let mut batch = batch::Verifier::new();
                     for (vk_bytes, sig) in sigs.iter().cloned() {
                         batch.queue((vk_bytes, sig, b""));
                     }
-                    batch.verify(thread_rng())
+                    batch.verify(rand::rng())
                 })
             },
         );
@@ -77,7 +75,7 @@ fn bench_single_verify(c: &mut Criterion) {
     let mut group = c.benchmark_group("Single Verification");
 
     group.bench_function("ed25519", |b| {
-        let sk = SigningKey::new(thread_rng());
+        let sk = SigningKey::new(rand::rng());
         let vk = VerificationKey::from(&sk);
         let sig = sk.sign(b"");
         b.iter(|| {
@@ -86,7 +84,7 @@ fn bench_single_verify(c: &mut Criterion) {
     });
 
     group.bench_function("ed25519_hEEA", |b| {
-        let sk = SigningKey::new(thread_rng());
+        let sk = SigningKey::new(rand::rng());
         let vk = VerificationKey::from(&sk);
         let sig = sk.sign(b"");
         b.iter(|| {
