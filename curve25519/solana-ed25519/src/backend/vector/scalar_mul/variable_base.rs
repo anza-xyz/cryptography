@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-#[curve25519_derive::unsafe_target_feature_specialize("avx2")]
+#[curve25519_dalek_derive::unsafe_target_feature_specialize("avx2")]
 pub mod spec {
 
     #[for_target_feature("avx2")]

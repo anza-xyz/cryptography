@@ -40,7 +40,7 @@ use core::ops::{Add, Neg, Sub};
 use subtle::Choice;
 use subtle::ConditionallySelectable;
 
-use curve25519_derive::unsafe_target_feature;
+use curve25519_dalek_derive::unsafe_target_feature;
 
 use crate::edwards;
 use crate::window::{LookupTable, NafLookupTable5};

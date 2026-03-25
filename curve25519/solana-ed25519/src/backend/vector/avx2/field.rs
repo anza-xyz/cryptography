@@ -53,7 +53,7 @@ use crate::backend::vector::avx2::constants::{
     P_TIMES_2_HI, P_TIMES_2_LO, P_TIMES_16_HI, P_TIMES_16_LO,
 };
 
-use curve25519_derive::unsafe_target_feature;
+use curve25519_dalek_derive::unsafe_target_feature;
 
 /// Unpack 32-bit lanes into 64-bit lanes:
 /// ```ascii,no_run
