@@ -106,7 +106,7 @@ impl Item {
     /// the message.
     pub fn verify_single(self) -> Result<(), Error> {
         VerificationKey::try_from(self.vk_bytes)
-            .and_then(|vk| vk.verify_prehashed(&self.sig, self.k))
+            .and_then(|vk| vk.verify_zebra_prehashed(&self.sig, self.k))
     }
 }
 
