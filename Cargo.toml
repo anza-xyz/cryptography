@@ -1,9 +1,7 @@
 [workspace]
 members = [
     "curve25519/curve25519-cuda",
-    "curve25519/curve25519",
-    "curve25519/curve25519-derive",
-    "curve25519/ed25519-heea",
+    "curve25519/solana-ed25519",
 ]
 resolver = "2"
 
