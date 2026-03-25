@@ -1491,7 +1491,7 @@ mod test {
         for _ in 0..100 {
             let P = RistrettoPoint::mul_base(&Scalar::random(&mut rng));
             let compressed_P = P.compress();
-            let Q = compressed_P.decompress().unwrap();
+            let Q = compressed_P.decompress().expect("compression round-trip should decompress");
             assert_eq!(P, Q);
         }
     }
