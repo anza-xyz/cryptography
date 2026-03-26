@@ -128,6 +128,35 @@ for (vk_bytes, sig, msg) in items {
 verifier.verify(rand::rng()).expect("all valid");
 ```
 
+### Ed25519 signing and verification
+
+```rust,no_run
+use core::convert::TryFrom;
+use curve25519::ed_sigs::{SigningKey, VerificationKey};
+
+let msg = b"curve25519-sol";
+
+// Generate key and sign
+let sk = SigningKey::new(rand::rng());
+let sig = sk.sign(msg);
+let vk = VerificationKey::from(&sk);
+
+// Standard ZIP-215 verification with heea acceleration
+vk.verify(&sig, msg).expect("valid signature");
+```
+
+### Batch verification
+
+```rust,ignore
+use curve25519::ed_sigs::batch;
+
+let mut verifier = batch::Verifier::new();
+for (vk_bytes, sig, msg) in items {
+    verifier.queue((vk_bytes, sig, msg));
+}
+verifier.verify(rand::rng()).expect("all valid");
+```
+
 ### HEEA decomposition example
 
 ```rust,ignore
