@@ -5,20 +5,15 @@ edition = "2024"
 authors = ["Anza Cryptography Team"]
 
 [dependencies]
-# Keep the dependency key as "curve25519" so that all existing `use curve25519::…`
-# references in source files remain valid; the actual package is curve25519-sol.
-curve25519 = { path = "../solana-ed25519", package = "solana-ed25519" }
-rand = "0.8"
-rand_chacha = "0.3"
-rand_core = "0.6"
-rayon = "1.10"
+curve25519.workspace = true
+rayon.workspace = true
 
 [build-dependencies]
-cc = "1.0"
-which = "4.4"
+cc.workspace = true
+which.workspace = true
 
 [dev-dependencies]
-criterion = "0.5"
+criterion.workspace = true
 
 [[bench]]
 name = "msm"
