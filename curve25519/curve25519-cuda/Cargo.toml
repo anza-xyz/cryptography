@@ -5,8 +5,6 @@ edition = "2024"
 authors = ["Anza Cryptography Team"]
 
 [dependencies]
-# Keep the dependency key as "curve25519" so that all existing `use curve25519::…`
-# references in source files remain valid; the actual package is curve25519-sol.
 curve25519.workspace = true
 rayon.workspace = true
 
