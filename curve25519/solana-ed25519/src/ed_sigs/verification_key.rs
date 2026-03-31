@@ -237,7 +237,19 @@ impl Verifier<Signature> for VerificationKey {
 }
 
 impl VerificationKey {
+    fn challenge_scalar(&self, signature: &Signature, msg: &[u8]) -> Scalar {
+        Scalar::from_hash(
+            Sha512::default()
+                .chain(&signature.r_bytes()[..])
+                .chain(&self.A_bytes.0[..])
+                .chain(msg),
+        )
+    }
+
     /// Verify a purported `signature` on the given `msg`.
+    ///
+    /// This is the default verification mode and uses the HEEA-accelerated
+    /// verification path with Zebra / ZIP-215 semantics.
     ///
     /// ## Zcash-specific consensus properties
     ///
@@ -259,16 +271,10 @@ impl VerificationKey {
     /// [ps]: https://zips.z.cash/protocol/protocol.pdf#concreteed25519
     /// [ZIP215]: https://zips.z.cash/zip-0215
     pub fn verify(&self, signature: &Signature, msg: &[u8]) -> Result<(), Error> {
-        let k = Scalar::from_hash(
-            Sha512::default()
-                .chain(&signature.r_bytes()[..])
-                .chain(&self.A_bytes.0[..])
-                .chain(msg),
-        );
-        self.verify_prehashed(signature, k)
+        self.verify_zebra(signature, msg)
     }
 
-    /// Verify a signature using the heea half-size scalar optimization.
+    /// Verify a signature using HEEA with Zebra / ZIP-215 semantics.
     ///
     /// This implements the algorithm from "Accelerating EdDSA Signature Verification
     /// with Faster Scalar Size Halving" (TCHES 2025).
@@ -285,15 +291,16 @@ impl VerificationKey {
     /// τs_lo B + τs_hi (2^128 B) = τR + ρA
     /// which can be done via 4-variable MSM with half-size scalars.
     #[allow(non_snake_case)]
-    pub fn verify_heea(&self, signature: &Signature, msg: &[u8]) -> Result<(), Error> {
-        // Compute the hash scalar h (called k in the standard implementation)
-        let h = Scalar::from_hash(
-            Sha512::default()
-                .chain(&signature.r_bytes()[..])
-                .chain(&self.A_bytes.0[..])
-                .chain(msg),
-        );
+    pub fn verify_zebra(&self, signature: &Signature, msg: &[u8]) -> Result<(), Error> {
+        self.verify_zebra_prehashed(signature, self.challenge_scalar(signature, msg))
+    }
 
+    #[allow(non_snake_case)]
+    pub(crate) fn verify_zebra_prehashed(
+        &self,
+        signature: &Signature,
+        h: Scalar,
+    ) -> Result<(), Error> {
         // Generate half-size scalars ρ and τ such that ρ ≡ τh (mod ℓ)
         // in order to have rho and tau approximately half the size of h
         // it is possible that we compute ρ ≡ -τh (mod ℓ)
@@ -323,7 +330,6 @@ impl VerificationKey {
         // Compute the multi-scalar multiplication
         let result = EdwardsPoint::vartime_triple_scalar_mul_basepoint(&tau, &neg_R, &rho, &A, &ts);
 
-        // Check if [8] τs B + [8] τ (-R) + [8] ρ (-A) == 0
         if result.mul_by_cofactor().is_identity() {
             Ok(())
         } else {
@@ -331,26 +337,28 @@ impl VerificationKey {
         }
     }
 
-    /// Verify a signature with a prehashed `k` value. Note that this is not the
-    /// same as "prehashing" in RFC8032.
+    /// Verify a signature with exact `ed25519-dalek`-style byte-level behavior.
+    ///
+    /// This recomputes the expected canonical `R` encoding and compares it to the
+    /// signature's `R` bytes, matching dalek's ordinary verification behavior.
+    ///
+    /// Note that exact dalek-compatible behavior is incompatible with the HEEA
+    /// transformed equation because the transformed check does not preserve the
+    /// original `R` encoding needed for the byte comparison.
     #[allow(non_snake_case)]
-    pub(crate) fn verify_prehashed(&self, signature: &Signature, k: Scalar) -> Result<(), Error> {
-        // `s_bytes` MUST represent an integer less than the prime `l`.
+    pub fn verify_dalek(&self, signature: &Signature, msg: &[u8]) -> Result<(), Error> {
+        self.verify_dalek_prehashed(signature, self.challenge_scalar(signature, msg))
+    }
+
+    #[allow(non_snake_case)]
+    fn verify_dalek_prehashed(&self, signature: &Signature, h: Scalar) -> Result<(), Error> {
         let s = Option::<Scalar>::from(Scalar::from_canonical_bytes(*signature.s_bytes()))
             .ok_or(Error::InvalidSignature)?;
-        // `R_bytes` MUST be an encoding of a point on the twisted Edwards form of Curve25519.
-        let R = CompressedEdwardsY(*signature.r_bytes())
-            .decompress()
-            .ok_or(Error::InvalidSignature)?;
-        // We checked the encoding of A_bytes when constructing `self`.
 
-        //       [8][s]B = [8]R + [8][k]A
-        // <=>   [8]R = [8][s]B - [8][k]A
-        // <=>   0 = [8](R - ([s]B - [k]A))
-        // <=>   0 = [8](R - R')  where R' = [s]B - [k]A
-        let R_prime = EdwardsPoint::vartime_double_scalar_mul_basepoint(&k, &self.minus_A, &s);
+        let expected_R =
+            EdwardsPoint::vartime_double_scalar_mul_basepoint(&h, &self.minus_A, &s).compress();
 
-        if (R - R_prime).mul_by_cofactor().is_identity() {
+        if expected_R.as_bytes() == signature.r_bytes() {
             Ok(())
         } else {
             Err(Error::InvalidSignature)

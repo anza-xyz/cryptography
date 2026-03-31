@@ -1,11 +1,11 @@
-# curve25519 (curve25519-sol)
+# curve25519 (`solana-ed25519`)
 
 **A pure-Rust implementation of group operations on Ristretto and Curve25519, forked from
 [curve25519-dalek] with HEEA scalar decomposition and a reduced backend set.**
 
 > For the original curve25519-dalek documentation see [README_dalek.md](README_dalek.md).
 
-This crate is part of the [curve25519-sol](../README.md) workspace.
+This crate is part of the [cryptography](https://github.com/anza-xyz/cryptography/) workspace.
 
 ---
 
@@ -56,10 +56,10 @@ verification.
 
 > For the original ed25519-zebra documentation see [README_zebra.md](README_zebra.md).
 
-### `verify_heea`: fast-path signature verification
+### `verify_zebra`: fast-path signature verification
 
-A new method `VerificationKey::verify_heea` sits alongside the existing `verify`.
-Both accept the same arguments and produce identical results — `verify_heea` is a
+A new method `VerificationKey::verify_zebra` sits alongside the existing `verify`.
+Both accept the same arguments and produce identical results — `verify_zebra` is a
 **drop-in accelerated replacement** for `verify`.
 
 The HEEA method (TCHES 2025) transforms the standard 2-point MSM:
@@ -93,7 +93,39 @@ See [ZIP 215] for full details.
 ## Use
 
 ```toml
-curve25519-sol = { git = "https://github.com/zz-sol/ed25519-sol" }
+curve25519 = { package = "solana-ed25519", git = "https://github.com/anza-xyz/cryptography" }
+```
+
+### Ed25519 signing and verification
+
+```rust,no_run
+use core::convert::TryFrom;
+use curve25519::ed_sigs::{SigningKey, VerificationKey};
+
+let msg = b"solana-ed25519";
+
+// Generate key and sign
+let sk = SigningKey::new(rand::rng());
+let sig = sk.sign(msg);
+let vk = VerificationKey::from(&sk);
+
+// Standard ZIP-215 verification (from ed25519-zebra)
+vk.verify(&sig, msg).expect("valid signature");
+
+// HEEA-accelerated verification (same result, ~15% faster)
+vk.verify_zebra(&sig, msg).expect("valid signature");
+```
+
+### Batch verification
+
+```rust,ignore
+use curve25519::ed_sigs::batch;
+
+let mut verifier = batch::Verifier::new();
+for (vk_bytes, sig, msg) in items {
+    verifier.queue((vk_bytes, sig, msg));
+}
+verifier.verify(rand::rng()).expect("all valid");
 ```
 
 ### Ed25519 signing and verification
@@ -109,11 +141,8 @@ let sk = SigningKey::new(rand::rng());
 let sig = sk.sign(msg);
 let vk = VerificationKey::from(&sk);
 
-// Standard ZIP-215 verification (from ed25519-zebra)
+// Standard ZIP-215 verification with heea acceleration
 vk.verify(&sig, msg).expect("valid signature");
-
-// HEEA-accelerated verification (same result, ~15% faster)
-vk.verify_heea(&sig, msg).expect("valid signature");
 ```
 
 ### Batch verification

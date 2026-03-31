@@ -5,17 +5,11 @@ members = [
 ]
 resolver = "2"
 
-[profile.dev]
-opt-level = 2
-
-
 [workspace.dependencies]
 bincode = "1"
 cc = "1.0"
 cfg-if = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
-# Keep the dependency key as "curve25519" so that all existing `use curve25519::…`
-# references in source files remain valid; the actual package is solanacurve25519.
 curve25519 = { path = "curve25519/solana-ed25519", package = "solana-ed25519" }
 curve25519-dalek-derive = "0.1.1"
 cpufeatures = "0.2.17"
@@ -39,3 +33,6 @@ sha2 = { version = "0.11.0-rc.3", default-features = false }
 subtle = { version = "2.6.0", default-features = false, features = ["const-generics"] }
 which = "4.4"
 zeroize = { version = "1", default-features = false, features = ["derive"] }
+
+[profile.dev]
+opt-level = 2
