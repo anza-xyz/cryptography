@@ -1,41 +1,92 @@
+//! Public types and helpers describing the three-segment SHA-512 seed chain.
+//!
+//! The seed chain is the computation proved by the STARK:
+//!
+//! ```text
+//! Segment 0 (Commit):  SHA512(COMMIT_OF_SEED_DOMAIN  || seed)    → commit_of_seed
+//! Segment 1 (Derive):  SHA512(DERIVE_SK_DOMAIN       || seed)    → prf_output (sk_seed = prf_output[0..32])
+//! Segment 2 (HashSk):  SHA512(HASH_OF_SK_DOMAIN      || sk_seed) → hash_of_sk
+//! ```
+//!
+//! Each segment is a single-block SHA-512 evaluation with the same fixed layout:
+//! 32 bytes of domain label followed by 32 bytes of payload, padded to 128 bytes.
+//!
+//! The types in this module describe this layout at the *witness* level (before the
+//! STARK circuit is involved) and are used by `private_seed_chain.rs` tests and the
+//! outer `prover` module to validate structural invariants.
+
 use crate::{
     COMMIT_OF_SEED_DOMAIN, DERIVE_SK_DOMAIN, DOMAIN_LEN, DigestBytes, FIXED_BLOCK_WORDS,
     FIXED_MESSAGE_LEN, HASH_OF_SK_DOMAIN, PAYLOAD_WORD_COUNT, PAYLOAD_WORD_START, Seed,
     block_words, fixed_single_block, sha512,
 };
 
+/// Number of real SHA-512 segments in the seed chain (commit, derive, hash_sk).
 pub const ACTIVE_SEGMENT_COUNT: usize = 3;
+
+/// Number of segments after padding to the next power of two for the AIR.
 pub const ACTIVE_PADDED_SEGMENT_COUNT: usize = ACTIVE_SEGMENT_COUNT.next_power_of_two();
+
+/// Total number of AIR trace rows for the padded seed chain
+/// (`ACTIVE_PADDED_SEGMENT_COUNT × 128`).
 pub const ACTIVE_AIR_TRACE_ROWS: usize = 128 * ACTIVE_PADDED_SEGMENT_COUNT;
+
+/// Number of columns in the AIR trace.
 pub const ACTIVE_AIR_TRACE_COLS: usize = 1076;
 
+/// Identifies which of the three seed-chain segments a layout or constraint belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SegmentKind {
+    /// The commit segment: `SHA512(COMMIT_OF_SEED_DOMAIN || seed)`.
     Commit,
+    /// The derive segment: `SHA512(DERIVE_SK_DOMAIN || seed)`.
     Derive,
+    /// The hash-of-sk segment: `SHA512(HASH_OF_SK_DOMAIN || sk_seed)`.
     HashSk,
 }
 
+/// The prover's private witness for the seed chain.
+///
+/// Both fields are secret; only the public outputs derived from them are
+/// exposed in the [`SeedChainStatement`](crate::SeedChainStatement).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PrivateSeedChainWitness {
+    /// The original 32-byte secret seed.
     pub seed: Seed,
+    /// The first 32 bytes of `SHA512(DERIVE_SK_DOMAIN || seed)`, used as the
+    /// Ed25519 signing seed.
     pub sk_seed: Seed,
 }
 
+/// The public outputs of the seed chain, visible to the verifier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PrivateSeedChainPublic {
+    /// `SHA512(COMMIT_OF_SEED_DOMAIN || seed)`.
     pub commit_of_seed: DigestBytes,
+    /// `SHA512(HASH_OF_SK_DOMAIN || sk_seed)`.
     pub hash_of_sk: DigestBytes,
 }
 
+/// The fully expanded block layout for a single seed-chain segment.
+///
+/// This captures both the domain/payload metadata and the concrete word
+/// decomposition used by the AIR trace builder.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FixedSegmentLayout {
+    /// Which segment this layout corresponds to.
     pub kind: SegmentKind,
+    /// The 32-byte domain-separation prefix for this segment.
     pub domain: [u8; DOMAIN_LEN],
+    /// The four 64-bit words of the 32-byte payload (words 4..7 of the block).
     pub payload_words: [u64; PAYLOAD_WORD_COUNT],
+    /// All 16 big-endian 64-bit words of the full padded 128-byte block.
     pub block_words: [u64; FIXED_BLOCK_WORDS],
 }
 
+/// Computes the public outputs from a private witness without running the STARK.
+///
+/// Useful for tests and for building the expected public values before proof
+/// generation or verification.
 pub fn public_from_witness(witness: PrivateSeedChainWitness) -> PrivateSeedChainPublic {
     PrivateSeedChainPublic {
         commit_of_seed: sha512(&segment_message(SegmentKind::Commit, witness.seed)),
@@ -43,6 +94,10 @@ pub fn public_from_witness(witness: PrivateSeedChainWitness) -> PrivateSeedChain
     }
 }
 
+/// Builds the full [`FixedSegmentLayout`] for a given segment kind and payload.
+///
+/// Computes the padded 128-byte block, then extracts the 16 block words and
+/// the 4 payload words from it.
 pub fn segment_layout(kind: SegmentKind, payload: Seed) -> FixedSegmentLayout {
     let block = fixed_single_block(&segment_domain(kind), &payload);
     let block_words = block_words(block);
@@ -55,6 +110,7 @@ pub fn segment_layout(kind: SegmentKind, payload: Seed) -> FixedSegmentLayout {
     }
 }
 
+/// Builds the 64-byte pre-padding message `domain || payload` for a segment.
 pub fn segment_message(kind: SegmentKind, payload: Seed) -> [u8; FIXED_MESSAGE_LEN] {
     let mut message = [0_u8; FIXED_MESSAGE_LEN];
     message[..DOMAIN_LEN].copy_from_slice(&segment_domain(kind));
@@ -62,6 +118,7 @@ pub fn segment_message(kind: SegmentKind, payload: Seed) -> [u8; FIXED_MESSAGE_L
     message
 }
 
+/// Returns the 32-byte domain-separation prefix for `kind`.
 pub fn segment_domain(kind: SegmentKind) -> [u8; DOMAIN_LEN] {
     match kind {
         SegmentKind::Commit => COMMIT_OF_SEED_DOMAIN,
@@ -70,6 +127,10 @@ pub fn segment_domain(kind: SegmentKind) -> [u8; DOMAIN_LEN] {
     }
 }
 
+/// Encodes a 32-byte `payload` as four 64-bit big-endian words.
+///
+/// These are words 4..7 of the SHA-512 input block — the words the AIR
+/// treats as the private payload.
 pub fn payload_words(payload: Seed) -> [u64; PAYLOAD_WORD_COUNT] {
     core::array::from_fn(|i| {
         let mut bytes = [0_u8; 8];
@@ -78,6 +139,10 @@ pub fn payload_words(payload: Seed) -> [u64; PAYLOAD_WORD_COUNT] {
     })
 }
 
+/// Returns the SHA-512 message-length word for the fixed 64-byte message.
+///
+/// SHA-512 encodes the bit-length of the original message in the last word of
+/// the padded block.  For a 64-byte message this is `64 × 8 = 512`.
 pub fn length_word() -> u64 {
     (FIXED_MESSAGE_LEN as u64) * 8
 }

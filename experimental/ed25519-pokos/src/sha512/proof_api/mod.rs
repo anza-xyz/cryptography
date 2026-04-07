@@ -73,6 +73,11 @@ impl Default for Sha512ProofSettings {
     }
 }
 
+/// Constructs a [`Sha512StarkConfig`] from the given `settings`.
+///
+/// Instantiates the FRI/Merkle parameters, the DFT, and the Fiat-Shamir
+/// challenger.  Both prover and verifier must call this with identical
+/// `settings` for the proof to verify.
 pub(crate) fn setup_config(settings: Sha512ProofSettings) -> Sha512StarkConfig {
     let byte_hash = ByteHash {};
     let field_hash = FieldHash::new(byte_hash);
@@ -92,6 +97,12 @@ pub(crate) fn setup_config(settings: Sha512ProofSettings) -> Sha512StarkConfig {
     Sha512StarkConfig::new(pcs, challenger)
 }
 
+/// Returns `true` if `settings` satisfy all minimum security thresholds the
+/// verifier enforces.
+///
+/// The verifier rejects proofs whose settings are weaker than the minimums
+/// defined by the `MIN_VERIFIER_*` constants, regardless of whether the proof
+/// is otherwise structurally valid.
 pub(crate) fn meets_minimum_verifier_policy(settings: Sha512ProofSettings) -> bool {
     settings.log_final_poly_len >= MIN_VERIFIER_LOG_FINAL_POLY_LEN
         && settings.log_blowup >= MIN_VERIFIER_LOG_BLOWUP
@@ -100,6 +111,11 @@ pub(crate) fn meets_minimum_verifier_policy(settings: Sha512ProofSettings) -> bo
         && settings.query_proof_of_work_bits >= MIN_VERIFIER_QUERY_POW_BITS
 }
 
+/// Validates `settings` for use as prover inputs.
+///
+/// Returns `Err` if the settings do not meet the minimum verifier policy,
+/// preventing the prover from producing a proof that the verifier would
+/// immediately reject.
 pub(crate) fn validate_settings_for_proving(settings: Sha512ProofSettings) -> Result<(), String> {
     if !meets_minimum_verifier_policy(settings) {
         return Err("proof settings do not meet minimum verifier policy".to_string());

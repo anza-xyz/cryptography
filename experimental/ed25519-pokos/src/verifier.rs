@@ -1,8 +1,19 @@
-//! Verifier-side entry points for the active proof envelope.
+//! Verifier-side entry points for the POKOS proof envelope.
 //!
-//! Verification is intentionally split into two layers:
-//! - verify the internal SHA-512 seed-chain proof against the public statement
-//! - verify the outer Ed25519 signature over that same statement
+//! Verification is split into two independent layers, either of which can
+//! reject the proof:
+//!
+//! 1. **STARK verification** — checks the Plonky3 proof against the public
+//!    statement `(commit_of_seed, hash_of_sk)`.  A valid proof guarantees
+//!    that the prover knew a seed that produced both values via the prescribed
+//!    SHA-512 derivation chain.
+//!
+//! 2. **Ed25519 authentication** — checks the signature over the
+//!    `authentication_transcript` against `authentication_key`.  A valid
+//!    signature guarantees that the holder of the Ed25519 key derived from
+//!    `sk_seed` authorized this specific proof.
+//!
+//! Both checks must pass for [`verify_pokos`] to return `Ok(())`.
 
 use crate::sha512::{
     PrivateSeedChainPublic, SealedPrivateSeedChainProof, verify_private_seed_chain_statement,
@@ -14,6 +25,18 @@ use crate::{
 };
 use curve25519::ed_sigs::{Signature, VerificationKey, VerificationKeyBytes};
 
+/// Verifies a [`SeedChainProofEnvelope`].
+///
+/// Performs two checks in order:
+/// 1. Verifies the STARK proof against the public statement.
+/// 2. Verifies the Ed25519 signature over the authentication transcript.
+///
+/// # Errors
+///
+/// - [`VerifyError::InvalidSkDerivationProof`] if the STARK proof is invalid
+///   or does not match `proof.statement`.
+/// - [`VerifyError::AuthenticationSignatureInvalid`] if the Ed25519 signature
+///   is invalid or was made with a different key.
 pub fn verify_pokos(proof: &SeedChainProofEnvelope) -> Result<(), VerifyError> {
     verify_sha512_bundle(&proof.sha512_proof, proof.statement)?;
 
@@ -25,6 +48,21 @@ pub fn verify_pokos(proof: &SeedChainProofEnvelope) -> Result<(), VerifyError> {
         .map_err(|_| VerifyError::AuthenticationSignatureInvalid)
 }
 
+/// Serializes a [`SeedChainProofEnvelope`] to bytes.
+///
+/// Wire format (big-endian lengths):
+/// ```text
+/// [magic: 8]
+/// [commit_of_seed: 64]
+/// [hash_of_sk: 64]
+/// [sha512_proof_len: 8] [sha512_proof: N]
+/// [authentication_key: 32]
+/// [authentication_signature: 64]
+/// ```
+///
+/// The serialized form is self-describing: the magic bytes identify the
+/// format version, and all variable-length fields are prefixed with their
+/// 64-bit big-endian byte count.
 pub fn serialize_proof(proof: &SeedChainProofEnvelope) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(PROOF_FORMAT_MAGIC);
@@ -37,6 +75,18 @@ pub fn serialize_proof(proof: &SeedChainProofEnvelope) -> Vec<u8> {
     bytes
 }
 
+/// Deserializes a [`SeedChainProofEnvelope`] from bytes produced by [`serialize_proof`].
+///
+/// # Errors
+///
+/// - [`DeserializeError::InvalidMagic`] if the leading bytes are not
+///   `EPKOS001`.
+/// - [`DeserializeError::Truncated`] if the byte slice ends before all fields
+///   have been read, or if a length prefix points past the end of the slice.
+/// - [`DeserializeError::InvalidSignature`] if the Ed25519 signature bytes are
+///   structurally invalid.
+/// - [`DeserializeError::TrailingBytes`] if there are extra bytes after the
+///   last expected field.
 pub fn deserialize_proof(bytes: &[u8]) -> Result<SeedChainProofEnvelope, DeserializeError> {
     let mut cursor = Cursor::new(bytes);
     if cursor.read_exact(PROOF_FORMAT_MAGIC.len())? != *PROOF_FORMAT_MAGIC {
@@ -68,6 +118,10 @@ pub fn deserialize_proof(bytes: &[u8]) -> Result<SeedChainProofEnvelope, Deseria
     })
 }
 
+/// Verifies the Plonky3 STARK proof inside `bundle` against the public `statement`.
+///
+/// Returns `Ok(())` if the proof is valid; `Err(VerifyError::InvalidSkDerivationProof)`
+/// otherwise.
 fn verify_sha512_bundle(
     bundle: &Sha512ProofBundle,
     statement: SeedChainStatement,
@@ -88,6 +142,7 @@ fn verify_sha512_bundle(
     }
 }
 
+/// Minimal forward-only byte reader used during deserialization.
 struct Cursor<'a> {
     bytes: &'a [u8],
     offset: usize,

@@ -12,18 +12,24 @@ use crate::{
 use p3_field::PrimeCharacteristicRing;
 use p3_uni_stark::{prove_with_preprocessed, setup_preprocessed, verify_with_preprocessed};
 
+/// Private witness for the three-segment seed chain (internal to the STARK).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct PrivateSeedChainWitness {
     pub(crate) seed: Seed,
     pub(crate) sk_seed: Seed,
 }
 
+/// Public statement for the three-segment seed chain, passed to the STARK verifier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct PrivateSeedChainPublic {
     pub(crate) commit_of_seed: DigestBytes,
     pub(crate) hash_of_sk: DigestBytes,
 }
 
+/// All data needed to run the Plonky3 prover for one seed chain.
+///
+/// `air_bundle` is always present.  `public` and `blocks` are only available
+/// in test builds, where they are used to check AIR trace correctness.
 pub(crate) struct PrivateSeedChainBundle {
     #[cfg(test)]
     pub(crate) public: PrivateSeedChainPublic,
@@ -32,11 +38,17 @@ pub(crate) struct PrivateSeedChainBundle {
     pub(crate) air_bundle: MessageAirBundle,
 }
 
+/// A serialized Plonky3 STARK proof for the private seed chain, ready for transport.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SealedPrivateSeedChainProof {
     pub(crate) sealed_proof: Vec<u8>,
 }
 
+/// Constructs the [`PrivateSeedChainBundle`] (AIR traces + public values) for `seed`.
+///
+/// This builds the witness, the three padded SHA-512 blocks, and the full
+/// main + preprocessed Plonky3 trace matrices, but does **not** run the prover.
+/// Call [`prove_private_seed_chain`] to also produce the STARK proof.
 pub(crate) fn build_private_seed_chain_bundle(seed: Seed) -> PrivateSeedChainBundle {
     let witness = witness_from_seed(seed);
     let blocks = blocks_from_witness(witness);
@@ -51,10 +63,19 @@ pub(crate) fn build_private_seed_chain_bundle(seed: Seed) -> PrivateSeedChainBun
     }
 }
 
+/// Proves the private seed chain for `seed` using the default [`Sha512ProofSettings`].
+///
+/// Returns a [`SealedPrivateSeedChainProof`] on success, or a string error if
+/// the prover fails or the settings fail policy validation.
 pub(crate) fn prove_private_seed_chain(seed: Seed) -> Result<SealedPrivateSeedChainProof, String> {
     prove_private_seed_chain_with_settings(seed, Sha512ProofSettings::default())
 }
 
+/// Proves the private seed chain for `seed` with explicit `settings`.
+///
+/// Validates that `settings` meet the minimum verifier policy before running
+/// the prover.  Returns an error if validation fails or if the Plonky3 prover
+/// encounters an internal error.
 pub(crate) fn prove_private_seed_chain_with_settings(
     seed: Seed,
     settings: Sha512ProofSettings,
@@ -79,6 +100,13 @@ pub(crate) fn prove_private_seed_chain_with_settings(
     Ok(SealedPrivateSeedChainProof { sealed_proof })
 }
 
+/// Verifies a sealed seed-chain proof against `public` using the default settings.
+///
+/// Returns `true` if and only if:
+/// - the proof deserializes successfully,
+/// - the proof was produced with the default [`Sha512ProofSettings`],
+/// - the STARK proof is valid for the given public values,
+/// - the preprocessed trace digest matches the expected circuit structure.
 pub(crate) fn verify_private_seed_chain_statement(
     bundle: &SealedPrivateSeedChainProof,
     public: PrivateSeedChainPublic,
@@ -90,6 +118,10 @@ pub(crate) fn verify_private_seed_chain_statement(
     )
 }
 
+/// Verifies a sealed seed-chain proof against `public` with explicit `settings`.
+///
+/// Fails fast if `settings` do not meet the minimum verifier policy, or if
+/// the proof was produced with different settings than supplied here.
 pub(crate) fn verify_private_seed_chain_statement_with_settings(
     bundle: &SealedPrivateSeedChainProof,
     public: PrivateSeedChainPublic,
