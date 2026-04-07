@@ -36,6 +36,7 @@ impl Sha512Circuit {
     /// * `words`        — the full 80-word message schedule.
     /// * `round_states` — working state at each of the 81 boundaries (before round 0
     ///   through after round 79).
+    ///
     /// The `BlockTrace` is the prover's witness and is consumed by
     /// [`build_plonky3_air_trace`](Sha512Circuit::build_plonky3_air_trace).
     pub fn compress_block(state: &[u64; 8], block: &[u8; 128]) -> BlockTrace {

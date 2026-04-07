@@ -12,8 +12,10 @@
 //! 32 bytes of domain label followed by 32 bytes of payload, padded to 128 bytes.
 //!
 //! The types in this module describe this layout at the *witness* level (before the
-//! STARK circuit is involved) and are used by `private_seed_chain.rs` tests and the
-//! outer `prover` module to validate structural invariants.
+//! STARK circuit is involved).  They are shared with the inner
+//! `sha512/private_seed_chain.rs` STARK layer (which re-exports
+//! [`PrivateSeedChainPublic`] and imports [`PrivateSeedChainWitness`] and
+//! [`segment_block`] from here) so that each type is defined in exactly one place.
 
 use crate::{
     COMMIT_OF_SEED_DOMAIN, DERIVE_SK_DOMAIN, DOMAIN_LEN, DigestBytes, FIXED_BLOCK_WORDS,

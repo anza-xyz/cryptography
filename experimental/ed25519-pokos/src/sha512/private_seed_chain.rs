@@ -64,6 +64,12 @@ pub(crate) fn prove_private_seed_chain(seed: Seed) -> Result<SealedPrivateSeedCh
 /// Validates that `settings` meet the minimum verifier policy before running
 /// the prover.  Returns an error if validation fails or if the Plonky3 prover
 /// encounters an internal error.
+///
+/// The resulting [`SealedPrivateSeedChainProof`] contains only the Plonky3
+/// proof bytes and the settings.  The preprocessed commitment is embedded
+/// inside the Plonky3 proof structure and is validated implicitly during
+/// verification: the verifier independently reconstructs the expected VK from
+/// `verifier_template_blocks()` and passes it to `verify_with_preprocessed`.
 pub(crate) fn prove_private_seed_chain_with_settings(
     seed: Seed,
     settings: Sha512ProofSettings,
@@ -93,8 +99,9 @@ pub(crate) fn prove_private_seed_chain_with_settings(
 /// Returns `true` if and only if:
 /// - the proof deserializes successfully,
 /// - the proof was produced with the default [`Sha512ProofSettings`],
-/// - the STARK proof is valid for the given public values,
-/// - the preprocessed trace digest matches the expected circuit structure.
+/// - the verifier's independently reconstructed preprocessed VK (from
+///   zero-payload template blocks) matches the commitment in the proof, and
+/// - the Plonky3 STARK proof is valid for the given public values.
 pub(crate) fn verify_private_seed_chain_statement(
     bundle: &SealedPrivateSeedChainProof,
     public: PrivateSeedChainPublic,
@@ -108,8 +115,16 @@ pub(crate) fn verify_private_seed_chain_statement(
 
 /// Verifies a sealed seed-chain proof against `public` with explicit `settings`.
 ///
-/// Fails fast if `settings` do not meet the minimum verifier policy, or if
-/// the proof was produced with different settings than supplied here.
+/// Fails fast (returns `false`) if:
+/// - `settings` do not meet the minimum verifier policy,
+/// - the proof was produced with different settings than supplied here, or
+/// - the Plonky3 verifier rejects the proof.
+///
+/// The preprocessed commitment check is performed inside Plonky3: the verifier
+/// reconstructs the expected VK from `verifier_template_blocks()` (zero-payload
+/// blocks with the correct domain structure) and passes it to
+/// `verify_with_preprocessed`, which enforces that the prover's committed
+/// preprocessed trace matches.
 pub(crate) fn verify_private_seed_chain_statement_with_settings(
     bundle: &SealedPrivateSeedChainProof,
     public: PrivateSeedChainPublic,
