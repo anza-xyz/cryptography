@@ -1,5 +1,5 @@
 use p3_challenger::{HashChallenger, SerializingChallenger32};
-use p3_commit::{ExtensionMmcs, Pcs as PcsTrait};
+use p3_commit::ExtensionMmcs;
 use p3_dft::Radix2DitParallel;
 use p3_field::extension::BinomialExtensionField;
 use p3_fri::{FriParameters, TwoAdicFriPcs};
@@ -26,7 +26,6 @@ type ChallengeMmcs = ExtensionMmcs<Val, Challenge, ValMmcs>;
 type Challenger = SerializingChallenger32<Val, HashChallenger<u8, ByteHash, 32>>;
 type Dft = Radix2DitParallel<Val>;
 type Pcs = TwoAdicFriPcs<Val, Dft, ValMmcs, ChallengeMmcs>;
-pub(crate) type PreprocessedCommitment = <Pcs as PcsTrait<Challenge, Challenger>>::Commitment;
 const MIN_VERIFIER_LOG_FINAL_POLY_LEN: usize = 4;
 const MIN_VERIFIER_LOG_BLOWUP: usize = 3;
 const MIN_VERIFIER_NUM_QUERIES: usize = 2;

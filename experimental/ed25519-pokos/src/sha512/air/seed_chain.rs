@@ -9,10 +9,11 @@ use super::{
     PREP_FIXED_INIT_W_SELECTOR_COL, PREP_HASH_FINAL_SELECTOR_COL, PREP_INIT_W_SELECTOR_COL,
     PREP_PAYLOAD_WORD_SELECTOR_COL, PREP_PAYLOAD_WORD0_SELECTOR_COL,
     PREP_PAYLOAD_WORD1_SELECTOR_COL, PREP_PAYLOAD_WORD2_SELECTOR_COL,
-    PREP_PAYLOAD_WORD3_SELECTOR_COL, PREP_SEGMENT_COMMIT_SELECTOR_COL,
+    PREP_PAYLOAD_WORD3_SELECTOR_COL, PREP_ROUND_SELECTOR_COL, PREP_SEGMENT_COMMIT_SELECTOR_COL,
     PREP_SEGMENT_DERIVE_SELECTOR_COL, PREP_SEGMENT_HASH_SELECTOR_COL, PREP_TRANSITION_SELECTOR_COL,
-    PrivateSeedChainBlocks, SHA_ROUNDS_PLUS_INIT, Sha512Circuit, TRACE_ROWS, WORD_W, bb, limb_col,
-    set_private_seed_chain_derive_final_carries, set_private_seed_chain_words,
+    PrivateSeedChainBlocks, SHA_ROUNDS_PLUS_INIT, Sha512Circuit, TRACE_ROWS, WORD_A, WORD_K,
+    WORD_W, bb, limb_col, set_private_seed_chain_derive_final_carries,
+    set_private_seed_chain_words,
 };
 
 pub(super) fn build_private_seed_chain_air_bundle(
@@ -40,6 +41,7 @@ pub(super) fn build_private_seed_chain_air_bundle(
     let mut main_values = vec![KoalaBear::ZERO; total_rows * AIR_WIDTH];
     let mut prep_values = vec![KoalaBear::ZERO; total_rows * AIR_WIDTH];
 
+    #[cfg(test)]
     let mut final_state = [0_u64; 8];
     let mut final_public_values = [KoalaBear::ZERO; 16];
 
@@ -60,15 +62,29 @@ pub(super) fn build_private_seed_chain_air_bundle(
             let src_main = main.row_slice(row).expect("main row exists");
             let src_prep = prep.row_slice(row).expect("prep row exists");
             main_values[dst_base..dst_base + AIR_WIDTH].copy_from_slice(&src_main);
-            prep_values[dst_base..dst_base + AIR_WIDTH].copy_from_slice(&src_prep);
 
             let row_slice: &mut [KoalaBear] = &mut main_values[dst_base..dst_base + AIR_WIDTH];
             let row_array: &mut [KoalaBear; AIR_WIDTH] = row_slice.try_into().expect("row width");
             set_private_seed_chain_words(row_array, seed_words, sk_words);
 
+            for word in WORD_A..WORD_A + 8 {
+                for limb in 0..LIMBS_PER_WORD {
+                    prep_values[dst_base + limb_col(word, limb)] = src_prep[limb_col(word, limb)];
+                }
+            }
+            for limb in 0..LIMBS_PER_WORD {
+                prep_values[dst_base + limb_col(WORD_K, limb)] = src_prep[limb_col(WORD_K, limb)];
+            }
+            if row < 16 && !(4..8).contains(&row) {
+                for limb in 0..LIMBS_PER_WORD {
+                    prep_values[dst_base + limb_col(WORD_W, limb)] = src_prep[limb_col(WORD_W, limb)];
+                }
+            }
+
             prep_values[dst_base + PREP_BLOCK_START_SELECTOR_COL] = KoalaBear::from_bool(row == 0);
             prep_values[dst_base + PREP_TRANSITION_SELECTOR_COL] =
                 KoalaBear::from_bool(row + 1 < TRACE_ROWS && row != 80);
+            prep_values[dst_base + PREP_ROUND_SELECTOR_COL] = KoalaBear::from_bool(row < 80);
             prep_values[dst_base + PREP_FINAL_SELECTOR_COL] =
                 KoalaBear::from_bool(seg + 1 == real_segment_count && row == 80);
 
@@ -86,6 +102,8 @@ pub(super) fn build_private_seed_chain_air_bundle(
 
             // Fixed 32-byte-domain || 32-byte-payload layout:
             // rows 4..7 carry the private payload words W[4..7].
+            prep_values[dst_base + PREP_INIT_W_SELECTOR_COL] =
+                KoalaBear::from_bool(row < 16 && !(4..8).contains(&row));
             prep_values[dst_base + PREP_PAYLOAD_WORD_SELECTOR_COL] =
                 KoalaBear::from_bool((4..8).contains(&row));
             prep_values[dst_base + PREP_FIXED_INIT_W_SELECTOR_COL] =
@@ -106,15 +124,9 @@ pub(super) fn build_private_seed_chain_air_bundle(
                     INITIAL_STATE,
                 );
             }
-
-            if (4..8).contains(&row) {
-                for limb in 0..LIMBS_PER_WORD {
-                    prep_values[dst_base + limb_col(WORD_W, limb)] = KoalaBear::ZERO;
-                }
-                prep_values[dst_base + PREP_INIT_W_SELECTOR_COL] = KoalaBear::ZERO;
-            }
         }
 
+        #[cfg(test)]
         if seg + 1 == real_segment_count {
             final_state = trace.output_state;
         }
@@ -131,6 +143,7 @@ pub(super) fn build_private_seed_chain_air_bundle(
     MessageAirBundle {
         main: RowMajorMatrix::new(main_values, AIR_WIDTH),
         preprocessed: RowMajorMatrix::new(prep_values, AIR_WIDTH),
+        #[cfg(test)]
         final_state,
         final_public_values,
         degree_bits,

@@ -638,6 +638,7 @@ impl Sha512Circuit {
 pub(crate) struct MessageAirBundle {
     pub(crate) main: RowMajorMatrix<KoalaBear>,
     pub(crate) preprocessed: RowMajorMatrix<KoalaBear>,
+    #[cfg(test)]
     pub(crate) final_state: [u64; 8],
     pub(crate) final_public_values: [KoalaBear; 16],
     pub(crate) degree_bits: usize,
