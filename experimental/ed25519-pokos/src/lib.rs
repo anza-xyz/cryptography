@@ -214,11 +214,15 @@ impl<'a> Cursor<'a> {
     }
 
     fn read_exact(&mut self, len: usize) -> Result<Vec<u8>, DeserializeError> {
-        if self.offset + len > self.bytes.len() {
+        let end = self
+            .offset
+            .checked_add(len)
+            .ok_or(DeserializeError::Truncated)?;
+        if end > self.bytes.len() {
             return Err(DeserializeError::Truncated);
         }
-        let slice = self.bytes[self.offset..self.offset + len].to_vec();
-        self.offset += len;
+        let slice = self.bytes[self.offset..end].to_vec();
+        self.offset = end;
         Ok(slice)
     }
 
@@ -348,6 +352,20 @@ mod tests {
         assert_eq!(
             deserialize_proof(&encoded),
             Err(DeserializeError::TrailingBytes)
+        );
+    }
+
+    #[test]
+    fn rejects_overflowing_sha512_bundle_length() {
+        let mut encoded = Vec::new();
+        encoded.extend_from_slice(PROOF_FORMAT_MAGIC);
+        encoded.extend_from_slice(&[0_u8; SHA512_DIGEST_LEN]);
+        encoded.extend_from_slice(&[0_u8; SHA512_DIGEST_LEN]);
+        encoded.extend_from_slice(&u64::MAX.to_be_bytes());
+
+        assert_eq!(
+            deserialize_proof(&encoded),
+            Err(DeserializeError::Truncated)
         );
     }
 

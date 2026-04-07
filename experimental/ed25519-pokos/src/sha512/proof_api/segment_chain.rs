@@ -8,6 +8,7 @@ const MAX_SEGMENT_CHAIN_PROOF_BYTES: usize = 64 * 1024 * 1024;
 pub struct Sha512SegmentChainProof {
     pub proof: Sha512StarkProof,
     pub preprocessed_commitment: PreprocessedCommitment,
+    pub preprocessed_trace_digest: [u8; 64],
     pub final_state: [u64; 8],
     pub digest: [u8; 64],
     pub settings: Sha512ProofSettings,
@@ -17,6 +18,7 @@ pub struct Sha512SegmentChainProof {
 struct SerializableSegmentChainProof {
     proof_bytes: Vec<u8>,
     preprocessed_commitment: PreprocessedCommitment,
+    preprocessed_trace_digest: Vec<u8>,
     final_state: [u64; 8],
     digest: Vec<u8>,
     settings: Sha512ProofSettings,
@@ -30,6 +32,7 @@ pub fn serialize_segment_chain_proof(proof: &Sha512SegmentChainProof) -> Result<
     let serializable = SerializableSegmentChainProof {
         proof_bytes,
         preprocessed_commitment: proof.preprocessed_commitment,
+        preprocessed_trace_digest: proof.preprocessed_trace_digest.to_vec(),
         final_state: proof.final_state,
         digest: proof.digest.to_vec(),
         settings: proof.settings,
@@ -54,11 +57,19 @@ pub fn deserialize_segment_chain_proof(bytes: &[u8]) -> Result<Sha512SegmentChai
     if serializable.digest.len() != 64 {
         return Err("invalid digest length in serialized segment-chain proof".to_string());
     }
+    if serializable.preprocessed_trace_digest.len() != 64 {
+        return Err(
+            "invalid preprocessed trace digest length in serialized segment-chain proof"
+                .to_string(),
+        );
+    }
     if serializable.proof_bytes.len() > MAX_INNER_PROOF_BYTES {
         return Err("inner segment-chain proof exceeds configured size limit".to_string());
     }
     let mut digest = [0_u8; 64];
     digest.copy_from_slice(&serializable.digest);
+    let mut preprocessed_trace_digest = [0_u8; 64];
+    preprocessed_trace_digest.copy_from_slice(&serializable.preprocessed_trace_digest);
     let inner_opts = bincode::DefaultOptions::new()
         .with_fixint_encoding()
         .reject_trailing_bytes()
@@ -69,6 +80,7 @@ pub fn deserialize_segment_chain_proof(bytes: &[u8]) -> Result<Sha512SegmentChai
     Ok(Sha512SegmentChainProof {
         proof,
         preprocessed_commitment: serializable.preprocessed_commitment,
+        preprocessed_trace_digest,
         final_state: serializable.final_state,
         digest,
         settings: serializable.settings,

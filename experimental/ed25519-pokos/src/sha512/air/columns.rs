@@ -11,25 +11,25 @@
 //! ┌─ Limbs ────────────────────────── cols 0 – 63 ──────────────────────────────────────┐
 //! │  16 words × 4 limbs (16-bit each) = 64 columns                                      │
 //! ├─ Carries ───────────────────────────────────────────────────────────────────────────┤
-//! │  Carry_T1 (4), Carry_T2 (4), Carry_A (4), Carry_E (4)  = 16 columns               │
+//! │  Carry_T1 (4), Carry_T2 (4), Carry_A (4), Carry_E (4)  = 16 columns                 │
 //! ├─ Lags ──────────────────────────────────────────────────────────────────────────────┤
 //! │  16 previous W values (ring buffer), stored as 4 limbs each = 64 columns            │
 //! ├─ Schedule carries ──────────────────────────────────────────────────────────────────┤
-//! │  4 carries for W recurrence = 4 columns                                            │
+//! │  4 carries for W recurrence = 4 columns                                             │
 //! ├─ Bit decompositions ────────────────────────────────────────────────────────────────┤
-//! │  64 bits × {A, B, C, E, F, G} = 384 columns                                        │
-//! │  64 bits × {lag1, lag14} = 128 columns                                               │
+//! │  64 bits × {A, B, C, E, F, G} = 384 columns                                         │
+//! │  64 bits × {lag1, lag14} = 128 columns                                              │
 //! ├─ Range-proof bits ──────────────────────────────────────────────────────────────────┤
 //! │  RANGE_SOURCES sources × 16 bits each (D/H/W/K/T1/T2 limbs)                         │
 //! ├─ Carry bits ────────────────────────────────────────────────────────────────────────┤
-//! │  Minimal-width carry bit decompositions (T1=3 bits, T2/A/E=1 bit, sched=2 bits)   │
+//! │  Minimal-width carry bit decompositions (T1=3 bits, T2/A/E=1 bit, sched=2 bits)     │
 //! ├─ Preprocessed columns (at the tail — shared with the preprocessed trace) ───────────┤
-//! │  PREP_BLOCK_START_SELECTOR_COL — 1 at block-start rows, 0 elsewhere                  │
-//! │  PREP_TRANSITION_SELECTOR_COL  — 1 where row-to-next transition is enforced          │
-//! │  PREP_ROUND_SELECTOR_COL       — 1 in rounds 0..79, 0 elsewhere                      │
-//! │  PREP_INIT_W_SELECTOR_COL      — 1 in rows 0..15, 0 elsewhere                        │
-//! │  PREP_FINAL_SELECTOR_COL       — 1 in row 80 only                                    │
-//! │  PREP_SEGMENT_* selectors      — fixed-role metadata for the seed-chain AIR          │
+//! │  PREP_BLOCK_START_SELECTOR_COL — 1 at block-start rows, 0 elsewhere                 │
+//! │  PREP_TRANSITION_SELECTOR_COL  — 1 where row-to-next transition is enforced         │
+//! │  PREP_ROUND_SELECTOR_COL       — 1 in rounds 0..79, 0 elsewhere                     │
+//! │  PREP_INIT_W_SELECTOR_COL      — 1 in rows 0..15, 0 elsewhere                       │
+//! │  PREP_FINAL_SELECTOR_COL       — 1 in row 80 only                                   │
+//! │  PREP_SEGMENT_* selectors      — fixed-role metadata for the seed-chain AIR         │
 //! └─────────────────────────────────────────────────────────────────────────────────────┘
 //! ```
 
@@ -48,7 +48,7 @@ pub(super) const SHA_ROUNDS_PLUS_INIT: usize = 81;
 // ─── Logical word ids ────────────────────────────────────────────────────────
 
 /// Logical word id for working variable `a`.
-pub(super) const WORD_A: usize = 0;
+pub(crate) const WORD_A: usize = 0;
 /// Logical word id for working variable `b` (equals previous round's `a`).
 pub(super) const WORD_B: usize = 1;
 /// Logical word id for working variable `c` (equals previous round's `b`).
@@ -64,9 +64,9 @@ pub(super) const WORD_G: usize = 6;
 /// Logical word id for working variable `h` (equals previous round's `g`).
 pub(super) const WORD_H: usize = 7;
 /// Logical word id for current message schedule word W[i].
-pub(super) const WORD_W: usize = 8;
+pub(crate) const WORD_W: usize = 8;
 /// Logical word id for round constant K[i].
-pub(super) const WORD_K: usize = 9;
+pub(crate) const WORD_K: usize = 9;
 /// Logical word id for Σ0(a).
 pub(super) const WORD_SIGMA0: usize = 10;
 /// Logical word id for Σ1(e).
@@ -85,7 +85,7 @@ pub(super) const WORD_COUNT: usize = 16;
 // ─── Limb columns ────────────────────────────────────────────────────────────
 
 /// Number of 16-bit limbs per 64-bit word.
-pub(super) const LIMBS_PER_WORD: usize = 4;
+pub(crate) const LIMBS_PER_WORD: usize = 4;
 
 /// First column of the limb section.
 ///
@@ -186,41 +186,41 @@ pub(super) const CARRY_E_BIT_BASE: usize = CARRY_A_BIT_BASE + LIMBS_PER_WORD;
 pub(super) const CARRY_SCHED_BIT_BASE: usize = CARRY_E_BIT_BASE + LIMBS_PER_WORD;
 
 /// First seed-chain segment selector: 1 on commit segment rows, 0 elsewhere.
-pub(super) const PREP_SEGMENT_COMMIT_SELECTOR_COL: usize =
+pub(crate) const PREP_SEGMENT_COMMIT_SELECTOR_COL: usize =
     CARRY_SCHED_BIT_BASE + LIMBS_PER_WORD * 2;
 
 /// 1 on derive segment rows, 0 elsewhere.
-pub(super) const PREP_SEGMENT_DERIVE_SELECTOR_COL: usize = PREP_SEGMENT_COMMIT_SELECTOR_COL + 1;
+pub(crate) const PREP_SEGMENT_DERIVE_SELECTOR_COL: usize = PREP_SEGMENT_COMMIT_SELECTOR_COL + 1;
 
 /// 1 on hash-of-sk segment rows, 0 elsewhere.
-pub(super) const PREP_SEGMENT_HASH_SELECTOR_COL: usize = PREP_SEGMENT_DERIVE_SELECTOR_COL + 1;
+pub(crate) const PREP_SEGMENT_HASH_SELECTOR_COL: usize = PREP_SEGMENT_DERIVE_SELECTOR_COL + 1;
 
 /// 1 on row 80 of the commit segment, 0 elsewhere.
-pub(super) const PREP_COMMIT_FINAL_SELECTOR_COL: usize = PREP_SEGMENT_HASH_SELECTOR_COL + 1;
+pub(crate) const PREP_COMMIT_FINAL_SELECTOR_COL: usize = PREP_SEGMENT_HASH_SELECTOR_COL + 1;
 
 /// 1 on row 80 of the derive segment, 0 elsewhere.
-pub(super) const PREP_DERIVE_FINAL_SELECTOR_COL: usize = PREP_COMMIT_FINAL_SELECTOR_COL + 1;
+pub(crate) const PREP_DERIVE_FINAL_SELECTOR_COL: usize = PREP_COMMIT_FINAL_SELECTOR_COL + 1;
 
 /// 1 on row 80 of the hash-of-sk segment, 0 elsewhere.
-pub(super) const PREP_HASH_FINAL_SELECTOR_COL: usize = PREP_DERIVE_FINAL_SELECTOR_COL + 1;
+pub(crate) const PREP_HASH_FINAL_SELECTOR_COL: usize = PREP_DERIVE_FINAL_SELECTOR_COL + 1;
 
 /// 1 on rows 4..7 of each seed-chain segment, where W carries the private payload.
-pub(super) const PREP_PAYLOAD_WORD_SELECTOR_COL: usize = PREP_HASH_FINAL_SELECTOR_COL + 1;
+pub(crate) const PREP_PAYLOAD_WORD_SELECTOR_COL: usize = PREP_HASH_FINAL_SELECTOR_COL + 1;
 
 /// 1 on fixed W[0..15] rows except payload rows, for the seed-chain AIR.
-pub(super) const PREP_FIXED_INIT_W_SELECTOR_COL: usize = PREP_PAYLOAD_WORD_SELECTOR_COL + 1;
+pub(crate) const PREP_FIXED_INIT_W_SELECTOR_COL: usize = PREP_PAYLOAD_WORD_SELECTOR_COL + 1;
 
 /// 1 only on row 4 of each seed-chain segment.
-pub(super) const PREP_PAYLOAD_WORD0_SELECTOR_COL: usize = PREP_FIXED_INIT_W_SELECTOR_COL + 1;
+pub(crate) const PREP_PAYLOAD_WORD0_SELECTOR_COL: usize = PREP_FIXED_INIT_W_SELECTOR_COL + 1;
 
 /// 1 only on row 5 of each seed-chain segment.
-pub(super) const PREP_PAYLOAD_WORD1_SELECTOR_COL: usize = PREP_PAYLOAD_WORD0_SELECTOR_COL + 1;
+pub(crate) const PREP_PAYLOAD_WORD1_SELECTOR_COL: usize = PREP_PAYLOAD_WORD0_SELECTOR_COL + 1;
 
 /// 1 only on row 6 of each seed-chain segment.
-pub(super) const PREP_PAYLOAD_WORD2_SELECTOR_COL: usize = PREP_PAYLOAD_WORD1_SELECTOR_COL + 1;
+pub(crate) const PREP_PAYLOAD_WORD2_SELECTOR_COL: usize = PREP_PAYLOAD_WORD1_SELECTOR_COL + 1;
 
 /// 1 only on row 7 of each seed-chain segment.
-pub(super) const PREP_PAYLOAD_WORD3_SELECTOR_COL: usize = PREP_PAYLOAD_WORD2_SELECTOR_COL + 1;
+pub(crate) const PREP_PAYLOAD_WORD3_SELECTOR_COL: usize = PREP_PAYLOAD_WORD2_SELECTOR_COL + 1;
 
 /// Hidden witness columns holding the 32-byte seed as four 64-bit words.
 pub(super) const PRIVATE_SEED_LIMB_BASE: usize = PREP_PAYLOAD_WORD3_SELECTOR_COL + 1;
@@ -234,33 +234,33 @@ pub(super) const AIR_WIDTH: usize = PRIVATE_SK_LIMB_BASE + 4 * LIMBS_PER_WORD;
 // ─── Preprocessed selector columns (at the tail of the shared column space) ──
 
 /// Preprocessed selector: 1 on the first row of each real block segment, 0 elsewhere.
-pub(super) const PREP_BLOCK_START_SELECTOR_COL: usize = AIR_WIDTH - 5;
+pub(crate) const PREP_BLOCK_START_SELECTOR_COL: usize = AIR_WIDTH - 5;
 
 /// Preprocessed selector: 1 when transition constraints are active for this row.
 ///
 /// This is set on rows whose `next` row belongs to the same real block segment.
-pub(super) const PREP_TRANSITION_SELECTOR_COL: usize = AIR_WIDTH - 4;
+pub(crate) const PREP_TRANSITION_SELECTOR_COL: usize = AIR_WIDTH - 4;
 
 /// Preprocessed selector: 1 for rows 0..79 (active SHA-512 rounds), 0 elsewhere.
 ///
 /// Guards constraints that only apply during real compression rounds (e.g. Σ0/Σ1
 /// bit decomposition checks, T1/T2 addition constraints).
-pub(super) const PREP_ROUND_SELECTOR_COL: usize = AIR_WIDTH - 3;
+pub(crate) const PREP_ROUND_SELECTOR_COL: usize = AIR_WIDTH - 3;
 
 /// Preprocessed selector: 1 for rows 0..15 (initial W words from the block), 0 elsewhere.
 ///
 /// Binds the W column to the preprocessed W[0..15] values during the first 16 rows.
-pub(super) const PREP_INIT_W_SELECTOR_COL: usize = AIR_WIDTH - 2;
+pub(crate) const PREP_INIT_W_SELECTOR_COL: usize = AIR_WIDTH - 2;
 
 /// Preprocessed selector: 1 only on row 80 (final working state), 0 elsewhere.
 ///
 /// Binds the 8 public values to the working-state columns on this row.
-pub(super) const PREP_FINAL_SELECTOR_COL: usize = AIR_WIDTH - 1;
+pub(crate) const PREP_FINAL_SELECTOR_COL: usize = AIR_WIDTH - 1;
 
 // ─── Index accessor functions ─────────────────────────────────────────────────
 
 /// Returns the column index for `limb` (0–3, LSB first) of `word` (0–15).
-pub(super) fn limb_col(word: usize, limb: usize) -> usize {
+pub(crate) fn limb_col(word: usize, limb: usize) -> usize {
     LIMB_BASE + word * LIMBS_PER_WORD + limb
 }
 

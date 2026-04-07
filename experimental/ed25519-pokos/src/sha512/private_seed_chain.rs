@@ -1,6 +1,16 @@
 use super::{
     INITIAL_STATE, Sha512Circuit, Sha512ProofSettings, Sha512SegmentChainProof, Sha512StarkConfig,
-    air::{MessageAirBundle, PrivateSeedChainBlocks, Sha512RoundAir},
+    air::{
+        LIMBS_PER_WORD, MessageAirBundle, PREP_BLOCK_START_SELECTOR_COL,
+        PREP_COMMIT_FINAL_SELECTOR_COL, PREP_DERIVE_FINAL_SELECTOR_COL, PREP_FINAL_SELECTOR_COL,
+        PREP_FIXED_INIT_W_SELECTOR_COL, PREP_HASH_FINAL_SELECTOR_COL, PREP_INIT_W_SELECTOR_COL,
+        PREP_PAYLOAD_WORD_SELECTOR_COL, PREP_PAYLOAD_WORD0_SELECTOR_COL,
+        PREP_PAYLOAD_WORD1_SELECTOR_COL, PREP_PAYLOAD_WORD2_SELECTOR_COL,
+        PREP_PAYLOAD_WORD3_SELECTOR_COL, PREP_ROUND_SELECTOR_COL, PREP_SEGMENT_COMMIT_SELECTOR_COL,
+        PREP_SEGMENT_DERIVE_SELECTOR_COL, PREP_SEGMENT_HASH_SELECTOR_COL,
+        PREP_TRANSITION_SELECTOR_COL, PrivateSeedChainBlocks, Sha512RoundAir, WORD_A, WORD_K,
+        WORD_W, limb_col,
+    },
     deserialize_segment_chain_proof,
     proof_api::{meets_minimum_verifier_policy, setup_config, validate_settings_for_proving},
     serialize_segment_chain_proof,
@@ -9,8 +19,10 @@ use crate::{
     COMMIT_OF_SEED_DOMAIN, DERIVE_SK_DOMAIN, DigestBytes, HASH_OF_SK_DOMAIN, Seed,
     fixed_single_block,
 };
-use p3_field::PrimeCharacteristicRing;
+use p3_field::{PrimeCharacteristicRing, PrimeField32};
+use p3_matrix::Matrix;
 use p3_uni_stark::{prove_with_preprocessed, setup_preprocessed, verify_with_preprocessed};
+use sha2::{Digest, Sha512};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct PrivateSeedChainWitness {
@@ -78,6 +90,7 @@ pub(crate) fn prove_private_seed_chain_with_settings(
     let sealed_proof = serialize_segment_chain_proof(&Sha512SegmentChainProof {
         proof,
         preprocessed_commitment: preprocessed_vk.commitment,
+        preprocessed_trace_digest: digest_preprocessed_trace(&bundle.air_bundle.preprocessed),
         final_state: bundle.air_bundle.final_state,
         digest: Sha512Circuit::state_to_digest(&bundle.air_bundle.final_state),
         settings,
@@ -114,12 +127,15 @@ pub(crate) fn verify_private_seed_chain_statement_with_settings(
     let config = setup_config(settings);
     let air_bundle =
         Sha512Circuit::build_private_seed_chain_air_bundle(&verifier_template_blocks());
-    let air = Sha512RoundAir::new(air_bundle.preprocessed);
+    let air = Sha512RoundAir::new(air_bundle.preprocessed.clone());
     let Some((_, expected_vk)) =
         setup_preprocessed::<Sha512StarkConfig, _>(&config, &air, air_bundle.degree_bits)
     else {
         return false;
     };
+    if proof.preprocessed_trace_digest != digest_preprocessed_trace(&air_bundle.preprocessed) {
+        return false;
+    }
     let verifier_vk = p3_uni_stark::PreprocessedVerifierKey::<Sha512StarkConfig> {
         width: expected_vk.width,
         degree_bits: expected_vk.degree_bits,
@@ -200,6 +216,59 @@ fn encode_fixed_message(domain: &[u8; 32], payload: &Seed) -> [u8; 64] {
     message
 }
 
+fn digest_preprocessed_trace(
+    trace: &p3_matrix::dense::RowMajorMatrix<p3_koala_bear::KoalaBear>,
+) -> [u8; 64] {
+    let mut hasher = Sha512::new();
+    for row_idx in 0..trace.height() {
+        let row = trace.row_slice(row_idx).expect("preprocessed row exists");
+        for word in WORD_A..WORD_A + 8 {
+            for limb in 0..LIMBS_PER_WORD {
+                let value = row[limb_col(word, limb)];
+                hasher.update(value.as_canonical_u32().to_le_bytes());
+            }
+        }
+        for limb in 0..LIMBS_PER_WORD {
+            let value = row[limb_col(WORD_K, limb)];
+            hasher.update(value.as_canonical_u32().to_le_bytes());
+        }
+        let include_w = row[PREP_FIXED_INIT_W_SELECTOR_COL] == p3_koala_bear::KoalaBear::ONE;
+        for limb in 0..LIMBS_PER_WORD {
+            let value = if include_w {
+                row[limb_col(WORD_W, limb)]
+            } else {
+                p3_koala_bear::KoalaBear::ZERO
+            };
+            hasher.update(value.as_canonical_u32().to_le_bytes());
+        }
+        for col in [
+            PREP_BLOCK_START_SELECTOR_COL,
+            PREP_TRANSITION_SELECTOR_COL,
+            PREP_ROUND_SELECTOR_COL,
+            PREP_INIT_W_SELECTOR_COL,
+            PREP_FINAL_SELECTOR_COL,
+            PREP_SEGMENT_COMMIT_SELECTOR_COL,
+            PREP_SEGMENT_DERIVE_SELECTOR_COL,
+            PREP_SEGMENT_HASH_SELECTOR_COL,
+            PREP_COMMIT_FINAL_SELECTOR_COL,
+            PREP_DERIVE_FINAL_SELECTOR_COL,
+            PREP_HASH_FINAL_SELECTOR_COL,
+            PREP_PAYLOAD_WORD_SELECTOR_COL,
+            PREP_FIXED_INIT_W_SELECTOR_COL,
+            PREP_PAYLOAD_WORD0_SELECTOR_COL,
+            PREP_PAYLOAD_WORD1_SELECTOR_COL,
+            PREP_PAYLOAD_WORD2_SELECTOR_COL,
+            PREP_PAYLOAD_WORD3_SELECTOR_COL,
+        ] {
+            hasher.update(row[col].as_canonical_u32().to_le_bytes());
+        }
+    }
+    let digest = hasher.finalize();
+    let mut out = [0_u8; 64];
+    out.copy_from_slice(&digest);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -257,6 +326,19 @@ mod tests {
         let mut public = build_private_seed_chain_bundle(sample_seed()).public;
         let sealed = prove_private_seed_chain(sample_seed()).unwrap();
         public.hash_of_sk[0] ^= 1;
+
+        assert!(!verify_private_seed_chain_statement(&sealed, public));
+    }
+
+    #[test]
+    fn statement_verifier_rejects_wrong_preprocessed_trace_digest() {
+        let public = build_private_seed_chain_bundle(sample_seed()).public;
+        let sealed = prove_private_seed_chain(sample_seed()).unwrap();
+        let mut proof = deserialize_segment_chain_proof(&sealed.sealed_proof).unwrap();
+        proof.preprocessed_trace_digest[0] ^= 1;
+        let sealed = SealedPrivateSeedChainProof {
+            sealed_proof: serialize_segment_chain_proof(&proof).unwrap(),
+        };
 
         assert!(!verify_private_seed_chain_statement(&sealed, public));
     }
