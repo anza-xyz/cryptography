@@ -77,7 +77,8 @@ pub(super) fn build_private_seed_chain_air_bundle(
             }
             if row < 16 && !(4..8).contains(&row) {
                 for limb in 0..LIMBS_PER_WORD {
-                    prep_values[dst_base + limb_col(WORD_W, limb)] = src_prep[limb_col(WORD_W, limb)];
+                    prep_values[dst_base + limb_col(WORD_W, limb)] =
+                        src_prep[limb_col(WORD_W, limb)];
                 }
             }
 

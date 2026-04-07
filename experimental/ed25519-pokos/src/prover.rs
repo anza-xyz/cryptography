@@ -39,8 +39,11 @@ pub fn statement_from_seed(seed: Seed) -> SeedChainStatement {
 }
 
 pub fn gen_pokos(seed: Seed) -> Result<SeedChainProofEnvelope, String> {
-    let statement = statement_from_seed(seed);
     let derived = derive_secret_key_material(seed);
+    let statement = SeedChainStatement {
+        commit_of_seed: commit_of_seed(seed),
+        hash_of_sk: derived.hash_of_sk,
+    };
     let signing_key = SigningKey::from(derived.sk_seed);
     let transcript = authentication_transcript(statement);
 

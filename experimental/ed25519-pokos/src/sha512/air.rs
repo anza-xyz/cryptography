@@ -189,16 +189,11 @@ where
         }
 
         let public: [AB::PublicVar; 16] = core::array::from_fn(|i| builder.public_values()[i]);
-        let generic_final_sel = local_prep[PREP_FINAL_SELECTOR_COL].clone()
-            * (AB::Expr::ONE
-                - local_prep[PREP_SEGMENT_COMMIT_SELECTOR_COL].clone()
-                - local_prep[PREP_SEGMENT_DERIVE_SELECTOR_COL].clone()
-                - local_prep[PREP_SEGMENT_HASH_SELECTOR_COL].clone());
         let commit_final_sel = local_prep[PREP_COMMIT_FINAL_SELECTOR_COL].clone();
         let hash_final_sel = local_prep[PREP_HASH_FINAL_SELECTOR_COL].clone();
         for i in 0..8 {
             builder.assert_zero(
-                (generic_final_sel.clone() + commit_final_sel.clone())
+                commit_final_sel.clone()
                     * (public[i].into() - pack_word_from_limbs::<AB>(&local, i)),
             );
             builder.assert_zero(
