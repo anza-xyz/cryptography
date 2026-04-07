@@ -19,14 +19,13 @@ use super::{
 pub(super) fn build_private_seed_chain_air_bundle(
     blocks: &PrivateSeedChainBlocks,
 ) -> MessageAirBundle {
-    let payload_words = |block: [u8; 128]| -> [u64; 4] {
-        core::array::from_fn(|i| {
-            let start = 32 + i * 8;
-            u64::from_be_bytes(block[start..start + 8].try_into().expect("payload word"))
-        })
-    };
     let seed_words = payload_words(blocks.commit);
+    let derive_seed_words = payload_words(blocks.derive);
     let sk_words = payload_words(blocks.hash_sk);
+    debug_assert_eq!(
+        seed_words, derive_seed_words,
+        "commit and derive blocks must carry the same seed payload"
+    );
     let segments = [
         (INITIAL_STATE, blocks.commit),
         (INITIAL_STATE, blocks.derive),
@@ -41,8 +40,6 @@ pub(super) fn build_private_seed_chain_air_bundle(
     let mut main_values = vec![KoalaBear::ZERO; total_rows * AIR_WIDTH];
     let mut prep_values = vec![KoalaBear::ZERO; total_rows * AIR_WIDTH];
 
-    #[cfg(test)]
-    let mut final_state = [0_u64; 8];
     let mut final_public_values = [KoalaBear::ZERO; 16];
 
     for row in 0..total_rows {
@@ -127,10 +124,6 @@ pub(super) fn build_private_seed_chain_air_bundle(
             }
         }
 
-        #[cfg(test)]
-        if seg + 1 == real_segment_count {
-            final_state = trace.output_state;
-        }
         if seg == 0 {
             final_public_values[..8].copy_from_slice(&trace.round_states[80].map(bb));
         }
@@ -144,9 +137,14 @@ pub(super) fn build_private_seed_chain_air_bundle(
     MessageAirBundle {
         main: RowMajorMatrix::new(main_values, AIR_WIDTH),
         preprocessed: RowMajorMatrix::new(prep_values, AIR_WIDTH),
-        #[cfg(test)]
-        final_state,
         final_public_values,
         degree_bits,
     }
+}
+
+fn payload_words(block: [u8; 128]) -> [u64; 4] {
+    core::array::from_fn(|i| {
+        let start = 32 + i * 8;
+        u64::from_be_bytes(block[start..start + 8].try_into().expect("payload word"))
+    })
 }

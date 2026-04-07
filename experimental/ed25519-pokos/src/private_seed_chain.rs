@@ -94,12 +94,21 @@ pub fn public_from_witness(witness: PrivateSeedChainWitness) -> PrivateSeedChain
     }
 }
 
+/// Builds the single padded 128-byte SHA-512 block for a segment payload.
+///
+/// This is the exact fixed-layout block consumed by the SHA-512 AIR:
+/// 32 bytes of domain, 32 bytes of payload, then standard single-block SHA-512
+/// padding out to 128 bytes.
+pub fn segment_block(kind: SegmentKind, payload: Seed) -> [u8; 128] {
+    fixed_single_block(&segment_domain(kind), &payload)
+}
+
 /// Builds the full [`FixedSegmentLayout`] for a given segment kind and payload.
 ///
 /// Computes the padded 128-byte block, then extracts the 16 block words and
 /// the 4 payload words from it.
 pub fn segment_layout(kind: SegmentKind, payload: Seed) -> FixedSegmentLayout {
-    let block = fixed_single_block(&segment_domain(kind), &payload);
+    let block = segment_block(kind, payload);
     let block_words = block_words(block);
     let payload_words = core::array::from_fn(|i| block_words[PAYLOAD_WORD_START + i]);
     FixedSegmentLayout {

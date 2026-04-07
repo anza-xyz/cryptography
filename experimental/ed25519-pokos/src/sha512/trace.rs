@@ -31,14 +31,7 @@ pub struct BlockTrace {
     ///   the feed-forward addition.
     ///
     /// The AIR binds `round_states[80]` as the 8 public values of the proof.
-    /// The verifier then reconstructs `output_state` as `initial_state + round_states[80]`
-    /// (component-wise, mod 2⁶⁴).
+    /// The verifier then reconstructs the post-feed-forward digest as
+    /// `initial_state + round_states[80]` (component-wise, mod 2⁶⁴).
     pub round_states: [[u64; 8]; 81],
-
-    /// The 8 chaining state words after the feed-forward addition.
-    ///
-    /// Computed as `output_state[i] = initial_state[i] + round_states[80][i]` (mod 2⁶⁴)
-    /// for each `i` in 0..8.  This is the value passed as `initial_state` to the next
-    /// block, and ultimately serialized as the final SHA-512 digest.
-    pub output_state: [u64; 8],
 }

@@ -223,6 +223,9 @@ pub(crate) const PREP_PAYLOAD_WORD2_SELECTOR_COL: usize = PREP_PAYLOAD_WORD1_SEL
 pub(crate) const PREP_PAYLOAD_WORD3_SELECTOR_COL: usize = PREP_PAYLOAD_WORD2_SELECTOR_COL + 1;
 
 /// Hidden witness columns holding the 32-byte seed as four 64-bit words.
+///
+/// These indices belong to the main trace only. The preprocessed trace reuses the
+/// same column index space with different semantics in the tail selector region.
 pub(super) const PRIVATE_SEED_LIMB_BASE: usize = PREP_PAYLOAD_WORD3_SELECTOR_COL + 1;
 
 /// Hidden witness columns holding the 32-byte derived sk_seed as four 64-bit words.
@@ -234,6 +237,9 @@ pub(super) const AIR_WIDTH: usize = PRIVATE_SK_LIMB_BASE + 4 * LIMBS_PER_WORD;
 // ─── Preprocessed selector columns (at the tail of the shared column space) ──
 
 /// Preprocessed selector: 1 on the first row of each real block segment, 0 elsewhere.
+///
+/// Note that preprocessed selectors intentionally reuse the shared AIR column index
+/// space instead of reserving disjoint indices from the main-trace-only witness area.
 pub(crate) const PREP_BLOCK_START_SELECTOR_COL: usize = AIR_WIDTH - 5;
 
 /// Preprocessed selector: 1 when transition constraints are active for this row.

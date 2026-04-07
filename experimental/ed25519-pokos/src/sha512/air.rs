@@ -14,9 +14,11 @@
 //!
 //! ## Public values
 //!
-//! The 8 public values are `round_states[80]` (working state after all 80 rounds).
-//! The verifier reconstructs `output_state` externally as `input_state + round_states[80]`
-//! (mod 2⁶⁴), so the AIR does **not** constrain the feed-forward addition.
+//! The active PoKOS seed-chain statement exposes 16 public values:
+//! the 8 pre-feed-forward words for the commit segment followed by the 8
+//! pre-feed-forward words for the hash-of-sk segment. The verifier reconstructs
+//! each SHA-512 digest externally by adding the standard initial state word-wise
+//! modulo 2⁶⁴, so the AIR does **not** constrain the feed-forward addition.
 //!
 //! ## Preprocessed trace
 //!
@@ -25,7 +27,7 @@
 //! * The initial working state (a..h) — constant across all rows, used for boundary binding.
 //! * The round constant K[i] for each round row.
 //! * W[0..15] for the initial 16 rows (before the schedule recurrence takes over).
-//! * Four selector columns controlling which constraint groups are active per row.
+//! * Selector columns controlling which constraint groups and seed-chain roles are active.
 //!
 //! The active seed-chain-specific trace assembly is split into `air/seed_chain.rs` so this file
 //! can stay focused on the generic SHA-512 round AIR and base trace layout.
@@ -59,9 +61,9 @@ use trace_builder::*;
 ///
 /// `Sha512RoundAir` implements the [`Air`] trait and holds the instance-specific
 /// preprocessed trace.  The preprocessed trace commits to the initial working state,
-/// the 80 round constants, the first 16 message schedule words, and four selector
-/// columns.  This allows the STARK verifier to confirm that the prover used the
-/// correct instance without re-running the SHA-512 compression.
+/// the 80 round constants, the fixed block words, and selector metadata. This
+/// allows the STARK verifier to confirm that the prover used the correct
+/// instance without re-running the full witness construction.
 ///
 /// ## Construction
 ///
@@ -428,7 +430,7 @@ impl Sha512Circuit {
     /// populated.  All other cells are zero.  Populated columns:
     ///
     /// * `limb_col(WORD_K, ..)`      — round constant K\[i\] limbs in rows 0..80; zero in rows 80..127.
-    /// * `limb_col(WORD_W, ..)`      — W\[i\] limbs in rows 0..15 (bound by `PREP_INIT_W_SELECTOR_COL`).
+    /// * `limb_col(WORD_W, ..)`      — W\[i\] limbs in rows 0..15.
     /// * `limb_col(WORD_A..WORD_H, ..)` — initial state limbs, constant across all rows;
     ///   the first-row boundary constraint uses these to bind the main trace.
     /// * `PREP_ROUND_SELECTOR_COL`   — 1 in rows 0..79, 0 elsewhere.
@@ -439,22 +441,27 @@ impl Sha512Circuit {
     ///
     /// # Panics
     ///
-    /// Panics internally if `compress_block` or `build_plonky3_air_trace` fails
+    /// Panics internally if the 128-byte block cannot be parsed into 64-bit words
     /// (should not occur for valid inputs).
     pub fn build_plonky3_preprocessed_trace_from_instance(
         initial_state: &[u64; 8],
         block: &[u8; 128],
     ) -> RowMajorMatrix<KoalaBear> {
-        let trace = Sha512Circuit::compress_block(initial_state, block);
-        let full = Sha512Circuit::build_plonky3_air_trace(&trace);
         let mut values = vec![KoalaBear::ZERO; TRACE_ROWS * AIR_WIDTH];
+        let block_words: [u64; 16] = core::array::from_fn(|i| {
+            let start = i * 8;
+            u64::from_be_bytes(block[start..start + 8].try_into().expect("word size is 8"))
+        });
 
         for row in 0..TRACE_ROWS {
-            let src = full.row_slice(row).expect("row exists");
             let dst = &mut values[row * AIR_WIDTH..(row + 1) * AIR_WIDTH];
             for limb in 0..LIMBS_PER_WORD {
-                dst[limb_col(WORD_W, limb)] = src[limb_col(WORD_W, limb)];
-                dst[limb_col(WORD_K, limb)] = src[limb_col(WORD_K, limb)];
+                let k = if row < 80 { K[row] } else { 0 };
+                dst[limb_col(WORD_K, limb)] =
+                    KoalaBear::from_u16(((k >> (16 * limb)) & 0xffff) as u16);
+                let w = if row < 16 { block_words[row] } else { 0 };
+                dst[limb_col(WORD_W, limb)] =
+                    KoalaBear::from_u16(((w >> (16 * limb)) & 0xffff) as u16);
             }
             dst[PREP_ROUND_SELECTOR_COL] = KoalaBear::from_bool(row < 80);
             dst[PREP_INIT_W_SELECTOR_COL] = KoalaBear::from_bool(row < 16);
@@ -633,8 +640,6 @@ impl Sha512Circuit {
 pub(crate) struct MessageAirBundle {
     pub(crate) main: RowMajorMatrix<KoalaBear>,
     pub(crate) preprocessed: RowMajorMatrix<KoalaBear>,
-    #[cfg(test)]
-    pub(crate) final_state: [u64; 8],
     pub(crate) final_public_values: [KoalaBear; 16],
     pub(crate) degree_bits: usize,
 }

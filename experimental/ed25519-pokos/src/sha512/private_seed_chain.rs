@@ -6,25 +6,13 @@ use super::{
     serialize_segment_chain_proof,
 };
 use crate::{
-    COMMIT_OF_SEED_DOMAIN, DERIVE_SK_DOMAIN, DigestBytes, HASH_OF_SK_DOMAIN, Seed,
-    fixed_single_block,
+    Seed, derive_secret_key_material,
+    private_seed_chain::{PrivateSeedChainWitness, SegmentKind, segment_block},
 };
 use p3_field::PrimeCharacteristicRing;
 use p3_uni_stark::{prove_with_preprocessed, setup_preprocessed, verify_with_preprocessed};
 
-/// Private witness for the three-segment seed chain (internal to the STARK).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct PrivateSeedChainWitness {
-    pub(crate) seed: Seed,
-    pub(crate) sk_seed: Seed,
-}
-
-/// Public statement for the three-segment seed chain, passed to the STARK verifier.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct PrivateSeedChainPublic {
-    pub(crate) commit_of_seed: DigestBytes,
-    pub(crate) hash_of_sk: DigestBytes,
-}
+pub(crate) use crate::private_seed_chain::PrivateSeedChainPublic;
 
 /// All data needed to run the Plonky3 prover for one seed chain.
 ///
@@ -56,7 +44,7 @@ pub(crate) fn build_private_seed_chain_bundle(seed: Seed) -> PrivateSeedChainBun
 
     PrivateSeedChainBundle {
         #[cfg(test)]
-        public: public_from_witness(witness),
+        public: crate::private_seed_chain::public_from_witness(witness),
         #[cfg(test)]
         blocks,
         air_bundle,
@@ -159,23 +147,9 @@ pub(crate) fn verify_private_seed_chain_statement_with_settings(
 }
 
 fn witness_from_seed(seed: Seed) -> PrivateSeedChainWitness {
-    let derive_digest = Sha512Circuit::hash(&encode_fixed_message(&DERIVE_SK_DOMAIN, &seed));
-    let mut sk_seed = [0_u8; 32];
-    sk_seed.copy_from_slice(&derive_digest[..32]);
-    PrivateSeedChainWitness { seed, sk_seed }
-}
-
-#[cfg(test)]
-fn public_from_witness(witness: PrivateSeedChainWitness) -> PrivateSeedChainPublic {
-    PrivateSeedChainPublic {
-        commit_of_seed: Sha512Circuit::hash(&encode_fixed_message(
-            &COMMIT_OF_SEED_DOMAIN,
-            &witness.seed,
-        )),
-        hash_of_sk: Sha512Circuit::hash(&encode_fixed_message(
-            &HASH_OF_SK_DOMAIN,
-            &witness.sk_seed,
-        )),
+    PrivateSeedChainWitness {
+        seed,
+        sk_seed: derive_secret_key_material(seed).sk_seed,
     }
 }
 
@@ -200,25 +174,18 @@ pub(crate) fn public_values_from_statement(
 fn verifier_template_blocks() -> PrivateSeedChainBlocks {
     let zero = [0_u8; 32];
     PrivateSeedChainBlocks {
-        commit: fixed_single_block(&COMMIT_OF_SEED_DOMAIN, &zero),
-        derive: fixed_single_block(&DERIVE_SK_DOMAIN, &zero),
-        hash_sk: fixed_single_block(&HASH_OF_SK_DOMAIN, &zero),
+        commit: segment_block(SegmentKind::Commit, zero),
+        derive: segment_block(SegmentKind::Derive, zero),
+        hash_sk: segment_block(SegmentKind::HashSk, zero),
     }
 }
 
 fn blocks_from_witness(witness: PrivateSeedChainWitness) -> PrivateSeedChainBlocks {
     PrivateSeedChainBlocks {
-        commit: fixed_single_block(&COMMIT_OF_SEED_DOMAIN, &witness.seed),
-        derive: fixed_single_block(&DERIVE_SK_DOMAIN, &witness.seed),
-        hash_sk: fixed_single_block(&HASH_OF_SK_DOMAIN, &witness.sk_seed),
+        commit: segment_block(SegmentKind::Commit, witness.seed),
+        derive: segment_block(SegmentKind::Derive, witness.seed),
+        hash_sk: segment_block(SegmentKind::HashSk, witness.sk_seed),
     }
-}
-
-fn encode_fixed_message(domain: &[u8; 32], payload: &Seed) -> [u8; 64] {
-    let mut message = [0_u8; 64];
-    message[..32].copy_from_slice(domain);
-    message[32..].copy_from_slice(payload);
-    message
 }
 
 #[cfg(test)]
@@ -285,11 +252,14 @@ mod tests {
     #[test]
     fn air_bundle_final_digest_matches_public_hash() {
         let bundle = build_private_seed_chain_bundle(sample_seed());
+        let trace = Sha512Circuit::compress_block(&INITIAL_STATE, &bundle.blocks.hash_sk);
+        let mut digest = [0_u8; 64];
+        for (i, chunk) in digest.chunks_exact_mut(8).enumerate() {
+            let word = INITIAL_STATE[i].wrapping_add(trace.round_states[80][i]);
+            chunk.copy_from_slice(&word.to_be_bytes());
+        }
 
-        assert_eq!(
-            Sha512Circuit::state_to_digest(&bundle.air_bundle.final_state),
-            bundle.public.hash_of_sk
-        );
+        assert_eq!(digest, bundle.public.hash_of_sk);
     }
 
     #[test]
