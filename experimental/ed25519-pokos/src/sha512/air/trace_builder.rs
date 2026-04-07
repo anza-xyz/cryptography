@@ -173,6 +173,19 @@ fn decode_word_from_inline(row: &[KoalaBear; AIR_WIDTH], word: usize) -> u64 {
     out
 }
 
+pub(super) fn add_with_carries_2(a: u64, b: u64) -> (u64, [u16; LIMBS_PER_WORD]) {
+    add_with_carries(&[u64_to_limbs(a), u64_to_limbs(b)])
+}
+
+pub(super) fn add_with_carries_4(a: u64, b: u64, c: u64, d: u64) -> (u64, [u16; LIMBS_PER_WORD]) {
+    add_with_carries(&[
+        u64_to_limbs(a),
+        u64_to_limbs(b),
+        u64_to_limbs(c),
+        u64_to_limbs(d),
+    ])
+}
+
 pub(super) fn add_with_carries_5(
     a: u64,
     b: u64,
@@ -180,75 +193,37 @@ pub(super) fn add_with_carries_5(
     d: u64,
     e: u64,
 ) -> (u64, [u16; LIMBS_PER_WORD]) {
-    let al = u64_to_limbs(a);
-    let bl = u64_to_limbs(b);
-    let cl = u64_to_limbs(c);
-    let dl = u64_to_limbs(d);
-    let el = u64_to_limbs(e);
-    let mut out = [0_u16; LIMBS_PER_WORD];
-    let mut carries = [0_u16; LIMBS_PER_WORD];
-    let mut carry = 0_u32;
-
-    for i in 0..LIMBS_PER_WORD {
-        let sum = al[i] as u32 + bl[i] as u32 + cl[i] as u32 + dl[i] as u32 + el[i] as u32 + carry;
-        out[i] = (sum & 0xffff) as u16;
-        carry = sum >> 16;
-        carries[i] = carry as u16;
-    }
-
-    (
-        u64::from(out[0])
-            | (u64::from(out[1]) << 16)
-            | (u64::from(out[2]) << 32)
-            | (u64::from(out[3]) << 48),
-        carries,
-    )
+    add_with_carries(&[
+        u64_to_limbs(a),
+        u64_to_limbs(b),
+        u64_to_limbs(c),
+        u64_to_limbs(d),
+        u64_to_limbs(e),
+    ])
 }
 
-pub(super) fn add_with_carries_2(a: u64, b: u64) -> (u64, [u16; LIMBS_PER_WORD]) {
-    let al = u64_to_limbs(a);
-    let bl = u64_to_limbs(b);
+/// Limb-wise addition of `operands` with carry propagation.
+///
+/// Returns `(sum mod 2^64, per-limb carries)`.  Each carry is the value carried
+/// into the next 16-bit limb after summing all operand limbs at that position.
+fn add_with_carries(operands: &[[u16; LIMBS_PER_WORD]]) -> (u64, [u16; LIMBS_PER_WORD]) {
     let mut out = [0_u16; LIMBS_PER_WORD];
     let mut carries = [0_u16; LIMBS_PER_WORD];
     let mut carry = 0_u32;
 
     for i in 0..LIMBS_PER_WORD {
-        let sum = al[i] as u32 + bl[i] as u32 + carry;
+        let sum: u32 = operands.iter().map(|o| u32::from(o[i])).sum::<u32>() + carry;
         out[i] = (sum & 0xffff) as u16;
         carry = sum >> 16;
         carries[i] = carry as u16;
     }
 
-    (
-        u64::from(out[0])
-            | (u64::from(out[1]) << 16)
-            | (u64::from(out[2]) << 32)
-            | (u64::from(out[3]) << 48),
-        carries,
-    )
+    (limbs_to_u64(out), carries)
 }
 
-pub(super) fn add_with_carries_4(a: u64, b: u64, c: u64, d: u64) -> (u64, [u16; LIMBS_PER_WORD]) {
-    let al = u64_to_limbs(a);
-    let bl = u64_to_limbs(b);
-    let cl = u64_to_limbs(c);
-    let dl = u64_to_limbs(d);
-    let mut out = [0_u16; LIMBS_PER_WORD];
-    let mut carries = [0_u16; LIMBS_PER_WORD];
-    let mut carry = 0_u32;
-
-    for i in 0..LIMBS_PER_WORD {
-        let sum = al[i] as u32 + bl[i] as u32 + cl[i] as u32 + dl[i] as u32 + carry;
-        out[i] = (sum & 0xffff) as u16;
-        carry = sum >> 16;
-        carries[i] = carry as u16;
-    }
-
-    (
-        u64::from(out[0])
-            | (u64::from(out[1]) << 16)
-            | (u64::from(out[2]) << 32)
-            | (u64::from(out[3]) << 48),
-        carries,
-    )
+fn limbs_to_u64(limbs: [u16; LIMBS_PER_WORD]) -> u64 {
+    u64::from(limbs[0])
+        | (u64::from(limbs[1]) << 16)
+        | (u64::from(limbs[2]) << 32)
+        | (u64::from(limbs[3]) << 48)
 }

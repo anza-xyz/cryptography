@@ -130,7 +130,7 @@ proving_time_ms: 55
 verification_time_ms: 13
 air_trace_rows: 512
 air_trace_cols: 1076
-proof_bytes: 401088
+proof_bytes: 400848
 verification: ok
 ```
 

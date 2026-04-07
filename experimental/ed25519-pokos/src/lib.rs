@@ -5,7 +5,6 @@
 
 use curve25519::ed_sigs::{Signature, VerificationKeyBytes};
 use sha2::{Digest, Sha512};
-use sha512::{prove_private_seed_chain, verify_private_seed_chain_statement};
 
 pub const SHA512_DIGEST_LEN: usize = 64;
 pub const ED25519_SEED_LEN: usize = 32;
@@ -75,33 +74,8 @@ pub enum DeserializeError {
     TrailingBytes,
 }
 
-pub fn commit_of_seed(seed: Seed) -> DigestBytes {
-    prover::commit_of_seed(seed)
-}
-
-pub fn derive_secret_key_material(seed: Seed) -> DerivedSecretKeyMaterial {
-    prover::derive_secret_key_material(seed)
-}
-
-pub fn statement_from_seed(seed: Seed) -> SeedChainStatement {
-    prover::statement_from_seed(seed)
-}
-
-pub fn gen_pokos(seed: Seed) -> Result<SeedChainProofEnvelope, String> {
-    prover::gen_pokos(seed)
-}
-
-pub fn verify_pokos(proof: &SeedChainProofEnvelope) -> Result<(), VerifyError> {
-    verifier::verify_pokos(proof)
-}
-
-pub fn serialize_proof(proof: &SeedChainProofEnvelope) -> Vec<u8> {
-    verifier::serialize_proof(proof)
-}
-
-pub fn deserialize_proof(bytes: &[u8]) -> Result<SeedChainProofEnvelope, DeserializeError> {
-    verifier::deserialize_proof(bytes)
-}
+pub use prover::{commit_of_seed, derive_secret_key_material, gen_pokos, statement_from_seed};
+pub use verifier::{deserialize_proof, serialize_proof, verify_pokos};
 
 fn sha512(message: &[u8]) -> DigestBytes {
     let digest = Sha512::digest(message);
@@ -120,50 +94,7 @@ const fn domain32(label: &[u8]) -> [u8; DOMAIN_LEN] {
     out
 }
 
-fn append_sha512_bundle(bytes: &mut Vec<u8>, bundle: &Sha512ProofBundle) {
-    bytes.extend_from_slice(&(bundle.sealed_proof.len() as u64).to_be_bytes());
-    bytes.extend_from_slice(&bundle.sealed_proof);
-}
-
-fn read_sha512_bundle(cursor: &mut Cursor<'_>) -> Result<Sha512ProofBundle, DeserializeError> {
-    let sealed_proof = cursor.read_vec()?;
-
-    Ok(Sha512ProofBundle { sealed_proof })
-}
-
-fn prove_sha512_bundle(seed: Seed) -> Result<Sha512ProofBundle, String> {
-    let sealed = prove_private_seed_chain(seed)?;
-    Ok(Sha512ProofBundle {
-        sealed_proof: sealed.sealed_proof,
-    })
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum BundleVerifyError {
-    InvalidProof,
-}
-
-fn verify_sha512_bundle(
-    bundle: &Sha512ProofBundle,
-    statement: SeedChainStatement,
-) -> Result<(), BundleVerifyError> {
-    let verified = verify_private_seed_chain_statement(
-        &sha512::SealedPrivateSeedChainProof {
-            sealed_proof: bundle.sealed_proof.clone(),
-        },
-        sha512::PrivateSeedChainPublic {
-            commit_of_seed: statement.commit_of_seed,
-            hash_of_sk: statement.hash_of_sk,
-        },
-    );
-    if !verified {
-        return Err(BundleVerifyError::InvalidProof);
-    }
-
-    Ok(())
-}
-
-fn fixed_single_block(domain: &[u8; DOMAIN_LEN], payload: &[u8]) -> [u8; 128] {
+pub(crate) fn fixed_single_block(domain: &[u8; DOMAIN_LEN], payload: &[u8]) -> [u8; 128] {
     assert_eq!(
         payload.len(),
         ED25519_SEED_LEN,
@@ -186,14 +117,14 @@ pub(crate) fn block_words(block: [u8; 128]) -> [u64; FIXED_BLOCK_WORDS] {
     words
 }
 
-fn encode_domain_message(domain: &[u8; DOMAIN_LEN], payload: &[u8]) -> Vec<u8> {
+pub(crate) fn encode_domain_message(domain: &[u8; DOMAIN_LEN], payload: &[u8]) -> Vec<u8> {
     let mut message = Vec::with_capacity(FIXED_MESSAGE_LEN);
     message.extend_from_slice(domain);
     message.extend_from_slice(payload);
     message
 }
 
-fn authentication_transcript(statement: SeedChainStatement) -> Vec<u8> {
+pub(crate) fn authentication_transcript(statement: SeedChainStatement) -> Vec<u8> {
     let mut transcript =
         Vec::with_capacity(AUTH_TRANSCRIPT_DOMAIN.len() + 1 + SHA512_DIGEST_LEN * 2);
     transcript.extend_from_slice(AUTH_TRANSCRIPT_DOMAIN);
@@ -201,53 +132,6 @@ fn authentication_transcript(statement: SeedChainStatement) -> Vec<u8> {
     transcript.extend_from_slice(&statement.commit_of_seed);
     transcript.extend_from_slice(&statement.hash_of_sk);
     transcript
-}
-
-struct Cursor<'a> {
-    bytes: &'a [u8],
-    offset: usize,
-}
-
-impl<'a> Cursor<'a> {
-    fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, offset: 0 }
-    }
-
-    fn read_exact(&mut self, len: usize) -> Result<Vec<u8>, DeserializeError> {
-        let end = self
-            .offset
-            .checked_add(len)
-            .ok_or(DeserializeError::Truncated)?;
-        if end > self.bytes.len() {
-            return Err(DeserializeError::Truncated);
-        }
-        let slice = self.bytes[self.offset..end].to_vec();
-        self.offset = end;
-        Ok(slice)
-    }
-
-    fn read_array<const N: usize>(&mut self) -> Result<[u8; N], DeserializeError> {
-        if self.offset + N > self.bytes.len() {
-            return Err(DeserializeError::Truncated);
-        }
-        let mut out = [0_u8; N];
-        out.copy_from_slice(&self.bytes[self.offset..self.offset + N]);
-        self.offset += N;
-        Ok(out)
-    }
-
-    fn read_u64(&mut self) -> Result<u64, DeserializeError> {
-        Ok(u64::from_be_bytes(self.read_array()?))
-    }
-
-    fn read_vec(&mut self) -> Result<Vec<u8>, DeserializeError> {
-        let len = self.read_u64()? as usize;
-        self.read_exact(len)
-    }
-
-    fn is_at_end(&self) -> bool {
-        self.offset == self.bytes.len()
-    }
 }
 
 #[cfg(test)]
