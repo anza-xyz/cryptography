@@ -83,10 +83,11 @@ the circuit. Instead of exposing `pk` as a public input and proving `sk -> pk`, 
 `hash_of_sk` and moves the `sk -> pk` linkage to an external Ed25519 signature.
 
 This increases proof size relative to the smallest Plonky3 setting, but it is still far more
-practical than the full end-to-end circuit. Roughly:
+practical than the full end-to-end circuit. On the current implementation and default settings,
+the runnable release example produces a proof of about `401 KB`:
 
-- temporary construction: about `150k` proof size
-- smallest Plonky3 target: about `50k`
+- temporary construction: about `401 KB` proof size in the current release example
+- smallest Plonky3 target: still materially smaller in principle
 - fully end-to-end construction: currently too large to be practical because of the circuit size
 
 ## Summary
@@ -119,6 +120,23 @@ Run the runnable example:
 ```bash
 cargo run --release -p ed25519-pokos --example gen_verify_pokos
 ```
+
+Sample output from a local release run:
+
+```text
+commit_of_seed: [01, ff, 79, 8a, 05, 6f, b4, a4, 25, 13, 16, d5, 9e, a3, fe, 21, e9, 1e, 56, dd, 6b, cb, 69, db, 03, dd, 27, f2, 06, 8d, 9a, a2, ca, c0, cc, f2, 6f, d3, 9f, 4c, cb, ac, 00, 8a, d8, c1, c0, 70, f8, 51, d2, c4, 64, b0, e7, bb, de, 4f, 86, bb, 0e, 2f, e1, dc]
+hash_of_sk: [52, 5c, 52, 0a, 8a, 61, bf, 28, df, 5b, a5, 4e, 31, fe, 53, 2d, 43, 3a, 35, 91, 5d, 6e, 78, 71, 4f, 01, 4c, de, c7, d8, 5f, 48, 9e, 91, a4, 3a, c9, be, 1b, ce, 63, a1, 15, 79, 84, 14, b4, ef, 06, c6, ec, c9, 60, 78, 0a, 52, 0c, ff, 48, d8, 75, fd, 6a, 67]
+proving_time_ms: 55
+verification_time_ms: 13
+air_trace_rows: 512
+air_trace_cols: 1076
+proof_bytes: 401088
+verification: ok
+```
+
+That example uses the fixed demo seed `[7_u8; 32]`. The exact timings will vary by machine, but
+the trace shape and proof envelope structure are expected to remain stable unless the AIR or proof
+settings change.
 
 ## Current Implementation Status
 
