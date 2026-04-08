@@ -102,38 +102,6 @@ curve25519 = { package = "solana-ed25519", git = "https://github.com/anza-xyz/cr
 use core::convert::TryFrom;
 use curve25519::ed_sigs::{SigningKey, VerificationKey};
 
-let msg = b"solana-ed25519";
-
-// Generate key and sign
-let sk = SigningKey::new(rand::rng());
-let sig = sk.sign(msg);
-let vk = VerificationKey::from(&sk);
-
-// Standard ZIP-215 verification (from ed25519-zebra)
-vk.verify(&sig, msg).expect("valid signature");
-
-// HEEA-accelerated verification (same result, ~15% faster)
-vk.verify_zebra(&sig, msg).expect("valid signature");
-```
-
-### Batch verification
-
-```rust,ignore
-use curve25519::ed_sigs::batch;
-
-let mut verifier = batch::Verifier::new();
-for (vk_bytes, sig, msg) in items {
-    verifier.queue((vk_bytes, sig, msg));
-}
-verifier.verify(rand::rng()).expect("all valid");
-```
-
-### Ed25519 signing and verification
-
-```rust,no_run
-use core::convert::TryFrom;
-use curve25519::ed_sigs::{SigningKey, VerificationKey};
-
 let msg = b"curve25519-sol";
 
 // Generate key and sign
