@@ -1,0 +1,23 @@
+[package]
+name = "ed25519-pokos"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bincode.workspace = true
+curve25519.workspace = true
+p3-air = "0.4.2"
+p3-challenger = "0.4.2"
+p3-commit = "0.4.2"
+p3-dft = { version = "0.4.2", features = ["parallel"] }
+p3-field = "0.4.2"
+p3-fri = "0.4.2"
+p3-keccak = "0.4.2"
+p3-koala-bear = "0.4.2"
+p3-matrix = "0.4.2"
+p3-merkle-tree = "0.4.2"
+p3-symmetric = "0.4.2"
+p3-uni-stark = { version = "0.4.2", features = ["parallel"] }
+rand = { version = "0.9", features = ["small_rng"] }
+serde = { version = "1.0", features = ["derive"] }
+sha2.workspace = true
