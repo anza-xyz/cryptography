@@ -1,13 +1,10 @@
 # Ed25519 Proof of Knowledge of Seed (POKOS)
 
-This crate implements a zero-knowledge proof that the prover knows a seed used
-to derive an Ed25519 secret key — without revealing the seed or the key.
+This crate is an experimental implementation testing (post-quantum) Proof of Knowledge (PoK) on an Ed25519 seed (see https://eprint.iacr.org/2025/1368). It constructs a zero-knowledge proof that a prover knows a seed used to derive an Ed25519 secret key—without revealing the seed or the key itself.
 
-The goal is not simply to prove knowledge of an Ed25519 secret key.  The seed,
-or a commitment to it, is intended to be reused in a separate protocol that
-derives post-quantum keys from the same root.  Because of that, the proof must
-say something about the seed derivation path, not only about the final Ed25519
-key material.
+This mechanism is useful for seamless blockchain migration, specifically on networks like Solana that natively rely on Ed25519 for account authentication. Because accounts are intrinsically tied to these public keys, a traditional transition to post-quantum signatures would require users to transfer assets and state to entirely new addresses. However, because EdDSA keys are deterministically derived from a seed (per RFC 8032), that seed can act as a reusable witness in a Post-Quantum Non-Interactive Zero-Knowledge (PQ-NIZK) proof. This allows a user to authorize a new quantum-safe key under their original on-chain identity, protecting dormant accounts and avoiding the friction of a network-wide asset migration even if the legacy public key has already been exposed.
+
+The goal is not simply to prove knowledge of an Ed25519 secret key. The seed, or a commitment to it, is intended to be reused in a separate protocol that derives post-quantum keys from the same root. Consequently, the proof must constrain the entire seed derivation path, rather than merely validating the final Ed25519 key material.
 
 ## Protocol shape
 
