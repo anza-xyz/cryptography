@@ -176,7 +176,6 @@ fn bench_pairing(c: &mut Criterion) {
     bench_pair_size!(group, 2);
     bench_pair_size!(group, 4);
     bench_pair_size!(group, 8);
-    bench_pair_size!(group, 16);
     group.finish();
 }
 
