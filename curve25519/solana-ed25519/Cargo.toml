@@ -57,7 +57,7 @@ hashbrown.workspace = true
 der = { workspace = true, optional = true }
 pkcs8 = { workspace = true, optional = true }
 sha2.workspace = true
-subtle.workspace = true
+subtle = { workspace = true, features = ["const-generics"] }
 serde = { workspace = true, optional = true }
 zeroize = { workspace = true, optional = true }
 
