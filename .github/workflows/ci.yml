@@ -32,6 +32,9 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      - name: Check benchmarks compile
+        run: cargo bench --workspace --all-targets --no-run
+
       - name: Lint
         run: cargo clippy --workspace --all-targets -- -D warnings
 

@@ -3,11 +3,16 @@ members = [
     "curve25519/curve25519-cuda",
     "curve25519/solana-ed25519", 
     "experimental/ed25519-pokos",
+    "syscall/bls12-381-syscall",
 ]
 resolver = "2"
 
 [workspace.dependencies]
 bincode = "1"
+blst = "0.3.16"
+blstrs = "0.7.1"
+bytemuck = "1.25.0"
+bytemuck_derive = "1.10.2"
 cc = "1.0"
 cfg-if = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
@@ -19,10 +24,12 @@ digest = { version = "0.11.0-rc.4", default-features = false, features = ["block
 ed25519 = { version = "2.2.3", default-features = false }
 ed25519-dalek = "2.2.0"
 ed25519-zebra = "4.2.0"
-ff = { version = "=0.14.0-pre.0", package = "rustcrypto-ff", default-features = false }
-group = { version = "=0.14.0-pre.0", package = "rustcrypto-group", default-features = false }
+ff = { version = "0.13.0", default-features = false }
+group = { version = "0.13.0", default-features = false }
 hashbrown = "0.15"
 hex = "0.4.2"
+hex-literal = "1.1.0"
+pairing = "0.23.0"
 pkcs8 = { version = "0.10.1", features = ["pem"] }
 proptest = "1"
 rand = "0.10.0-rc.5"
