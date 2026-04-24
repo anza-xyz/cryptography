@@ -17,7 +17,7 @@ blst = { workspace = true }
 blstrs = { workspace = true }
 bytemuck = { workspace = true, features = ["min_const_generics"] }
 bytemuck_derive = { workspace = true }
-group = "0.13.0"
+group = { workspace = true }
 pairing = { workspace = true }
 
 [dev-dependencies]
