@@ -3,10 +3,10 @@ name = "solana-bls12-381-syscall"
 description = "Solana BLS12-381 Syscall"
 documentation = "https://docs.rs/solana-bls12-381-syscall"
 version = "0.1.0"
-authors = ["Anza Maintainers <maintainers@anza.xyz>"]
-repository = "https://github.com/anza-xyz/cryptography"
-homepage = "https://anza.xyz/"
-license = "Apache-2.0"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
 edition = "2024"
 
 [package.metadata.docs.rs]
