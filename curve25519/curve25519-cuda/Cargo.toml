@@ -2,7 +2,10 @@
 name = "solana-curve25519-cuda"
 version = "0.1.0"
 edition = "2024"
-authors = ["Anza Cryptography Team"]
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
 
 [dependencies]
 curve25519.workspace = true

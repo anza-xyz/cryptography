@@ -4,7 +4,7 @@ mod test_vectors;
 
 use {
     bytemuck::pod_read_unaligned,
-    criterion::{BenchmarkId, Criterion, criterion_group, criterion_main},
+    criterion::{criterion_group, criterion_main, BenchmarkId, Criterion},
     solana_bls12_381_syscall::*,
     test_vectors::*,
 };

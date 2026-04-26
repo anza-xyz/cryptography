@@ -1,11 +1,18 @@
 [workspace]
 members = [
     "curve25519/curve25519-cuda",
-    "curve25519/solana-ed25519", 
+    "curve25519/solana-ed25519",
     "experimental/ed25519-pokos",
     "syscall/bls12-381-syscall",
 ]
 resolver = "2"
+
+[workspace.package]
+authors = ["Anza Maintainers <maintainers@anza.xyz>"]
+repository = "https://github.com/anza-xyz/cryptography"
+homepage = "https://anza.xyz/"
+license = "Apache-2.0"
+rust-version = "1.89.0"                                 # solana platform-tools rust version
 
 [workspace.dependencies]
 bincode = "1"
