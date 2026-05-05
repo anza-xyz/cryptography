@@ -56,7 +56,7 @@ pub type SecretKey = [u8; SECRET_KEY_LENGTH];
 /// An Ed25519 signing key.
 ///
 /// This is also called a secret key by other implementations.
-#[derive(Copy, Clone, Zeroize)]
+#[derive(Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(from = "SerdeHelper"))]
 #[cfg_attr(feature = "serde", serde(into = "SerdeHelper"))]
@@ -65,6 +65,15 @@ pub struct SigningKey {
     s: Scalar,
     prefix: [u8; 32],
     vk: VerificationKey,
+}
+
+impl Zeroize for SigningKey {
+    fn zeroize(&mut self) {
+        self.seed.zeroize();
+        self.s.zeroize();
+        self.prefix.zeroize();
+        self.vk.zeroize();
+    }
 }
 
 impl core::fmt::Debug for SigningKey {
