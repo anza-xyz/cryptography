@@ -32,11 +32,23 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      - name: Check benchmarks compile
-        run: cargo bench --workspace --all-targets --no-run
-
       - name: Lint
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Test
         run: cargo test --workspace --all-targets
+
+  feature-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install cargo-hack
+        uses: taiki-e/install-action@cca35edeb1d01366c2843b68fc3ca441446d73d3 # v2.77.1
+        with:
+          tool: cargo-hack
+
+      - name: Check
+        run: |
+          cargo hack check --each-feature --all-targets
