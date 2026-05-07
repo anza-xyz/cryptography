@@ -1,13 +1,13 @@
 #[cfg(feature = "std")]
 use crate::ed_sigs::tests::small_order::SMALL_ORDER_SIGS;
 use crate::{
-    Scalar,
-    ed_sigs::{Error, HEEA_PARAM_LENGTH, HEEAParam, Signature, SigningKey, VerificationKey},
+    ed_sigs::{Error, HEEAParam, Signature, SigningKey, VerificationKey, HEEA_PARAM_LENGTH},
     traits::HEEADecomposition,
+    Scalar,
 };
 #[cfg(feature = "std")]
 use core::convert::TryFrom;
-use sha2::{Sha512, digest::Update};
+use sha2::{digest::Update, Sha512};
 
 fn challenge_scalar(vk: &VerificationKey, signature: &Signature, msg: &[u8]) -> Scalar {
     Scalar::from_hash(
@@ -104,7 +104,7 @@ fn test_relayer_verify_with_precomputed_heea_params() {
     let signature = signing_key.sign(msg);
     let heea_params =
         HEEAParam::try_from(challenge_scalar(&verification_key, &signature, msg).heea_decompose())
-            .unwrap();
+            .expect("HEEA decomposition should fit relayer parameter encoding");
 
     assert_eq!(
         verification_key.relayer_verify(&signature, msg, heea_params),
@@ -132,7 +132,7 @@ fn test_heea_params_roundtrip_33_byte_encoding() {
     let signature = signing_key.sign(msg);
     let heea_params =
         HEEAParam::try_from(challenge_scalar(&verification_key, &signature, msg).heea_decompose())
-            .unwrap();
+            .expect("HEEA decomposition should fit relayer parameter encoding");
     let bytes = heea_params.to_bytes();
 
     assert_eq!(bytes.len(), HEEA_PARAM_LENGTH);
@@ -142,7 +142,8 @@ fn test_heea_params_roundtrip_33_byte_encoding() {
         verification_key.relayer_verify(
             &signature,
             msg,
-            HEEAParam::try_from(bytes.as_ref()).unwrap()
+            HEEAParam::try_from(bytes.as_ref())
+                .expect("serialized HEEA parameters should deserialize")
         )
     );
 }
@@ -179,7 +180,7 @@ fn test_relayer_verify_dalek_with_precomputed_heea_params() {
     let signature = signing_key.sign(msg);
     let heea_params =
         HEEAParam::try_from(challenge_scalar(&verification_key, &signature, msg).heea_decompose())
-            .unwrap();
+            .expect("HEEA decomposition should fit relayer parameter encoding");
 
     assert_eq!(
         verification_key.relayer_verify_dalek(&signature, msg, heea_params),
@@ -196,9 +197,10 @@ fn test_relayer_verify_dalek_with_precomputed_heea_params() {
 fn test_verify_dalek_matches_legacy_edge_cases() {
     for case in SMALL_ORDER_SIGS.iter() {
         let sig = Signature::from(case.sig_bytes);
-        let vk = VerificationKey::try_from(case.vk_bytes).unwrap();
+        let vk = VerificationKey::try_from(case.vk_bytes).expect("test vector key should parse");
         let heea_params =
-            HEEAParam::try_from(challenge_scalar(&vk, &sig, b"Zcash").heea_decompose()).unwrap();
+            HEEAParam::try_from(challenge_scalar(&vk, &sig, b"Zcash").heea_decompose())
+                .expect("HEEA decomposition should fit relayer parameter encoding");
         let result = vk.verify_dalek(&sig, b"Zcash");
 
         assert_eq!(

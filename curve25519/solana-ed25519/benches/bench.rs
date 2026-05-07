@@ -1,12 +1,12 @@
 use core::convert::TryFrom;
 
-use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use curve25519::ed_sigs::*;
-use curve25519::{Scalar, traits::HEEADecomposition};
+use curve25519::{traits::HEEADecomposition, Scalar};
 use ed25519::signature::Verifier as _;
 use ed25519_dalek::VerifyingKey as DalekVerifyingKey;
 use ed25519_zebra::VerificationKey as ZebraVerificationKey;
-use sha2::{Sha512, digest::Update};
+use sha2::{digest::Update, Sha512};
 
 fn sigs_with_distinct_pubkeys() -> impl Iterator<Item = (VerificationKeyBytes, Signature)> {
     std::iter::repeat_with(|| {
@@ -115,8 +115,8 @@ fn bench_single_verify(c: &mut Criterion) {
 
     group.bench_function("local_relayer_verify", |b| {
         let (vk, sig, _, _) = single_verify_inputs();
-        let heea_params =
-            HEEAParam::try_from(challenge_scalar(&vk, &sig, b"").heea_decompose()).unwrap();
+        let heea_params = HEEAParam::try_from(challenge_scalar(&vk, &sig, b"").heea_decompose())
+            .expect("HEEA decomposition should fit relayer parameter encoding");
         b.iter(|| {
             let _ = vk.relayer_verify(&sig, b"", heea_params);
         })

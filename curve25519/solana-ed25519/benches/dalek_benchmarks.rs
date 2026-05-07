@@ -4,7 +4,7 @@ use rand::rng;
 use rand_core::Rng as RngCore;
 
 use criterion::{
-    BatchSize, BenchmarkGroup, BenchmarkId, Criterion, criterion_main, measurement::Measurement,
+    criterion_main, measurement::Measurement, BatchSize, BenchmarkGroup, BenchmarkId, Criterion,
 };
 #[cfg(feature = "digest")]
 use sha2::Sha512;
@@ -44,7 +44,11 @@ mod edwards_benches {
     fn decompress<M: Measurement>(c: &mut BenchmarkGroup<M>) {
         let B_comp = &constants::ED25519_BASEPOINT_COMPRESSED;
         c.bench_function("EdwardsPoint decompression", move |b| {
-            b.iter(|| B_comp.decompress().unwrap())
+            b.iter(|| {
+                B_comp
+                    .decompress()
+                    .expect("basepoint encoding should decompress")
+            })
         });
     }
 
@@ -292,7 +296,11 @@ mod ristretto_benches {
     fn decompress<M: Measurement>(c: &mut BenchmarkGroup<M>) {
         c.bench_function("RistrettoPoint decompression", |b| {
             let B_comp = &constants::RISTRETTO_BASEPOINT_COMPRESSED;
-            b.iter(|| B_comp.decompress().unwrap())
+            b.iter(|| {
+                B_comp
+                    .decompress()
+                    .expect("basepoint encoding should decompress")
+            })
         });
     }
 
