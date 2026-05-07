@@ -1,12 +1,12 @@
 use core::convert::TryFrom;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use curve25519::ed_sigs::*;
-use curve25519::{traits::HEEADecomposition, Scalar};
+use curve25519::{Scalar, traits::HEEADecomposition};
 use ed25519::signature::Verifier as _;
 use ed25519_dalek::VerifyingKey as DalekVerifyingKey;
 use ed25519_zebra::VerificationKey as ZebraVerificationKey;
-use sha2::{digest::Update, Sha512};
+use sha2::{Sha512, digest::Update};
 
 fn sigs_with_distinct_pubkeys() -> impl Iterator<Item = (VerificationKeyBytes, Signature)> {
     std::iter::repeat_with(|| {

@@ -4,7 +4,7 @@ use rand::rng;
 use rand_core::Rng as RngCore;
 
 use criterion::{
-    criterion_main, measurement::Measurement, BatchSize, BenchmarkGroup, BenchmarkId, Criterion,
+    BatchSize, BenchmarkGroup, BenchmarkId, Criterion, criterion_main, measurement::Measurement,
 };
 #[cfg(feature = "digest")]
 use sha2::Sha512;

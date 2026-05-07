@@ -1,13 +1,13 @@
 #[cfg(feature = "std")]
 use crate::ed_sigs::tests::small_order::SMALL_ORDER_SIGS;
 use crate::{
-    ed_sigs::{Error, HEEAParam, Signature, SigningKey, VerificationKey, HEEA_PARAM_LENGTH},
-    traits::HEEADecomposition,
     Scalar,
+    ed_sigs::{Error, HEEA_PARAM_LENGTH, HEEAParam, Signature, SigningKey, VerificationKey},
+    traits::HEEADecomposition,
 };
 #[cfg(feature = "std")]
 use core::convert::TryFrom;
-use sha2::{digest::Update, Sha512};
+use sha2::{Sha512, digest::Update};
 
 fn challenge_scalar(vk: &VerificationKey, signature: &Signature, msg: &[u8]) -> Scalar {
     Scalar::from_hash(
