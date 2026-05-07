@@ -2,7 +2,7 @@
 use crate::ed_sigs::tests::small_order::SMALL_ORDER_SIGS;
 use crate::{
     Scalar,
-    ed_sigs::{Error, Signature, SigningKey, VerificationKey},
+    ed_sigs::{Error, HEEA_PARAM_LENGTH, HEEAParam, Signature, SigningKey, VerificationKey},
     traits::HEEADecomposition,
 };
 #[cfg(feature = "std")]
@@ -102,7 +102,9 @@ fn test_relayer_verify_with_precomputed_heea_params() {
     let verification_key = VerificationKey::from(&signing_key);
     let msg = b"relayer verification mode";
     let signature = signing_key.sign(msg);
-    let heea_params = challenge_scalar(&verification_key, &signature, msg).heea_decompose();
+    let heea_params =
+        HEEAParam::try_from(challenge_scalar(&verification_key, &signature, msg).heea_decompose())
+            .unwrap();
 
     assert_eq!(
         verification_key.relayer_verify(&signature, msg, heea_params),
@@ -116,15 +118,32 @@ fn test_relayer_verify_with_precomputed_heea_params() {
 
 #[test]
 fn test_relayer_verify_rejects_zero_heea_params() {
+    let bytes = [0u8; HEEA_PARAM_LENGTH];
+
+    assert_eq!(HEEAParam::try_from(bytes), Err(Error::InvalidSignature));
+}
+
+#[test]
+fn test_heea_params_roundtrip_33_byte_encoding() {
     let mut rng = rand::rng();
     let signing_key = SigningKey::new(&mut rng);
     let verification_key = VerificationKey::from(&signing_key);
-    let msg = b"zero relayer params";
+    let msg = b"relayer param serialization";
     let signature = signing_key.sign(msg);
+    let heea_params =
+        HEEAParam::try_from(challenge_scalar(&verification_key, &signature, msg).heea_decompose())
+            .unwrap();
+    let bytes = heea_params.to_bytes();
 
+    assert_eq!(bytes.len(), HEEA_PARAM_LENGTH);
+    assert_eq!(HEEAParam::try_from(bytes), Ok(heea_params));
     assert_eq!(
-        verification_key.relayer_verify(&signature, msg, (Scalar::ZERO, Scalar::ZERO, false)),
-        Err(Error::InvalidSignature)
+        verification_key.relayer_verify(&signature, msg, heea_params),
+        verification_key.relayer_verify(
+            &signature,
+            msg,
+            HEEAParam::try_from(bytes.as_ref()).unwrap()
+        )
     );
 }
 
@@ -141,11 +160,7 @@ fn test_relayer_verify_rejects_full_size_heea_params() {
 
         if h.as_bytes()[16..32].iter().any(|&byte| byte != 0) {
             assert_eq!(
-                verification_key.relayer_verify(
-                    &signature,
-                    msg.as_bytes(),
-                    (h, Scalar::ONE, false)
-                ),
+                HEEAParam::try_from((h, Scalar::ONE, false)),
                 Err(Error::InvalidSignature)
             );
             return;
@@ -162,7 +177,9 @@ fn test_relayer_verify_dalek_with_precomputed_heea_params() {
     let verification_key = VerificationKey::from(&signing_key);
     let msg = b"dalek relayer verification mode";
     let signature = signing_key.sign(msg);
-    let heea_params = challenge_scalar(&verification_key, &signature, msg).heea_decompose();
+    let heea_params =
+        HEEAParam::try_from(challenge_scalar(&verification_key, &signature, msg).heea_decompose())
+            .unwrap();
 
     assert_eq!(
         verification_key.relayer_verify_dalek(&signature, msg, heea_params),
@@ -180,7 +197,8 @@ fn test_verify_dalek_matches_legacy_edge_cases() {
     for case in SMALL_ORDER_SIGS.iter() {
         let sig = Signature::from(case.sig_bytes);
         let vk = VerificationKey::try_from(case.vk_bytes).unwrap();
-        let heea_params = challenge_scalar(&vk, &sig, b"Zcash").heea_decompose();
+        let heea_params =
+            HEEAParam::try_from(challenge_scalar(&vk, &sig, b"Zcash").heea_decompose()).unwrap();
         let result = vk.verify_dalek(&sig, b"Zcash");
 
         assert_eq!(

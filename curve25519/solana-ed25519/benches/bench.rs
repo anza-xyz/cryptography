@@ -2,9 +2,11 @@ use core::convert::TryFrom;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use curve25519::ed_sigs::*;
+use curve25519::{Scalar, traits::HEEADecomposition};
 use ed25519::signature::Verifier as _;
 use ed25519_dalek::VerifyingKey as DalekVerifyingKey;
 use ed25519_zebra::VerificationKey as ZebraVerificationKey;
+use sha2::{Sha512, digest::Update};
 
 fn sigs_with_distinct_pubkeys() -> impl Iterator<Item = (VerificationKeyBytes, Signature)> {
     std::iter::repeat_with(|| {
@@ -39,6 +41,15 @@ fn single_verify_inputs() -> (
     let dalek_vk = DalekVerifyingKey::from_bytes(&vk_bytes).expect("dalek verification key");
 
     (vk, sig, zebra_vk, dalek_vk)
+}
+
+fn challenge_scalar(vk: &VerificationKey, signature: &Signature, msg: &[u8]) -> Scalar {
+    Scalar::from_hash(
+        Sha512::default()
+            .chain(&signature.r_bytes()[..])
+            .chain(vk.as_ref())
+            .chain(msg),
+    )
 }
 
 fn bench_batch_verify(c: &mut Criterion) {
@@ -94,6 +105,22 @@ fn bench_batch_verify(c: &mut Criterion) {
 
 fn bench_single_verify(c: &mut Criterion) {
     let mut group = c.benchmark_group("Single Verification");
+
+    group.bench_function("local_verify", |b| {
+        let (vk, sig, _, _) = single_verify_inputs();
+        b.iter(|| {
+            let _ = vk.verify(&sig, b"");
+        })
+    });
+
+    group.bench_function("local_relayer_verify", |b| {
+        let (vk, sig, _, _) = single_verify_inputs();
+        let heea_params =
+            HEEAParam::try_from(challenge_scalar(&vk, &sig, b"").heea_decompose()).unwrap();
+        b.iter(|| {
+            let _ = vk.relayer_verify(&sig, b"", heea_params);
+        })
+    });
 
     group.bench_function("local_verify_zebra", |b| {
         let (vk, sig, _, _) = single_verify_inputs();

@@ -48,6 +48,12 @@ name = "dalek_benchmarks"
 harness = false
 required-features = ["alloc"]
 
+
+[[bench]]
+name = "bench"
+harness = false
+required-features = ["alloc"]
+
 [dependencies]
 cfg-if.workspace = true
 ed25519.workspace = true

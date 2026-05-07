@@ -18,10 +18,10 @@ use crate::{
     traits::{HEEADecomposition, IsIdentity},
 };
 use core::convert::{TryFrom, TryInto};
-use sha2::{Sha512, digest::Update};
+use sha2::{digest::Update, Sha512};
 use zeroize::DefaultIsZeroes;
 
-use ed25519::{Signature, signature::Verifier};
+use ed25519::{signature::Verifier, Signature};
 
 #[cfg(feature = "pkcs8")]
 use pkcs8::der::asn1::BitStringRef;
@@ -36,6 +36,116 @@ use super::Error;
 
 /// The length of an ed25519 `VerificationKey`, in bytes.
 pub const VERIFICATION_KEY_LENGTH: usize = 32;
+
+/// The byte length of serialized HEEA decomposition parameters.
+pub const HEEA_PARAM_LENGTH: usize = 33;
+
+const HEEA_PARAM_SCALAR_LENGTH: usize = 16;
+
+/// HEEA scalar-decomposition parameters for relayer verification.
+///
+/// This type stores `(rho, tau, flip_h)` where `rho` and `tau` are guaranteed
+/// to fit in 128 bits. Its byte encoding is:
+///
+/// * 16 little-endian bytes for `rho`;
+/// * 16 little-endian bytes for `tau`;
+/// * one byte for `flip_h`, encoded as `0` or `1`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct HEEAParam {
+    rho: Scalar,
+    tau: Scalar,
+    flip_h: bool,
+}
+
+impl HEEAParam {
+    /// Construct HEEA parameters from decomposed scalar values.
+    ///
+    /// This rejects values that do not fit in the 16-byte serialized form, and
+    /// rejects `tau = 0`.
+    pub fn new(rho: Scalar, tau: Scalar, flip_h: bool) -> Result<Self, Error> {
+        if tau == Scalar::ZERO
+            || !Self::is_half_size_scalar(&rho)
+            || !Self::is_half_size_scalar(&tau)
+        {
+            return Err(Error::InvalidSignature);
+        }
+
+        Ok(Self { rho, tau, flip_h })
+    }
+
+    /// Serialize these HEEA parameters into their 33-byte encoding.
+    pub fn to_bytes(&self) -> [u8; HEEA_PARAM_LENGTH] {
+        let mut bytes = [0u8; HEEA_PARAM_LENGTH];
+        bytes[..HEEA_PARAM_SCALAR_LENGTH]
+            .copy_from_slice(&self.rho.as_bytes()[..HEEA_PARAM_SCALAR_LENGTH]);
+        bytes[HEEA_PARAM_SCALAR_LENGTH..2 * HEEA_PARAM_SCALAR_LENGTH]
+            .copy_from_slice(&self.tau.as_bytes()[..HEEA_PARAM_SCALAR_LENGTH]);
+        bytes[2 * HEEA_PARAM_SCALAR_LENGTH] = self.flip_h as u8;
+        bytes
+    }
+
+    fn is_half_size_scalar(scalar: &Scalar) -> bool {
+        scalar.as_bytes()[HEEA_PARAM_SCALAR_LENGTH..]
+            .iter()
+            .all(|&byte| byte == 0)
+    }
+
+    fn scalar_from_16_bytes(bytes: &[u8]) -> Scalar {
+        let mut scalar_bytes = [0u8; HEEA_PARAM_SCALAR_LENGTH];
+        scalar_bytes.copy_from_slice(bytes);
+        Scalar::from(u128::from_le_bytes(scalar_bytes))
+    }
+}
+
+impl TryFrom<&[u8]> for HEEAParam {
+    type Error = Error;
+
+    fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
+        if slice.len() != HEEA_PARAM_LENGTH {
+            return Err(Error::InvalidSliceLength);
+        }
+
+        let rho = Self::scalar_from_16_bytes(&slice[..HEEA_PARAM_SCALAR_LENGTH]);
+        let tau = Self::scalar_from_16_bytes(
+            &slice[HEEA_PARAM_SCALAR_LENGTH..2 * HEEA_PARAM_SCALAR_LENGTH],
+        );
+        let flip_h = match slice[2 * HEEA_PARAM_SCALAR_LENGTH] {
+            0 => false,
+            1 => true,
+            _ => return Err(Error::InvalidSignature),
+        };
+
+        Self::new(rho, tau, flip_h)
+    }
+}
+
+impl TryFrom<[u8; HEEA_PARAM_LENGTH]> for HEEAParam {
+    type Error = Error;
+
+    fn try_from(bytes: [u8; HEEA_PARAM_LENGTH]) -> Result<Self, Self::Error> {
+        Self::try_from(&bytes[..])
+    }
+}
+
+impl TryFrom<(Scalar, Scalar, bool)> for HEEAParam {
+    type Error = Error;
+
+    fn try_from((rho, tau, flip_h): (Scalar, Scalar, bool)) -> Result<Self, Self::Error> {
+        Self::new(rho, tau, flip_h)
+    }
+}
+
+impl From<HEEAParam> for [u8; HEEA_PARAM_LENGTH] {
+    fn from(params: HEEAParam) -> [u8; HEEA_PARAM_LENGTH] {
+        params.to_bytes()
+    }
+}
+
+impl From<HEEAParam> for (Scalar, Scalar, bool) {
+    fn from(params: HEEAParam) -> (Scalar, Scalar, bool) {
+        (params.rho, params.tau, params.flip_h)
+    }
+}
 
 /// A refinement type for `[u8; 32]` indicating that the bytes represent an
 /// encoding of an Ed25519 verification key.
@@ -246,17 +356,8 @@ impl VerificationKey {
         )
     }
 
-    fn validate_decomposed_heea_params(
-        h: &Scalar,
-        (rho, tau, flip_h): (Scalar, Scalar, bool),
-    ) -> Result<(), Error> {
-        if tau == Scalar::ZERO
-            || !Self::is_heea_half_size_scalar(&rho)
-            || !Self::is_heea_half_size_scalar(&tau)
-        {
-            return Err(Error::InvalidSignature);
-        }
-
+    fn validate_decomposed_heea_params(h: &Scalar, heea_params: HEEAParam) -> Result<(), Error> {
+        let (rho, tau, flip_h) = heea_params.into();
         let expected_rho = tau * *h;
         let expected_rho = if flip_h { -expected_rho } else { expected_rho };
 
@@ -265,10 +366,6 @@ impl VerificationKey {
         } else {
             Err(Error::InvalidSignature)
         }
-    }
-
-    fn is_heea_half_size_scalar(scalar: &Scalar) -> bool {
-        scalar.as_bytes()[16..32].iter().all(|&byte| byte == 0)
     }
 
     /// Verify a purported `signature` on the given `msg`.
@@ -307,7 +404,7 @@ impl VerificationKey {
         &self,
         signature: &Signature,
         msg: &[u8],
-        heea_params: (Scalar, Scalar, bool),
+        heea_params: HEEAParam,
     ) -> Result<(), Error> {
         self.relayer_verify_zebra(signature, msg, heea_params)
     }
@@ -339,10 +436,10 @@ impl VerificationKey {
 
     /// Verify a signature using caller-provided HEEA decomposition parameters.
     ///
-    /// The `heea_params` tuple is `(rho, tau, flip_h)` from decomposing the
-    /// challenge scalar `H(R_bytes || A_bytes || msg)`. This method checks that
-    /// the supplied parameters match that challenge, then verifies the signature
-    /// without recomputing the HEEA decomposition.
+    /// The `heea_params` value contains `(rho, tau, flip_h)` from decomposing
+    /// the challenge scalar `H(R_bytes || A_bytes || msg)`. This method checks
+    /// that the supplied parameters match that challenge, then verifies the
+    /// signature without recomputing the HEEA decomposition.
     ///
     /// This uses the same Zebra / ZIP-215 consensus semantics as
     /// [`Self::verify_zebra`].
@@ -356,11 +453,11 @@ impl VerificationKey {
         &self,
         signature: &Signature,
         msg: &[u8],
-        heea_params: (Scalar, Scalar, bool),
+        heea_params: HEEAParam,
     ) -> Result<(), Error> {
         let h = self.challenge_scalar(signature, msg);
         Self::validate_decomposed_heea_params(&h, heea_params)?;
-        self.verify_zebra_with_decomposed_heea(signature, heea_params)
+        self.verify_zebra_with_decomposed_heea(signature, heea_params.into())
     }
 
     #[allow(non_snake_case)]
@@ -432,10 +529,10 @@ impl VerificationKey {
     /// Verify a signature with `ed25519-dalek`-style byte-level behavior using
     /// caller-provided HEEA decomposition parameters.
     ///
-    /// The `heea_params` tuple is `(rho, tau, flip_h)` from decomposing the
-    /// challenge scalar `H(R_bytes || A_bytes || msg)`. This method checks that
-    /// the supplied parameters match that challenge, then verifies the signature
-    /// without recomputing the HEEA decomposition.
+    /// The `heea_params` value contains `(rho, tau, flip_h)` from decomposing
+    /// the challenge scalar `H(R_bytes || A_bytes || msg)`. This method checks
+    /// that the supplied parameters match that challenge, then verifies the
+    /// signature without recomputing the HEEA decomposition.
     ///
     /// This preserves the `ed25519-dalek`-compatible behavior of
     /// [`Self::verify_dalek`].
@@ -449,11 +546,11 @@ impl VerificationKey {
         &self,
         signature: &Signature,
         msg: &[u8],
-        heea_params: (Scalar, Scalar, bool),
+        heea_params: HEEAParam,
     ) -> Result<(), Error> {
         let h = self.challenge_scalar(signature, msg);
         Self::validate_decomposed_heea_params(&h, heea_params)?;
-        self.verify_dalek_with_decomposed_heea(signature, heea_params)
+        self.verify_dalek_with_decomposed_heea(signature, heea_params.into())
     }
 
     #[allow(non_snake_case)]
@@ -480,7 +577,7 @@ impl VerificationKey {
 
         let result = EdwardsPoint::vartime_triple_scalar_mul_basepoint(&tau, &r, &rho, &A, &neg_ts);
 
-        if result.is_identity() {
+        if result.is_identity() && r.compress().as_bytes() == signature.r_bytes() {
             Ok(())
         } else {
             Err(Error::InvalidSignature)
