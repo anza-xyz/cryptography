@@ -18,10 +18,10 @@ use crate::{
     traits::{HEEADecomposition, IsIdentity},
 };
 use core::convert::{TryFrom, TryInto};
-use sha2::{digest::Update, Sha512};
+use sha2::{Sha512, digest::Update};
 use zeroize::DefaultIsZeroes;
 
-use ed25519::{signature::Verifier, Signature};
+use ed25519::{Signature, signature::Verifier};
 
 #[cfg(feature = "pkcs8")]
 use pkcs8::der::asn1::BitStringRef;
