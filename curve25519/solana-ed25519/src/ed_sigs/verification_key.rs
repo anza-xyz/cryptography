@@ -246,6 +246,31 @@ impl VerificationKey {
         )
     }
 
+    fn validate_decomposed_heea_params(
+        h: &Scalar,
+        (rho, tau, flip_h): (Scalar, Scalar, bool),
+    ) -> Result<(), Error> {
+        if tau == Scalar::ZERO
+            || !Self::is_heea_half_size_scalar(&rho)
+            || !Self::is_heea_half_size_scalar(&tau)
+        {
+            return Err(Error::InvalidSignature);
+        }
+
+        let expected_rho = tau * *h;
+        let expected_rho = if flip_h { -expected_rho } else { expected_rho };
+
+        if rho == expected_rho {
+            Ok(())
+        } else {
+            Err(Error::InvalidSignature)
+        }
+    }
+
+    fn is_heea_half_size_scalar(scalar: &Scalar) -> bool {
+        scalar.as_bytes()[16..32].iter().all(|&byte| byte == 0)
+    }
+
     /// Verify a purported `signature` on the given `msg`.
     ///
     /// This is the default verification mode and uses the HEEA-accelerated
@@ -274,6 +299,23 @@ impl VerificationKey {
         self.verify_zebra(signature, msg)
     }
 
+    /// Verify a signature using caller-provided HEEA decomposition parameters
+    /// with Zebra / ZIP-215 semantics.
+    ///
+    /// This is an alias for [`Self::relayer_verify_zebra`].
+    pub fn relayer_verify(
+        &self,
+        signature: &Signature,
+        msg: &[u8],
+        heea_params: (Scalar, Scalar, bool),
+    ) -> Result<(), Error> {
+        self.relayer_verify_zebra(signature, msg, heea_params)
+    }
+
+    // ==============================
+    //  zebra related methods
+    // ==============================
+
     /// Verify a signature using HEEA with Zebra / ZIP-215 semantics.
     ///
     /// This implements the algorithm from "Accelerating EdDSA Signature Verification
@@ -295,6 +337,32 @@ impl VerificationKey {
         self.verify_zebra_prehashed(signature, self.challenge_scalar(signature, msg))
     }
 
+    /// Verify a signature using caller-provided HEEA decomposition parameters.
+    ///
+    /// The `heea_params` tuple is `(rho, tau, flip_h)` from decomposing the
+    /// challenge scalar `H(R_bytes || A_bytes || msg)`. This method checks that
+    /// the supplied parameters match that challenge, then verifies the signature
+    /// without recomputing the HEEA decomposition.
+    ///
+    /// This uses the same Zebra / ZIP-215 consensus semantics as
+    /// [`Self::verify_zebra`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidSignature`] if the signature is malformed, the
+    /// supplied HEEA parameters do not match the message challenge, or the
+    /// verification equation does not hold.
+    pub fn relayer_verify_zebra(
+        &self,
+        signature: &Signature,
+        msg: &[u8],
+        heea_params: (Scalar, Scalar, bool),
+    ) -> Result<(), Error> {
+        let h = self.challenge_scalar(signature, msg);
+        Self::validate_decomposed_heea_params(&h, heea_params)?;
+        self.verify_zebra_with_decomposed_heea(signature, heea_params)
+    }
+
     #[allow(non_snake_case)]
     pub(crate) fn verify_zebra_prehashed(
         &self,
@@ -307,8 +375,15 @@ impl VerificationKey {
         // this is indicated by `flip_h` flag being true,
         // in which case we will need to negate A later
         // let (rho, tau, flip_h) = crate::heea::generate_half_size_scalars(&h);
-        let (rho, tau, flip_h) = h.heea_decompose();
+        self.verify_zebra_with_decomposed_heea(signature, h.heea_decompose())
+    }
 
+    #[allow(non_snake_case)]
+    fn verify_zebra_with_decomposed_heea(
+        &self,
+        signature: &Signature,
+        (rho, tau, flip_h): (Scalar, Scalar, bool),
+    ) -> Result<(), Error> {
         // Extract s from the signature
         let s = Option::<Scalar>::from(Scalar::from_canonical_bytes(*signature.s_bytes()))
             .ok_or(Error::InvalidSignature)?;
@@ -337,6 +412,10 @@ impl VerificationKey {
         }
     }
 
+    // ==============================
+    //  dalek related methods
+    // ==============================
+
     /// Verify a signature with exact `ed25519-dalek`-style byte-level behavior.
     ///
     /// This recomputes the expected canonical `R` encoding and compares it to the
@@ -350,15 +429,58 @@ impl VerificationKey {
         self.verify_dalek_prehashed(signature, self.challenge_scalar(signature, msg))
     }
 
+    /// Verify a signature with `ed25519-dalek`-style byte-level behavior using
+    /// caller-provided HEEA decomposition parameters.
+    ///
+    /// The `heea_params` tuple is `(rho, tau, flip_h)` from decomposing the
+    /// challenge scalar `H(R_bytes || A_bytes || msg)`. This method checks that
+    /// the supplied parameters match that challenge, then verifies the signature
+    /// without recomputing the HEEA decomposition.
+    ///
+    /// This preserves the `ed25519-dalek`-compatible behavior of
+    /// [`Self::verify_dalek`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidSignature`] if the signature is malformed, the
+    /// supplied HEEA parameters do not match the message challenge, or the
+    /// verification equation does not hold.
+    pub fn relayer_verify_dalek(
+        &self,
+        signature: &Signature,
+        msg: &[u8],
+        heea_params: (Scalar, Scalar, bool),
+    ) -> Result<(), Error> {
+        let h = self.challenge_scalar(signature, msg);
+        Self::validate_decomposed_heea_params(&h, heea_params)?;
+        self.verify_dalek_with_decomposed_heea(signature, heea_params)
+    }
+
     #[allow(non_snake_case)]
     fn verify_dalek_prehashed(&self, signature: &Signature, h: Scalar) -> Result<(), Error> {
+        self.verify_dalek_with_decomposed_heea(signature, h.heea_decompose())
+    }
+
+    #[allow(non_snake_case)]
+    fn verify_dalek_with_decomposed_heea(
+        &self,
+        signature: &Signature,
+        (rho, tau, flip_h): (Scalar, Scalar, bool),
+    ) -> Result<(), Error> {
         let s = Option::<Scalar>::from(Scalar::from_canonical_bytes(*signature.s_bytes()))
             .ok_or(Error::InvalidSignature)?;
 
-        let expected_R =
-            EdwardsPoint::vartime_double_scalar_mul_basepoint(&h, &self.minus_A, &s).compress();
+        let r = CompressedEdwardsY(*signature.r_bytes())
+            .decompress()
+            .ok_or(Error::InvalidSignature)?;
 
-        if expected_R.as_bytes() == signature.r_bytes() {
+        let ts = tau * s;
+        let A = if flip_h { self.minus_A } else { -self.minus_A };
+        let neg_ts = -ts;
+
+        let result = EdwardsPoint::vartime_triple_scalar_mul_basepoint(&tau, &r, &rho, &A, &neg_ts);
+
+        if result.is_identity() {
             Ok(())
         } else {
             Err(Error::InvalidSignature)

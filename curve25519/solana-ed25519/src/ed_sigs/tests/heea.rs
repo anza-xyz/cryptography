@@ -1,11 +1,22 @@
-use crate::ed_sigs::SigningKey;
-use crate::ed_sigs::VerificationKey;
 #[cfg(feature = "std")]
 use crate::ed_sigs::tests::small_order::SMALL_ORDER_SIGS;
+use crate::{
+    Scalar,
+    ed_sigs::{Error, Signature, SigningKey, VerificationKey},
+    traits::HEEADecomposition,
+};
 #[cfg(feature = "std")]
 use core::convert::TryFrom;
-#[cfg(feature = "std")]
-use ed25519::Signature;
+use sha2::{Sha512, digest::Update};
+
+fn challenge_scalar(vk: &VerificationKey, signature: &Signature, msg: &[u8]) -> Scalar {
+    Scalar::from_hash(
+        Sha512::default()
+            .chain(&signature.r_bytes()[..])
+            .chain(vk.as_ref())
+            .chain(msg),
+    )
+}
 
 #[test]
 fn test_verify_heea_invalid_signature() {
@@ -84,12 +95,92 @@ fn test_default_verification_matches_zebra() {
     );
 }
 
+#[test]
+fn test_relayer_verify_with_precomputed_heea_params() {
+    let mut rng = rand::rng();
+    let signing_key = SigningKey::new(&mut rng);
+    let verification_key = VerificationKey::from(&signing_key);
+    let msg = b"relayer verification mode";
+    let signature = signing_key.sign(msg);
+    let heea_params = challenge_scalar(&verification_key, &signature, msg).heea_decompose();
+
+    assert_eq!(
+        verification_key.relayer_verify(&signature, msg, heea_params),
+        verification_key.verify_zebra(&signature, msg)
+    );
+    assert_eq!(
+        verification_key.relayer_verify(&signature, b"wrong message", heea_params),
+        Err(Error::InvalidSignature)
+    );
+}
+
+#[test]
+fn test_relayer_verify_rejects_zero_heea_params() {
+    let mut rng = rand::rng();
+    let signing_key = SigningKey::new(&mut rng);
+    let verification_key = VerificationKey::from(&signing_key);
+    let msg = b"zero relayer params";
+    let signature = signing_key.sign(msg);
+
+    assert_eq!(
+        verification_key.relayer_verify(&signature, msg, (Scalar::ZERO, Scalar::ZERO, false)),
+        Err(Error::InvalidSignature)
+    );
+}
+
+#[test]
+fn test_relayer_verify_rejects_full_size_heea_params() {
+    let mut rng = rand::rng();
+    let signing_key = SigningKey::new(&mut rng);
+    let verification_key = VerificationKey::from(&signing_key);
+
+    for i in 0..1000 {
+        let msg = format!("full-size relayer params {}", i);
+        let signature = signing_key.sign(msg.as_bytes());
+        let h = challenge_scalar(&verification_key, &signature, msg.as_bytes());
+
+        if h.as_bytes()[16..32].iter().any(|&byte| byte != 0) {
+            assert_eq!(
+                verification_key.relayer_verify(
+                    &signature,
+                    msg.as_bytes(),
+                    (h, Scalar::ONE, false)
+                ),
+                Err(Error::InvalidSignature)
+            );
+            return;
+        }
+    }
+
+    panic!("failed to find a full-size challenge scalar");
+}
+
+#[test]
+fn test_relayer_verify_dalek_with_precomputed_heea_params() {
+    let mut rng = rand::rng();
+    let signing_key = SigningKey::new(&mut rng);
+    let verification_key = VerificationKey::from(&signing_key);
+    let msg = b"dalek relayer verification mode";
+    let signature = signing_key.sign(msg);
+    let heea_params = challenge_scalar(&verification_key, &signature, msg).heea_decompose();
+
+    assert_eq!(
+        verification_key.relayer_verify_dalek(&signature, msg, heea_params),
+        verification_key.verify_dalek(&signature, msg)
+    );
+    assert_eq!(
+        verification_key.relayer_verify_dalek(&signature, b"wrong message", heea_params),
+        Err(Error::InvalidSignature)
+    );
+}
+
 #[cfg(feature = "std")]
 #[test]
 fn test_verify_dalek_matches_legacy_edge_cases() {
     for case in SMALL_ORDER_SIGS.iter() {
         let sig = Signature::from(case.sig_bytes);
         let vk = VerificationKey::try_from(case.vk_bytes).unwrap();
+        let heea_params = challenge_scalar(&vk, &sig, b"Zcash").heea_decompose();
         let result = vk.verify_dalek(&sig, b"Zcash");
 
         assert_eq!(
@@ -99,5 +190,6 @@ fn test_verify_dalek_matches_legacy_edge_cases() {
             hex::encode(case.vk_bytes),
             hex::encode(case.sig_bytes)
         );
+        assert_eq!(vk.relayer_verify_dalek(&sig, b"Zcash", heea_params), result);
     }
 }
