@@ -63,7 +63,7 @@ impl PodG1 {
         buf[..64].copy_from_slice(&self.0);
 
         // Validate::Yes performs the necessary subgroup checks
-        let g1 = G1::deserialize_with_mode(&buf[..], Compress::No, Validate::No).ok()?;
+        let g1 = G1::deserialize_with_mode(&buf[..], Compress::No, Validate::Yes).ok()?;
 
         // Ensure the point is actually on the curve
         g1.is_on_curve().then_some(g1)
