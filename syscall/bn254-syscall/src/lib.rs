@@ -66,6 +66,7 @@ impl PodG1 {
 
     /// Takes in an EIP-197 (big-endian) byte encoding of a group element in G1 and constructs a
     /// `PodG1` struct that encodes the same bytes in little-endian.
+    #[inline(always)]
     pub(crate) fn from_be_bytes(be_bytes: &[u8]) -> Option<Self> {
         let pod_bytes = convert_endianness::<ALT_BN128_FIELD_SIZE, ALT_BN128_G1_POINT_SIZE>(
             be_bytes.try_into().ok()?,
@@ -127,6 +128,7 @@ impl PodG2 {
     /// Takes in an EIP-197 (big-endian) byte encoding of a group element in G2
     /// and constructs a `PodG2` struct that encodes the same bytes in
     /// little-endian.
+    #[inline(always)]
     pub(crate) fn from_be_bytes(be_bytes: &[u8]) -> Option<Self> {
         let pod_bytes = convert_endianness::<ALT_BN128_FQ2_SIZE, ALT_BN128_G2_POINT_SIZE>(
             be_bytes.try_into().ok()?,
