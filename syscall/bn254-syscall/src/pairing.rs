@@ -1,5 +1,5 @@
 use {
-    crate::{ALT_BN128_G1_POINT_SIZE, ALT_BN128_G2_POINT_SIZE, Endianness, G1, G2, PodG1, PodG2},
+    crate::{Endianness, PodG1, PodG2, ALT_BN128_G1_POINT_SIZE, ALT_BN128_G2_POINT_SIZE, G1, G2},
     ark_bn254::{self, Config},
     ark_ec::{bn::Bn, pairing::Pairing},
     ark_ff::{BigInteger, BigInteger256, One},
@@ -19,17 +19,14 @@ pub fn alt_bn128_versioned_pairing(
     input: &[u8],
     endianness: Endianness,
 ) -> Option<Vec<u8>> {
-    match version {
-        VersionedPairing::V0 => {
-            input.len().checked_rem(ALT_BN128_PAIRING_ELEMENT_SIZE)?;
-        }
-        VersionedPairing::V1 =>
-        {
-            #[allow(clippy::manual_is_multiple_of)]
-            if input.len() % ALT_BN128_PAIRING_ELEMENT_SIZE != 0 {
-                return None;
-            }
-        }
+    // reject deprecated variants
+    if matches!(version, VersionedPairing::V0) {
+        return None;
+    }
+
+    #[allow(clippy::manual_is_multiple_of)]
+    if input.len() % ALT_BN128_PAIRING_ELEMENT_SIZE != 0 {
+        return None;
     }
 
     let chunks = input.chunks_exact(ALT_BN128_PAIRING_ELEMENT_SIZE);

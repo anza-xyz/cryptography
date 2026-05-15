@@ -1,7 +1,7 @@
 use {
     crate::{
-        ALT_BN128_FIELD_SIZE, ALT_BN128_FQ2_SIZE, ALT_BN128_G1_POINT_SIZE, ALT_BN128_G2_POINT_SIZE,
-        Endianness, G1, G2, PodG1, PodG2, convert_endianness,
+        convert_endianness, Endianness, PodG1, PodG2, ALT_BN128_FIELD_SIZE, ALT_BN128_FQ2_SIZE,
+        ALT_BN128_G1_POINT_SIZE, ALT_BN128_G2_POINT_SIZE, G1, G2,
     },
     ark_ec::{self, AffineRepr},
     ark_ff::BigInteger256,
@@ -27,14 +27,14 @@ pub fn alt_bn128_versioned_g1_multiplication(
     input: &[u8],
     endianness: Endianness,
 ) -> Option<Vec<u8>> {
-    let expected_length = match version {
-        VersionedG1Multiplication::V0 => 128,
-        VersionedG1Multiplication::V1 => ALT_BN128_G1_MULTIPLICATION_INPUT_SIZE,
-    };
+    // reject deprecated variants
+    if matches!(version, VersionedG1Multiplication::V0) {
+        return None;
+    }
 
     let is_valid_len = match endianness {
-        Endianness::BE => input.len() <= expected_length,
-        Endianness::LE => input.len() == expected_length,
+        Endianness::BE => input.len() <= ALT_BN128_G1_MULTIPLICATION_INPUT_SIZE,
+        Endianness::LE => input.len() == ALT_BN128_G1_MULTIPLICATION_INPUT_SIZE,
     };
 
     if !is_valid_len {
