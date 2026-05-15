@@ -1,6 +1,6 @@
 [package]
-name = "solana-bn254"
-description = "Solana BN254"
+name = "solana-bn254-syscall"
+description = "Solana BN254 Syscall"
 documentation = "https://docs.rs/solana-bn254-syscall"
 version = "0.1.0"
 authors = ["Anza Maintainers <maintainers@anza.xyz>"]
