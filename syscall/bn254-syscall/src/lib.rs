@@ -13,10 +13,37 @@ pub const ALT_BN128_FQ2_SIZE: usize = ALT_BN128_FIELD_SIZE * 2;
 pub const ALT_BN128_G1_POINT_SIZE: usize = ALT_BN128_FIELD_SIZE * 2;
 pub const ALT_BN128_G2_POINT_SIZE: usize = ALT_BN128_FQ2_SIZE * 2;
 
+/// The BN254 (BN128) group element in G1 as a POD type.
+///
+/// A group element in G1 consists of two field elements `(x, y)`. A `PodG1`
+/// type expects a group element to be encoded as `[le(x), le(y)]` where
+/// `le(..)` is the little-endian encoding of the input field element as used
+/// in the `ark-bn254` crate. Note that this differs from the EIP-197 standard,
+/// which specifies that the field elements are encoded as big-endian.
+///
+/// `PodG1` can be constructed from both big-endian (EIP-197) and little-endian
+/// (ark-bn254) encodings using `from_be_bytes` and `from_le_bytes` methods,
+/// respectively.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
 #[repr(transparent)]
 pub(crate) struct PodG1(pub [u8; ALT_BN128_G1_POINT_SIZE]);
 
+/// The BN254 (BN128) group element in G2 as a POD type.
+///
+/// Elements in G2 is represented by 2 field-extension elements `(x, y)`. Each
+/// field-extension element itself is a degree 1 polynomial `x = x0 + x1*X`,
+/// `y = y0 + y1*X`. The EIP-197 standard encodes a G2 element as
+/// `[be(x1), be(x0), be(y1), be(y0)]` where `be(..)` is the big-endian
+/// encoding of the input field element. The `ark-bn254` crate encodes a G2
+/// element as `[le(x0), le(x1), le(y0), le(y1)]` where `le(..)` is the
+/// little-endian encoding of the input field element. Notably, in addition to
+/// the differences in the big-endian vs. little-endian encodings of field
+/// elements, the order of the polynomial field coefficients `x0`, `x1`, `y0`,
+/// and `y1` are different.
+///
+/// `PodG2` can be constructed from both big-endian (EIP-197) and little-endian
+/// (ark-bn254) encodings using `from_be_bytes` and `from_le_bytes` methods,
+/// respectively.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
 #[repr(transparent)]
 pub(crate) struct PodG2(pub [u8; ALT_BN128_G2_POINT_SIZE]);
@@ -29,6 +56,13 @@ pub enum Endianness {
     LE,
 }
 
+/// This function converts between big-endian and little-endian formats.
+/// It splits the input byte array of size `ARRAY_SIZE` into chunks of `CHUNK_SIZE`
+/// and reverses the byte order within each chunk.
+/// Typical use cases:
+/// - swap_endianness::<32, 64>  to convert G1 points
+/// - swap_endianness::<64, 128> to convert G2 points
+/// - swap_endianness::<32, 32>  to convert scalars
 pub(crate) fn swap_endianness<const CHUNK_SIZE: usize, const ARRAY_SIZE: usize>(
     mut bytes: [u8; ARRAY_SIZE],
 ) -> [u8; ARRAY_SIZE] {

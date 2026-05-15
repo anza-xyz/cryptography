@@ -5,15 +5,31 @@ use {
     ark_ff::{BigInteger, BigInteger256, One},
 };
 
-pub const ALT_BN128_PAIRING_ELEMENT_SIZE: usize = ALT_BN128_G1_POINT_SIZE + ALT_BN128_G2_POINT_SIZE;
+/// Pair element size.
+pub const ALT_BN128_PAIRING_ELEMENT_SIZE: usize = ALT_BN128_G1_POINT_SIZE + ALT_BN128_G2_POINT_SIZE; // 192
+
+// Output size for pairing operation.
 pub const ALT_BN128_PAIRING_OUTPUT_SIZE: usize = 32;
 
+/// The version enum used to version changes to the `alt_bn128_pairing` syscall.
 pub enum VersionedPairing {
     V0,
     /// SIMD-0334 - Fix alt_bn128_pairing Syscall Length Check
     V1,
 }
 
+/// The syscall implementation for the `alt_bn128_pairing` syscall.
+///
+/// This function is intended to be used by the Agave validator client and exists
+/// primarily for validator code. Solana programs or other downstream projects
+/// should use the functions from the `solana-bn254` crate in the solana-sdk instead.
+///
+/// # Warning
+///
+/// Developers should be extremely careful when modifying this function, as a
+/// breaking change can result in a fork in the Solana cluster. Any such change
+/// requires an approved Solana SIMD. Subsequently, a new `VersionedPairing`
+/// variant must be added, and the new logic must be scoped to that variant.
 pub fn alt_bn128_versioned_pairing(
     version: VersionedPairing,
     input: &[u8],

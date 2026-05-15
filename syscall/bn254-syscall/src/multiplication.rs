@@ -8,20 +8,38 @@ use {
     ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress},
 };
 
+/// Input size for the g1 multiplication operation.
 pub const ALT_BN128_G1_MULTIPLICATION_INPUT_SIZE: usize =
-    ALT_BN128_G1_POINT_SIZE + ALT_BN128_FIELD_SIZE;
-pub const ALT_BN128_G2_MULTIPLICATION_INPUT_SIZE: usize =
-    ALT_BN128_G2_POINT_SIZE + ALT_BN128_FIELD_SIZE;
+    ALT_BN128_G1_POINT_SIZE + ALT_BN128_FIELD_SIZE; // 96
 
+/// Input size for the g2 multiplication operation.
+pub const ALT_BN128_G2_MULTIPLICATION_INPUT_SIZE: usize =
+    ALT_BN128_G2_POINT_SIZE + ALT_BN128_FIELD_SIZE; // 160
+
+/// The version enum used to version changes to the `alt_bn128_g1_multiplication` syscall.
 pub enum VersionedG1Multiplication {
     V0,
     /// SIMD-0222 - Fix alt-bn128-multiplication Syscall Length Check
     V1,
 }
+
+/// The version enum used to version changes to the `alt_bn128_g2_multiplication` syscall.
 pub enum VersionedG2Multiplication {
     V0,
 }
 
+/// The syscall implementation for the `alt_bn128_g1_multiplication` syscall.
+///
+/// This function is intended to be used by the Agave validator client and exists
+/// primarily for validator code. Solana programs or other downstream projects
+/// should use the functions from the `solana-bn254` crate in the solana-sdk instead.
+///
+/// # Warning
+///
+/// Developers should be extremely careful when modifying this function, as a
+/// breaking change can result in a fork in the Solana cluster. Any such change
+/// requires an approved Solana SIMD. Subsequently, a new `VersionedG1Multiplication`
+/// variant must be added, and the new logic must be scoped to that variant.
 pub fn alt_bn128_versioned_g1_multiplication(
     version: VersionedG1Multiplication,
     input: &[u8],
@@ -82,6 +100,18 @@ pub fn alt_bn128_versioned_g1_multiplication(
     }
 }
 
+/// The syscall implementation for the `alt_bn128_g2_multiplication` syscall.
+///
+/// This function is intended to be used by the Agave validator client and exists
+/// primarily for validator code. Solana programs or other downstream projects
+/// should use the functions from the `solana-bn254` crate in the solana-sdk instead.
+///
+/// # Warning
+///
+/// Developers should be extremely careful when modifying this function, as a
+/// breaking change can result in a fork in the Solana cluster. Any such change
+/// requires an approved Solana SIMD. Subsequently, a new `VersionedG1Multiplication`
+/// variant must be added, and the new logic must be scoped to that variant.
 pub fn alt_bn128_versioned_g2_multiplication(
     _version: VersionedG2Multiplication,
     input: &[u8],
