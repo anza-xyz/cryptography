@@ -28,8 +28,8 @@ pub enum VersionedG2Multiplication {
     V0,
 }
 
-/// The implementation of the `sol_alt_bn128_group_op` syscall
-/// (group operation index 1: G1 Multiplication).
+/// The implementation of the `sol_alt_bn128_group_op` syscall G1 multiplication operation
+/// (group operation index 0x02 for BE input/output, 0x82 for LE input/output).
 ///
 /// **Security Note**
 ///
@@ -101,8 +101,8 @@ pub fn alt_bn128_versioned_g1_multiplication(
     }
 }
 
-/// The implementation of the `sol_alt_bn128_group_op` syscall
-/// (group operation index `1 | 0x80`: G2 Multiplication).
+/// The implementation of the `sol_alt_bn128_group_op` syscall G2 multiplication operation
+/// (group operation index 0x06 for BE input/output, 0x86 for LE input/output).
 ///
 /// **Security Note**
 ///

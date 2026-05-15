@@ -18,7 +18,8 @@ pub enum VersionedPairing {
     V1,
 }
 
-/// The implementation of the `sol_alt_bn128_pairing` syscall.
+/// The implementation of the `sol_alt_bn128_group_op` syscall pairing operation
+/// (group operation index 0x03 for BE input/output, 0x83 for LE input/output).
 ///
 /// **Security Note**
 ///

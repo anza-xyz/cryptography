@@ -22,8 +22,8 @@ pub enum VersionedG2Addition {
     V0,
 }
 
-/// The implementation of the `sol_alt_bn128_group_op` syscall
-/// (group operation index 0: G1 Addition).
+/// The implementation of the `sol_alt_bn128_group_op` syscall G1 addition operation
+/// (group operation index 0x00 for BE input/output, 0x80 for LE input/output).
 ///
 /// **Security Note**
 ///
@@ -86,8 +86,8 @@ pub fn alt_bn128_versioned_g1_addition(
     }
 }
 
-/// The implementation of the `sol_alt_bn128_group_op` syscall
-/// (group operation index `0 | 0x80`: G2 Addition).
+/// The implementation of the `sol_alt_bn128_group_op` syscall G2 addition operation
+/// (group operation index 0x04 for BE input/output, 0x84 for LE input/output).
 ///
 /// **Security Note**
 ///
