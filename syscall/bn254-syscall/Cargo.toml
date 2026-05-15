@@ -12,8 +12,6 @@ include = ["src/**/*"]
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
-all-features = true
-rustdoc-args = ["--cfg=docsrs"]
 
 [dependencies]
 ark-bn254 = { workspace = true }
