@@ -60,7 +60,7 @@ pub fn alt_bn128_versioned_g1_multiplication(
         return None;
     }
 
-    let mut padded_input = [0u8; 128];
+    let mut padded_input = [0u8; ALT_BN128_G1_MULTIPLICATION_INPUT_SIZE];
     padded_input[..input.len()].copy_from_slice(input);
 
     let (p_bytes, remainder) = padded_input.split_at(ALT_BN128_G1_POINT_SIZE);
