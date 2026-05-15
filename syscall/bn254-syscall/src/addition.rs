@@ -12,12 +12,12 @@ pub const ALT_BN128_G1_ADDITION_INPUT_SIZE: usize = ALT_BN128_G1_POINT_SIZE * 2;
 /// Input size for the g2 add operation.
 pub const ALT_BN128_G2_ADDITION_INPUT_SIZE: usize = ALT_BN128_G2_POINT_SIZE * 2; // 256
 
-/// The version enum used to version changes to the `alt_bn128_g1_addition` syscall.
+/// The enum is used to version changes to the `alt_bn128_versioned_g1_addition` function.
 pub enum VersionedG1Addition {
     V0,
 }
 
-/// The version enum used to version changes to the `alt_bn128_g2_addition` syscall.
+/// The enum is used to version changes to the `alt_bn128_versioned_g2_addition` function.
 pub enum VersionedG2Addition {
     V0,
 }

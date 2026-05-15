@@ -22,9 +22,17 @@ use {
     bytemuck::{Pod, Zeroable},
 };
 
+/// Size of the EC point field, in bytes.
 pub const ALT_BN128_FIELD_SIZE: usize = 32;
+
+/// Size of the extension field element (Fq2), in bytes.
 pub const ALT_BN128_FQ2_SIZE: usize = ALT_BN128_FIELD_SIZE * 2;
+
+/// Size of the EC point. `alt_bn128` point contains
+/// the consistently united x and y fields as 64 bytes.
 pub const ALT_BN128_G1_POINT_SIZE: usize = ALT_BN128_FIELD_SIZE * 2;
+
+/// Elements in G2 is represented by 2 field-extension elements `(x, y)`.
 pub const ALT_BN128_G2_POINT_SIZE: usize = ALT_BN128_FQ2_SIZE * 2;
 
 /// The BN254 (BN128) group element in G1 as a POD type.
@@ -70,13 +78,14 @@ pub enum Endianness {
     LE,
 }
 
-/// This function converts between big-endian and little-endian formats.
+/// This function swaps the endianness of each element within the input byte array.
 /// It splits the input byte array of size `ARRAY_SIZE` into chunks of `CHUNK_SIZE`
 /// and reverses the byte order within each chunk.
+///
 /// Typical use cases:
-/// - swap_endianness::<32, 64>  to convert G1 points
-/// - swap_endianness::<64, 128> to convert G2 points
-/// - swap_endianness::<32, 32>  to convert scalars
+/// - `swap_endianness::<32, 64>` for a G1 point
+/// - `swap_endianness::<64, 128>` for a G2 point
+/// - `swap_endianness::<32, 32>` for a scalar
 pub(crate) fn swap_endianness<const CHUNK_SIZE: usize, const ARRAY_SIZE: usize>(
     mut bytes: [u8; ARRAY_SIZE],
 ) -> [u8; ARRAY_SIZE] {
