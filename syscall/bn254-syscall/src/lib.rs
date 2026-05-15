@@ -1,3 +1,17 @@
+//! # Solana BN254 Syscalls
+//!
+//! ** Consensus-Critical Validator Code**
+//!
+//! The syscall implementations in this crate are intended to be used by the
+//! Agave validator client and exist primarily for validator code. Solana
+//! programs or other downstream projects should use the functions from the
+//! `solana-bn254` crate in the `solana-sdk` instead.
+//!
+//! Developers should be extremely careful when modifying these functions, as a
+//! breaking change can result in a fork in the Solana cluster. Any such change
+//! requires an approved Solana SIMD. Subsequently, a new version variant must
+//! be added, and the new logic must be scoped to that variant.
+
 pub mod addition;
 pub mod multiplication;
 pub mod pairing;

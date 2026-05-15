@@ -22,18 +22,19 @@ pub enum VersionedG2Addition {
     V0,
 }
 
-/// The syscall implementation for the `alt_bn128_g1_addition` syscall.
+/// The implementation of the `sol_alt_bn128_group_op` syscall
+/// (group operation index 0: G1 Addition).
 ///
-/// This function is intended to be used by the Agave validator client and exists
-/// primarily for validator code. Solana programs or other downstream projects
-/// should use the functions from the `solana-bn254` crate in the solana-sdk instead.
+/// **Security Note**
 ///
-/// # Warning
+/// Because the BN254 G1 group has a cofactor of 1, the subgroup check is equivalent
+/// to verifying the point is on the curve. This function fully validates the input point.
 ///
-/// Developers should be extremely careful when modifying this function, as a
-/// breaking change can result in a fork in the Solana cluster. Any such change
-/// requires an approved Solana SIMD. Subsequently, a new `VersionedG1Addition`
-/// variant must be added, and the new logic must be scoped to that variant.
+/// **Warning**
+///
+/// This is consensus-critical Agave validator code. Modifying this
+/// function can result in a network fork. See the [crate-level documentation](crate)
+/// for strict guidelines on SIMD approvals and versioning.
 pub fn alt_bn128_versioned_g1_addition(
     _version: VersionedG1Addition,
     input: &[u8],
@@ -85,22 +86,20 @@ pub fn alt_bn128_versioned_g1_addition(
     }
 }
 
-/// The syscall implementation for the `alt_bn128_g2_addition` syscall.
+/// The implementation of the `sol_alt_bn128_group_op` syscall
+/// (group operation index `0 | 0x80`: G2 Addition).
 ///
-/// This function is intended to be used by the Agave validator client and exists
-/// primarily for validator code. Solana programs or other downstream projects
-/// should use the functions from the `solana-bn254` crate in the solana-sdk instead.
+/// **Security Note**
 ///
-/// # Security Note: Unlike G1, which has cofactor 1, the group G2 has a high cofactor.
+/// Unlike G1, which has a cofactor of 1, the group G2 has a high cofactor.
 /// This G2 addition function validates only the curve equation; it does not perform
 /// a subgroup (coset) check.
 ///
-/// # Warning
+/// **Warning**
 ///
-/// Developers should be extremely careful when modifying this function, as a
-/// breaking change can result in a fork in the Solana cluster. Any such change
-/// requires an approved Solana SIMD. Subsequently, a new `VersionedG2Addition`
-/// variant must be added, and the new logic must be scoped to that variant.
+/// This is consensus-critical Agave validator code. Modifying this function can
+/// result in a network fork. See the [crate-level documentation](crate) for strict
+/// guidelines on SIMD approvals and versioning.
 pub fn alt_bn128_versioned_g2_addition(
     _version: VersionedG2Addition,
     input: &[u8],

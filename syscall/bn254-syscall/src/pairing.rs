@@ -18,18 +18,18 @@ pub enum VersionedPairing {
     V1,
 }
 
-/// The syscall implementation for the `alt_bn128_pairing` syscall.
+/// The implementation of the `sol_alt_bn128_pairing` syscall.
 ///
-/// This function is intended to be used by the Agave validator client and exists
-/// primarily for validator code. Solana programs or other downstream projects
-/// should use the functions from the `solana-bn254` crate in the solana-sdk instead.
+/// **Security Note**
 ///
-/// # Warning
+/// Full subgroup (coset) validation is performed on all provided G2 points. For G1 points,
+/// because the cofactor is 1, this validation is equivalent to a standard on-curve check.
 ///
-/// Developers should be extremely careful when modifying this function, as a
-/// breaking change can result in a fork in the Solana cluster. Any such change
-/// requires an approved Solana SIMD. Subsequently, a new `VersionedPairing`
-/// variant must be added, and the new logic must be scoped to that variant.
+/// **Warning**
+///
+/// This is consensus-critical Agave validator code. Modifying this function can
+/// result in a network fork. See the [crate-level documentation](crate) for strict
+/// guidelines on SIMD approvals and versioning.
 pub fn alt_bn128_versioned_pairing(
     version: VersionedPairing,
     input: &[u8],

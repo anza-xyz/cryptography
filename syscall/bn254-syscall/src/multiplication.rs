@@ -28,18 +28,19 @@ pub enum VersionedG2Multiplication {
     V0,
 }
 
-/// The syscall implementation for the `alt_bn128_g1_multiplication` syscall.
+/// The implementation of the `sol_alt_bn128_group_op` syscall
+/// (group operation index 1: G1 Multiplication).
 ///
-/// This function is intended to be used by the Agave validator client and exists
-/// primarily for validator code. Solana programs or other downstream projects
-/// should use the functions from the `solana-bn254` crate in the solana-sdk instead.
+/// **Security Note**
 ///
-/// # Warning
+/// Because the BN254 G1 group has a cofactor of 1, the subgroup check is equivalent
+/// to verifying the point is on the curve. This function fully validates the input point.
 ///
-/// Developers should be extremely careful when modifying this function, as a
-/// breaking change can result in a fork in the Solana cluster. Any such change
-/// requires an approved Solana SIMD. Subsequently, a new `VersionedG1Multiplication`
-/// variant must be added, and the new logic must be scoped to that variant.
+/// **Warning**
+///
+/// This is consensus-critical Agave validator code. Modifying this function can
+/// result in a network fork. See the [crate-level documentation](crate) for strict
+/// guidelines on SIMD approvals and versioning.
 pub fn alt_bn128_versioned_g1_multiplication(
     version: VersionedG1Multiplication,
     input: &[u8],
@@ -100,18 +101,18 @@ pub fn alt_bn128_versioned_g1_multiplication(
     }
 }
 
-/// The syscall implementation for the `alt_bn128_g2_multiplication` syscall.
+/// The implementation of the `sol_alt_bn128_group_op` syscall
+/// (group operation index `1 | 0x80`: G2 Multiplication).
 ///
-/// This function is intended to be used by the Agave validator client and exists
-/// primarily for validator code. Solana programs or other downstream projects
-/// should use the functions from the `solana-bn254` crate in the solana-sdk instead.
+/// **Security Note**
 ///
-/// # Warning
+/// Full subgroup (coset) validation is performed on the provided G2 point.
 ///
-/// Developers should be extremely careful when modifying this function, as a
-/// breaking change can result in a fork in the Solana cluster. Any such change
-/// requires an approved Solana SIMD. Subsequently, a new `VersionedG1Multiplication`
-/// variant must be added, and the new logic must be scoped to that variant.
+/// **Warning**
+///
+/// This is consensus-critical Agave validator code. Modifying this function can
+/// result in a network fork. See the [crate-level documentation](crate) for strict
+/// guidelines on SIMD approvals and versioning.
 pub fn alt_bn128_versioned_g2_multiplication(
     _version: VersionedG2Multiplication,
     input: &[u8],
