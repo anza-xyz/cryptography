@@ -8,8 +8,6 @@ use {
     bytemuck::{Pod, Zeroable},
 };
 
-pub const LE_FLAG: u64 = 0x80;
-
 pub const ALT_BN128_FIELD_SIZE: usize = 32;
 pub const ALT_BN128_FQ2_SIZE: usize = ALT_BN128_FIELD_SIZE * 2;
 pub const ALT_BN128_G1_POINT_SIZE: usize = ALT_BN128_FIELD_SIZE * 2;
@@ -23,8 +21,8 @@ pub struct PodG1(pub [u8; ALT_BN128_G1_POINT_SIZE]);
 #[repr(transparent)]
 pub struct PodG2(pub [u8; ALT_BN128_G2_POINT_SIZE]);
 
-pub type G1 = ark_bn254::g1::G1Affine;
-pub type G2 = ark_bn254::g2::G2Affine;
+pub(crate) type G1 = ark_bn254::g1::G1Affine;
+pub(crate) type G2 = ark_bn254::g2::G2Affine;
 
 pub enum Endianness {
     BE,
@@ -63,10 +61,7 @@ impl PodG1 {
         buf[..64].copy_from_slice(&self.0);
 
         // Validate::Yes performs the necessary subgroup checks
-        let g1 = G1::deserialize_with_mode(&buf[..], Compress::No, Validate::Yes).ok()?;
-
-        // Ensure the point is actually on the curve
-        g1.is_on_curve().then_some(g1)
+        G1::deserialize_with_mode(&buf[..], Compress::No, Validate::Yes).ok()
     }
 
     /// Takes in an EIP-197 (big-endian) byte encoding of a group element in G1 and constructs a
