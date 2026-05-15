@@ -1,6 +1,6 @@
 use {
     crate::{
-        convert_endianness, Endianness, PodG1, PodG2, ALT_BN128_FIELD_SIZE, ALT_BN128_FQ2_SIZE,
+        swap_endianness, Endianness, PodG1, PodG2, ALT_BN128_FIELD_SIZE, ALT_BN128_FQ2_SIZE,
         ALT_BN128_G1_POINT_SIZE, ALT_BN128_G2_POINT_SIZE, G1, G2,
     },
     ark_ec::{self, AffineRepr},
@@ -55,7 +55,7 @@ pub fn alt_bn128_versioned_g1_multiplication(
     let fr_bytes_array: [u8; ALT_BN128_FIELD_SIZE] = fr_bytes.try_into().ok()?;
     let fr_bytes_proper = match endianness {
         Endianness::BE => {
-            convert_endianness::<ALT_BN128_FIELD_SIZE, ALT_BN128_FIELD_SIZE>(&fr_bytes_array)
+            swap_endianness::<ALT_BN128_FIELD_SIZE, ALT_BN128_FIELD_SIZE>(&fr_bytes_array)
         }
         Endianness::LE => fr_bytes_array,
     };
@@ -75,7 +75,7 @@ pub fn alt_bn128_versioned_g1_multiplication(
 
     match endianness {
         Endianness::BE => Some(
-            convert_endianness::<ALT_BN128_FIELD_SIZE, ALT_BN128_G1_POINT_SIZE>(&result_point_data)
+            swap_endianness::<ALT_BN128_FIELD_SIZE, ALT_BN128_G1_POINT_SIZE>(&result_point_data)
                 .to_vec(),
         ),
         Endianness::LE => Some(result_point_data.to_vec()),
@@ -101,7 +101,7 @@ pub fn alt_bn128_versioned_g2_multiplication(
     let fr_bytes_array: [u8; ALT_BN128_FIELD_SIZE] = fr_bytes.try_into().ok()?;
     let fr_bytes_proper = match endianness {
         Endianness::BE => {
-            convert_endianness::<ALT_BN128_FIELD_SIZE, ALT_BN128_FIELD_SIZE>(&fr_bytes_array)
+            swap_endianness::<ALT_BN128_FIELD_SIZE, ALT_BN128_FIELD_SIZE>(&fr_bytes_array)
         }
         Endianness::LE => fr_bytes_array,
     };
@@ -121,7 +121,7 @@ pub fn alt_bn128_versioned_g2_multiplication(
 
     match endianness {
         Endianness::BE => Some(
-            convert_endianness::<ALT_BN128_FQ2_SIZE, ALT_BN128_G2_POINT_SIZE>(&result_point_data)
+            swap_endianness::<ALT_BN128_FQ2_SIZE, ALT_BN128_G2_POINT_SIZE>(&result_point_data)
                 .to_vec(),
         ),
         Endianness::LE => Some(result_point_data.to_vec()),

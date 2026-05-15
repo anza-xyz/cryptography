@@ -1,7 +1,7 @@
 use {
     crate::{
-        ALT_BN128_FIELD_SIZE, ALT_BN128_FQ2_SIZE, ALT_BN128_G1_POINT_SIZE, ALT_BN128_G2_POINT_SIZE,
-        Endianness, G1, G2, PodG1, PodG2, convert_endianness,
+        swap_endianness, Endianness, PodG1, PodG2, ALT_BN128_FIELD_SIZE, ALT_BN128_FQ2_SIZE,
+        ALT_BN128_G1_POINT_SIZE, ALT_BN128_G2_POINT_SIZE, G1, G2,
     },
     ark_serialize::{CanonicalSerialize, Compress},
 };
@@ -60,7 +60,7 @@ pub fn alt_bn128_versioned_g1_addition(
 
     match endianness {
         Endianness::BE => Some(
-            convert_endianness::<ALT_BN128_FIELD_SIZE, ALT_BN128_G1_POINT_SIZE>(&result_point_data)
+            swap_endianness::<ALT_BN128_FIELD_SIZE, ALT_BN128_G1_POINT_SIZE>(&result_point_data)
                 .to_vec(),
         ),
         Endianness::LE => Some(result_point_data.to_vec()),
@@ -103,7 +103,7 @@ pub fn alt_bn128_versioned_g2_addition(
 
     match endianness {
         Endianness::BE => Some(
-            convert_endianness::<ALT_BN128_FQ2_SIZE, ALT_BN128_G2_POINT_SIZE>(&result_point_data)
+            swap_endianness::<ALT_BN128_FQ2_SIZE, ALT_BN128_G2_POINT_SIZE>(&result_point_data)
                 .to_vec(),
         ),
         Endianness::LE => Some(result_point_data.to_vec()),

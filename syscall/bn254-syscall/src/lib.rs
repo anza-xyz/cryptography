@@ -29,7 +29,7 @@ pub enum Endianness {
     LE,
 }
 
-pub fn convert_endianness<const CHUNK_SIZE: usize, const ARRAY_SIZE: usize>(
+pub fn swap_endianness<const CHUNK_SIZE: usize, const ARRAY_SIZE: usize>(
     bytes: &[u8; ARRAY_SIZE],
 ) -> [u8; ARRAY_SIZE] {
     let mut result = [0u8; ARRAY_SIZE];
@@ -68,7 +68,7 @@ impl PodG1 {
     /// `PodG1` struct that encodes the same bytes in little-endian.
     #[inline(always)]
     pub(crate) fn from_be_bytes(be_bytes: &[u8]) -> Option<Self> {
-        let pod_bytes = convert_endianness::<ALT_BN128_FIELD_SIZE, ALT_BN128_G1_POINT_SIZE>(
+        let pod_bytes = swap_endianness::<ALT_BN128_FIELD_SIZE, ALT_BN128_G1_POINT_SIZE>(
             be_bytes.try_into().ok()?,
         );
         Some(Self(pod_bytes))
@@ -127,7 +127,7 @@ impl PodG2 {
     /// little-endian.
     #[inline(always)]
     pub(crate) fn from_be_bytes(be_bytes: &[u8]) -> Option<Self> {
-        let pod_bytes = convert_endianness::<ALT_BN128_FQ2_SIZE, ALT_BN128_G2_POINT_SIZE>(
+        let pod_bytes = swap_endianness::<ALT_BN128_FQ2_SIZE, ALT_BN128_G2_POINT_SIZE>(
             be_bytes.try_into().ok()?,
         );
         Some(Self(pod_bytes))
