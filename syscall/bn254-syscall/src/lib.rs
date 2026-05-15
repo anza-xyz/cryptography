@@ -97,10 +97,7 @@ impl PodG2 {
         buf[..128].copy_from_slice(&self.0);
 
         // Validate::Yes performs the necessary subgroup checks
-        let g2 = G2::deserialize_with_mode(&buf[..], Compress::No, Validate::Yes).ok()?;
-
-        // Ensure the point is actually on the curve
-        g2.is_on_curve().then_some(g2)
+        G2::deserialize_with_mode(&buf[..], Compress::No, Validate::Yes).ok()
     }
 
     /// Deserializes to an affine point in G2.
