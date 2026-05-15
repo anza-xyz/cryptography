@@ -15,11 +15,11 @@ pub const ALT_BN128_G2_POINT_SIZE: usize = ALT_BN128_FQ2_SIZE * 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
 #[repr(transparent)]
-pub struct PodG1(pub [u8; ALT_BN128_G1_POINT_SIZE]);
+pub(crate) struct PodG1(pub [u8; ALT_BN128_G1_POINT_SIZE]);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
 #[repr(transparent)]
-pub struct PodG2(pub [u8; ALT_BN128_G2_POINT_SIZE]);
+pub(crate) struct PodG2(pub [u8; ALT_BN128_G2_POINT_SIZE]);
 
 pub(crate) type G1 = ark_bn254::g1::G1Affine;
 pub(crate) type G2 = ark_bn254::g2::G2Affine;
