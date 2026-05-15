@@ -29,20 +29,18 @@ pub enum Endianness {
     LE,
 }
 
-pub fn swap_endianness<const CHUNK_SIZE: usize, const ARRAY_SIZE: usize>(
-    bytes: &[u8; ARRAY_SIZE],
+pub(crate) fn swap_endianness<const CHUNK_SIZE: usize, const ARRAY_SIZE: usize>(
+    mut bytes: [u8; ARRAY_SIZE],
 ) -> [u8; ARRAY_SIZE] {
-    let mut result = [0u8; ARRAY_SIZE];
+    debug_assert!(
+        ARRAY_SIZE.is_multiple_of(CHUNK_SIZE),
+        "ARRAY_SIZE must be a multiple of CHUNK_SIZE"
+    );
 
-    let src_chunks = bytes.chunks_exact(CHUNK_SIZE);
-    let dst_chunks = result.chunks_exact_mut(CHUNK_SIZE);
-
-    for (src, dst) in src_chunks.zip(dst_chunks) {
-        dst.copy_from_slice(src);
-        dst.reverse();
+    for chunk in bytes.chunks_exact_mut(CHUNK_SIZE) {
+        chunk.reverse();
     }
-
-    result
+    bytes
 }
 
 impl PodG1 {

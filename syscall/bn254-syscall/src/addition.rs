@@ -60,7 +60,7 @@ pub fn alt_bn128_versioned_g1_addition(
 
     match endianness {
         Endianness::BE => Some(
-            swap_endianness::<ALT_BN128_FIELD_SIZE, ALT_BN128_G1_POINT_SIZE>(&result_point_data)
+            swap_endianness::<ALT_BN128_FIELD_SIZE, ALT_BN128_G1_POINT_SIZE>(result_point_data)
                 .to_vec(),
         ),
         Endianness::LE => Some(result_point_data.to_vec()),
@@ -103,7 +103,7 @@ pub fn alt_bn128_versioned_g2_addition(
 
     match endianness {
         Endianness::BE => Some(
-            swap_endianness::<ALT_BN128_FQ2_SIZE, ALT_BN128_G2_POINT_SIZE>(&result_point_data)
+            swap_endianness::<ALT_BN128_FQ2_SIZE, ALT_BN128_G2_POINT_SIZE>(result_point_data)
                 .to_vec(),
         ),
         Endianness::LE => Some(result_point_data.to_vec()),
