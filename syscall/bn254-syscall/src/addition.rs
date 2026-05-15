@@ -20,7 +20,7 @@ pub fn alt_bn128_versioned_g1_addition(
     _version: VersionedG1Addition,
     input: &[u8],
     endianness: Endianness,
-) -> Option<Vec<u8>> {
+) -> Option<[u8; ALT_BN128_G1_POINT_SIZE]> {
     let is_valid_len = match endianness {
         Endianness::BE => input.len() <= ALT_BN128_G1_ADDITION_INPUT_SIZE,
         Endianness::LE => input.len() == ALT_BN128_G1_ADDITION_INPUT_SIZE,
@@ -59,11 +59,11 @@ pub fn alt_bn128_versioned_g1_addition(
         .ok()?;
 
     match endianness {
-        Endianness::BE => Some(
-            swap_endianness::<ALT_BN128_FIELD_SIZE, ALT_BN128_G1_POINT_SIZE>(result_point_data)
-                .to_vec(),
-        ),
-        Endianness::LE => Some(result_point_data.to_vec()),
+        Endianness::BE => Some(swap_endianness::<
+            ALT_BN128_FIELD_SIZE,
+            ALT_BN128_G1_POINT_SIZE,
+        >(result_point_data)),
+        Endianness::LE => Some(result_point_data),
     }
 }
 
@@ -71,7 +71,7 @@ pub fn alt_bn128_versioned_g2_addition(
     _version: VersionedG2Addition,
     input: &[u8],
     endianness: Endianness,
-) -> Option<Vec<u8>> {
+) -> Option<[u8; ALT_BN128_G2_POINT_SIZE]> {
     if input.len() != ALT_BN128_G2_ADDITION_INPUT_SIZE {
         return None;
     }
@@ -102,10 +102,9 @@ pub fn alt_bn128_versioned_g2_addition(
         .ok()?;
 
     match endianness {
-        Endianness::BE => Some(
-            swap_endianness::<ALT_BN128_FQ2_SIZE, ALT_BN128_G2_POINT_SIZE>(result_point_data)
-                .to_vec(),
-        ),
-        Endianness::LE => Some(result_point_data.to_vec()),
+        Endianness::BE => {
+            Some(swap_endianness::<ALT_BN128_FQ2_SIZE, ALT_BN128_G2_POINT_SIZE>(result_point_data))
+        }
+        Endianness::LE => Some(result_point_data),
     }
 }

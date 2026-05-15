@@ -18,7 +18,7 @@ pub fn alt_bn128_versioned_pairing(
     version: VersionedPairing,
     input: &[u8],
     endianness: Endianness,
-) -> Option<Vec<u8>> {
+) -> Option<[u8; ALT_BN128_PAIRING_OUTPUT_SIZE]> {
     // reject deprecated variants
     if matches!(version, VersionedPairing::V0) {
         return None;
@@ -61,8 +61,8 @@ pub fn alt_bn128_versioned_pairing(
     };
 
     let output = match endianness {
-        Endianness::BE => result.to_bytes_be(),
-        Endianness::LE => result.to_bytes_le(),
+        Endianness::BE => result.to_bytes_be().try_into().ok()?,
+        Endianness::LE => result.to_bytes_le().try_into().ok()?,
     };
 
     Some(output)

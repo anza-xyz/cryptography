@@ -26,7 +26,7 @@ pub fn alt_bn128_versioned_g1_multiplication(
     version: VersionedG1Multiplication,
     input: &[u8],
     endianness: Endianness,
-) -> Option<Vec<u8>> {
+) -> Option<[u8; ALT_BN128_G1_POINT_SIZE]> {
     // reject deprecated variants
     if matches!(version, VersionedG1Multiplication::V0) {
         return None;
@@ -74,11 +74,11 @@ pub fn alt_bn128_versioned_g1_multiplication(
         .ok()?;
 
     match endianness {
-        Endianness::BE => Some(
-            swap_endianness::<ALT_BN128_FIELD_SIZE, ALT_BN128_G1_POINT_SIZE>(result_point_data)
-                .to_vec(),
-        ),
-        Endianness::LE => Some(result_point_data.to_vec()),
+        Endianness::BE => Some(swap_endianness::<
+            ALT_BN128_FIELD_SIZE,
+            ALT_BN128_G1_POINT_SIZE,
+        >(result_point_data)),
+        Endianness::LE => Some(result_point_data),
     }
 }
 
@@ -86,7 +86,7 @@ pub fn alt_bn128_versioned_g2_multiplication(
     _version: VersionedG2Multiplication,
     input: &[u8],
     endianness: Endianness,
-) -> Option<Vec<u8>> {
+) -> Option<[u8; ALT_BN128_G2_POINT_SIZE]> {
     if input.len() != ALT_BN128_G2_MULTIPLICATION_INPUT_SIZE {
         return None;
     }
@@ -120,10 +120,9 @@ pub fn alt_bn128_versioned_g2_multiplication(
         .ok()?;
 
     match endianness {
-        Endianness::BE => Some(
-            swap_endianness::<ALT_BN128_FQ2_SIZE, ALT_BN128_G2_POINT_SIZE>(result_point_data)
-                .to_vec(),
-        ),
-        Endianness::LE => Some(result_point_data.to_vec()),
+        Endianness::BE => {
+            Some(swap_endianness::<ALT_BN128_FQ2_SIZE, ALT_BN128_G2_POINT_SIZE>(result_point_data))
+        }
+        Endianness::LE => Some(result_point_data),
     }
 }
