@@ -7,6 +7,7 @@ use crate::edwards::{CompressedEdwardsY, EdwardsPoint};
 use color_eyre::{Report, eyre::eyre};
 
 use core::convert::TryFrom;
+use std::vec::Vec;
 
 pub struct TestCase {
     pub vk_bytes: [u8; 32],
@@ -16,7 +17,7 @@ pub struct TestCase {
 }
 
 impl core::fmt::Debug for TestCase {
-    fn fmt(&self, fmt: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, fmt: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         fmt.debug_struct("TestCase")
             .field("vk_bytes", &hex::encode(&self.vk_bytes[..]))
             .field("sig_bytes", &hex::encode(&self.sig_bytes[..]))
@@ -51,9 +52,9 @@ impl TestCase {
     }
 
     fn check_legacy(&self) -> Result<(), Report> {
-        use ed25519_zebra_legacy::{Signature, VerificationKey};
+        use ed25519_heea_zip215::{Signature, VerificationKey};
         let sig = Signature::from(self.sig_bytes);
-        VerificationKey::try_from(self.vk_bytes).and_then(|vk| vk.verify(&sig, b"Zcash"))?;
+        VerificationKey::try_from(self.vk_bytes).and_then(|vk| vk.verify_dalek(&sig, b"Zcash"))?;
         Ok(())
     }
 

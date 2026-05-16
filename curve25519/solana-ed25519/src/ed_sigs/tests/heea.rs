@@ -9,7 +9,7 @@ use ed25519::Signature;
 
 #[test]
 fn test_verify_heea_invalid_signature() {
-    let mut rng = rand::rng();
+    let mut rng = rand::thread_rng();
     let signing_key = SigningKey::new(&mut rng);
     let verification_key = VerificationKey::from(&signing_key);
 
@@ -39,7 +39,7 @@ fn test_verify_heea_invalid_signature() {
 
 #[test]
 fn test_verify_heea_multiple_signatures() {
-    let mut rng = rand::rng();
+    let mut rng = rand::thread_rng();
 
     for i in 0..100 {
         let signing_key = SigningKey::new(&mut rng);
@@ -72,7 +72,7 @@ fn test_verify_heea_multiple_signatures() {
 
 #[test]
 fn test_default_verification_matches_zebra() {
-    let mut rng = rand::rng();
+    let mut rng = rand::thread_rng();
     let signing_key = SigningKey::new(&mut rng);
     let verification_key = VerificationKey::from(&signing_key);
     let msg = b"default verification mode";

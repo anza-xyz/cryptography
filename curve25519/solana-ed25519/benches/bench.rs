@@ -8,7 +8,7 @@ use ed25519_zebra::VerificationKey as ZebraVerificationKey;
 
 fn sigs_with_distinct_pubkeys() -> impl Iterator<Item = (VerificationKeyBytes, Signature)> {
     std::iter::repeat_with(|| {
-        let sk = SigningKey::new(rand::rng());
+        let sk = SigningKey::new(rand::thread_rng());
         let pk_bytes = VerificationKeyBytes::from(&sk);
         let sig = sk.sign(b"");
         (pk_bytes, sig)
@@ -16,7 +16,7 @@ fn sigs_with_distinct_pubkeys() -> impl Iterator<Item = (VerificationKeyBytes, S
 }
 
 fn sigs_with_same_pubkey() -> impl Iterator<Item = (VerificationKeyBytes, Signature)> {
-    let sk = SigningKey::new(rand::rng());
+    let sk = SigningKey::new(rand::thread_rng());
     let pk_bytes = VerificationKeyBytes::from(&sk);
     std::iter::repeat_with(move || {
         let sig = sk.sign(b"");
@@ -30,7 +30,7 @@ fn single_verify_inputs() -> (
     ZebraVerificationKey,
     DalekVerifyingKey,
 ) {
-    let sk = SigningKey::new(rand::rng());
+    let sk = SigningKey::new(rand::thread_rng());
     let vk = VerificationKey::from(&sk);
     let sig = sk.sign(b"");
     let vk_bytes: [u8; 32] = vk.into();
@@ -68,7 +68,7 @@ fn bench_batch_verify(c: &mut Criterion) {
                     for (vk_bytes, sig) in sigs.iter().cloned() {
                         batch.queue((vk_bytes, sig, b""));
                     }
-                    batch.verify(rand::rng())
+                    batch.verify(rand::thread_rng())
                 })
             },
         );
@@ -84,7 +84,7 @@ fn bench_batch_verify(c: &mut Criterion) {
                     for (vk_bytes, sig) in sigs.iter().cloned() {
                         batch.queue((vk_bytes, sig, b""));
                     }
-                    batch.verify(rand::rng())
+                    batch.verify(rand::thread_rng())
                 })
             },
         );

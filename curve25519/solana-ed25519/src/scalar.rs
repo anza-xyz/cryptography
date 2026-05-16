@@ -125,8 +125,8 @@ use group::ff::{Field, FromUniformBytes, PrimeField};
 #[cfg(feature = "group-bits")]
 use group::ff::{FieldBits, PrimeFieldBits};
 
-#[cfg(feature = "group")]
-use rand_core::TryRng;
+#[cfg(any(feature = "group", feature = "rand_core"))]
+use rand_core::RngCore;
 
 #[cfg(feature = "rand_core")]
 use rand_core::CryptoRng;
@@ -589,11 +589,11 @@ impl Scalar {
     /// # fn main() {
     /// use curve25519::scalar::Scalar;
     ///
-    /// let mut csprng = rand::rng();
+    /// let mut csprng = rand::thread_rng();
     /// let a: Scalar = Scalar::random(&mut csprng);
     /// # }
     #[cfg(feature = "rand_core")]
-    pub fn random<R: CryptoRng + ?Sized>(rng: &mut R) -> Self {
+    pub fn random<R: CryptoRng + RngCore + ?Sized>(rng: &mut R) -> Self {
         let mut scalar_bytes = [0u8; 64];
         rng.fill_bytes(&mut scalar_bytes);
         Scalar::from_bytes_mod_order_wide(&scalar_bytes)
@@ -1263,11 +1263,11 @@ impl Field for Scalar {
     const ZERO: Self = Self::ZERO;
     const ONE: Self = Self::ONE;
 
-    fn try_from_rng<R: TryRng + ?Sized>(rng: &mut R) -> Result<Self, R::Error> {
+    fn random(mut rng: impl RngCore) -> Self {
         // NOTE: this is duplicated due to different `rng` bounds
         let mut scalar_bytes = [0u8; 64];
-        rng.try_fill_bytes(&mut scalar_bytes)?;
-        Ok(Self::from_bytes_mod_order_wide(&scalar_bytes))
+        rng.fill_bytes(&mut scalar_bytes);
+        Self::from_bytes_mod_order_wide(&scalar_bytes)
     }
 
     fn square(&self) -> Self {
@@ -1443,7 +1443,6 @@ pub const fn clamp_integer(mut bytes: [u8; 32]) -> [u8; 32] {
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
-    use rand::Rng;
 
     #[cfg(feature = "alloc")]
     use alloc::vec::Vec;
@@ -1605,7 +1604,7 @@ pub(crate) mod test {
     #[cfg(feature = "rand_core")]
     #[test]
     fn non_adjacent_form_random() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
         for _ in 0..1_000 {
             let x = Scalar::random(&mut rng);
             for w in &[5, 6, 7, 8] {
@@ -2135,7 +2134,7 @@ pub(crate) mod test {
     // was reduced and b was clamped and unreduced. This checks that was always well-defined.
     #[test]
     fn test_mul_reduction_invariance() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
 
         for _ in 0..10 {
             // Also define c that's clamped. We'll make sure that clamping doesn't affect
