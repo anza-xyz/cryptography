@@ -6,35 +6,35 @@ use pkcs8::{DecodePrivateKey, DecodePublicKey};
 
 /// Ed25519 PKCS#8 v1 private key encoded as ASN.1 DER.
 #[cfg(feature = "pkcs8")]
-const PKCS8_V1_DER: &[u8] = include_bytes!("examples/pkcs8-v1.der");
+const PKCS8_V1_DER: &[u8] = include_bytes!("../../../examples/pkcs8-v1.der");
 
 /// Ed25519 PKCS#8 v1 private key encoded as PEM.
 #[cfg(feature = "pem")]
-const PKCS8_V1_PEM: &str = include_str!("examples/pkcs8-v1.pem");
+const PKCS8_V1_PEM: &str = include_str!("../../../examples/pkcs8-v1.pem");
 
 /// Ed25519 PKCS#8 v2 private key + public key encoded as ASN.1 DER.
 #[cfg(feature = "pkcs8")]
-const PKCS8_V2_DER: &[u8] = include_bytes!("examples/pkcs8-v2.der");
+const PKCS8_V2_DER: &[u8] = include_bytes!("../../../examples/pkcs8-v2.der");
 
 /// Ed25519 PKCS#8 v1 private key encoded as PEM.
 #[cfg(feature = "pem")]
-const PKCS8_V2_PEM: &str = include_str!("examples/pkcs8-v2.pem");
+const PKCS8_V2_PEM: &str = include_str!("../../../examples/pkcs8-v2.pem");
 
 /// Ed25519 PKCS#8 v2 private key + mismatched public key encoded as ASN.1 DER.
 #[cfg(feature = "pkcs8")]
-const PKCS8_V2_DER_BAD: &[u8] = include_bytes!("examples/pkcs8-v2-bad-ver-key.der");
+const PKCS8_V2_DER_BAD: &[u8] = include_bytes!("../../../examples/pkcs8-v2-bad-ver-key.der");
 
 /// Ed25519 PKCS#8 v2 private key + mismatched public key encoded as PEM.
 #[cfg(feature = "pem")]
-const PKCS8_V2_PEM_BAD: &str = include_str!("examples/pkcs8-v2-bad-ver-key.pem");
+const PKCS8_V2_PEM_BAD: &str = include_str!("../../../examples/pkcs8-v2-bad-ver-key.pem");
 
 /// Ed25519 SubjectPublicKeyInfo encoded as ASN.1 DER.
 #[cfg(feature = "pkcs8")]
-const PUBLIC_KEY_DER: &[u8] = include_bytes!("examples/pubkey.der");
+const PUBLIC_KEY_DER: &[u8] = include_bytes!("../../../examples/pubkey.der");
 
 /// Ed25519 SubjectPublicKeyInfo encoded as PEM.
 #[cfg(feature = "pem")]
-const PUBLIC_KEY_PEM: &str = include_str!("examples/pubkey.pem");
+const PUBLIC_KEY_PEM: &str = include_str!("../../../examples/pubkey.pem");
 
 #[test]
 #[cfg(feature = "pkcs8")]

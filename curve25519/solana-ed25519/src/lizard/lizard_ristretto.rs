@@ -281,7 +281,7 @@ mod test {
     // Tests that lizard_decode of a random point is None
     #[test]
     fn lizard_invalid() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
         for _ in 0..100 {
             let pt = RistrettoPoint::random(&mut rng);
             assert!(
@@ -297,7 +297,7 @@ mod test {
     // is the identity
     #[test]
     fn elligator_inv() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
 
         for i in 0..100 {
             let mut fe_bytes = [0u8; 32];
@@ -342,7 +342,7 @@ mod test {
     // Tests that map_to_curve ○ map_to_curve_inverse is the identity
     #[test]
     fn map_to_curve_inverse() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
 
         for _ in 0..100 {
             let mut input = [0u8; 32];
@@ -365,7 +365,7 @@ mod test {
     // return value in the first 8 elements
     #[test]
     fn map_pos_felem_to_curve_inverse() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
 
         for _ in 0..100 {
             let mut input = [0u8; 32];

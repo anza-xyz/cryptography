@@ -150,14 +150,14 @@ pub fn mul_128_128_256(
 #[cfg(test)]
 mod test {
 
-    use rand::{Rng, rng};
+    use rand::{RngCore, thread_rng};
 
     use super::*;
     use crate::scalar::Scalar;
 
     fn random_scalar() -> Scalar {
         let mut wide = [0u8; 64];
-        let mut rng = rng();
+        let mut rng = thread_rng();
         rng.fill_bytes(&mut wide);
         Scalar::from_bytes_mod_order_wide(&wide)
     }

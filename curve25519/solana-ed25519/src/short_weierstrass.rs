@@ -220,7 +220,7 @@ mod tests {
     use super::{sw_a, sw_b};
     use crate::constants;
     use crate::scalar::Scalar;
-    use rand::{Rng, RngExt};
+    use rand::Rng;
 
     fn sw_scalar_mul(point: &SwPoint, scalar: &Scalar) -> SwPoint {
         let mut acc = SwPoint::Identity;
@@ -246,7 +246,7 @@ mod tests {
 
     #[test]
     fn sw_round_trip_add_matches_edwards() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
 
         for _ in 0..32 {
             let a = random_scalar(&mut rng);
@@ -273,7 +273,7 @@ mod tests {
 
     #[test]
     fn sw_scalar_mul_matches_edwards() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
 
         for _ in 0..32 {
             let s = random_scalar(&mut rng);
@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn sw_add_associativity() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
 
         for _ in 0..32 {
             let a = random_scalar(&mut rng);
@@ -314,7 +314,7 @@ mod tests {
 
     #[test]
     fn sw_scalar_mul_associativity_commutes() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
         let base = SwPoint::from_edwards(&constants::ED25519_BASEPOINT_POINT);
 
         for _ in 0..32 {

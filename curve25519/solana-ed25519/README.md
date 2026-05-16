@@ -105,7 +105,7 @@ use curve25519::ed_sigs::{SigningKey, VerificationKey};
 let msg = b"curve25519-sol";
 
 // Generate key and sign
-let sk = SigningKey::new(rand::rng());
+let sk = SigningKey::new(rand::thread_rng());
 let sig = sk.sign(msg);
 let vk = VerificationKey::from(&sk);
 
@@ -122,7 +122,7 @@ let mut verifier = batch::Verifier::new();
 for (vk_bytes, sig, msg) in items {
     verifier.queue((vk_bytes, sig, msg));
 }
-verifier.verify(rand::rng()).expect("all valid");
+verifier.verify(rand::thread_rng()).expect("all valid");
 ```
 
 ### HEEA decomposition example
