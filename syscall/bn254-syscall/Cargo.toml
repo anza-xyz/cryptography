@@ -8,7 +8,6 @@ repository = { workspace = true }
 homepage = { workspace = true }
 license = { workspace = true }
 edition = "2021"
-include = ["src/**/*"]
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
