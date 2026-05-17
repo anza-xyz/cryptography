@@ -3,10 +3,10 @@ name = "solana-bn254-syscall"
 description = "Solana BN254 Syscall"
 documentation = "https://docs.rs/solana-bn254-syscall"
 version = "0.1.0"
-authors = ["Anza Maintainers <maintainers@anza.xyz>"]
-repository = "https://github.com/anza-xyz/cryptography"
-homepage = "https://anza.xyz"
-license = "Apache-2.0"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
 edition = "2021"
 include = ["src/**/*"]
 
