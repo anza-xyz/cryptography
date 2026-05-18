@@ -676,32 +676,6 @@ impl RistrettoPoint {
         RistrettoPoint::from_uniform_bytes(&uniform_bytes)
     }
 
-    /// Return a `RistrettoPoint` chosen uniformly at random using a user-provided RNG.
-    ///
-    /// # Inputs
-    ///
-    /// * `rng`: any RNG which implements `CryptoRng` interface.
-    ///
-    /// # Returns
-    ///
-    /// A random element of the Ristretto group.
-    ///
-    /// # Implementation
-    ///
-    /// Uses the Ristretto-flavoured Elligator 2 map, so that the
-    /// discrete log of the output point with respect to any other
-    /// point should be unknown.  The map is applied twice and the
-    /// results are added, to ensure a uniform distribution.
-    #[cfg(feature = "rand_core")]
-    pub fn try_from_rng<R: CryptoRng + RngCore + ?Sized>(
-        rng: &mut R,
-    ) -> Result<Self, core::convert::Infallible> {
-        let mut uniform_bytes = [0u8; 64];
-        rng.fill_bytes(&mut uniform_bytes);
-
-        Ok(RistrettoPoint::from_uniform_bytes(&uniform_bytes))
-    }
-
     #[cfg(feature = "digest")]
     /// Hash a slice of bytes into a `RistrettoPoint`.
     ///
@@ -1505,7 +1479,7 @@ mod test {
         let mut rng = OsRng;
 
         let mut points: Vec<RistrettoPoint> = (0..1024)
-            .map(|_| RistrettoPoint::try_from_rng(&mut rng).unwrap())
+            .map(|_| RistrettoPoint::random(&mut rng))
             .collect();
         points[500] = <RistrettoPoint as Group>::identity();
 
