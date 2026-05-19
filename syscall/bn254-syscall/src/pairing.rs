@@ -71,16 +71,13 @@ pub fn alt_bn128_versioned_pairing(
         vec_pairs.iter().map(|pair| pair.1),
     );
 
-    let result = if res.0 == ark_bn254::Fq12::one() {
-        BigInteger256::from(1u64)
-    } else {
-        BigInteger256::from(0u64)
-    };
-
-    let output = match endianness {
-        Endianness::BE => result.to_bytes_be().try_into().ok()?,
-        Endianness::LE => result.to_bytes_le().try_into().ok()?,
-    };
+    let mut output = [0u8; ALT_BN128_PAIRING_OUTPUT_SIZE];
+    if res.0 == ark_bn254::Fq12::one() {
+        match endianness {
+            Endianness::BE => output[ALT_BN128_PAIRING_OUTPUT_SIZE - 1] = 1,
+            Endianness::LE => output[0] = 1,
+        }
+    }
 
     Some(output)
 }
