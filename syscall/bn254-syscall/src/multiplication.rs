@@ -1,11 +1,11 @@
 use {
     crate::{
-        swap_endianness, Endianness, PodG1, PodG2, ALT_BN128_FIELD_SIZE, ALT_BN128_FQ2_SIZE,
-        ALT_BN128_G1_POINT_SIZE, ALT_BN128_G2_POINT_SIZE, G1, G2,
+        serialize_g1, serialize_g2, swap_endianness, Endianness, PodG1, PodG2,
+        ALT_BN128_FIELD_SIZE, ALT_BN128_G1_POINT_SIZE, ALT_BN128_G2_POINT_SIZE,
     },
     ark_ec::{self, AffineRepr},
     ark_ff::BigInteger256,
-    ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress},
+    ark_serialize::CanonicalDeserialize,
 };
 
 /// Input size for the g1 multiplication operation.
@@ -80,25 +80,7 @@ pub fn alt_bn128_versioned_g1_multiplication(
     };
     let fr = BigInteger256::deserialize_uncompressed_unchecked(fr_bytes_proper.as_slice()).ok()?;
 
-    let result_point_affine: G1 = p.mul_bigint(fr).into();
-
-    let mut result_point_data = [0u8; ALT_BN128_G1_POINT_SIZE];
-    result_point_affine
-        .x
-        .serialize_with_mode(&mut result_point_data[..ALT_BN128_FIELD_SIZE], Compress::No)
-        .ok()?;
-    result_point_affine
-        .y
-        .serialize_with_mode(&mut result_point_data[ALT_BN128_FIELD_SIZE..], Compress::No)
-        .ok()?;
-
-    match endianness {
-        Endianness::BE => Some(swap_endianness::<
-            ALT_BN128_FIELD_SIZE,
-            ALT_BN128_G1_POINT_SIZE,
-        >(result_point_data)),
-        Endianness::LE => Some(result_point_data),
-    }
+    serialize_g1(p.mul_bigint(fr).into(), endianness)
 }
 
 /// The implementation of the `sol_alt_bn128_group_op` syscall G2 multiplication operation
@@ -138,22 +120,5 @@ pub fn alt_bn128_versioned_g2_multiplication(
     };
     let fr = BigInteger256::deserialize_uncompressed_unchecked(fr_bytes_proper.as_slice()).ok()?;
 
-    let result_point_affine: G2 = p.mul_bigint(fr).into();
-
-    let mut result_point_data = [0u8; ALT_BN128_G2_POINT_SIZE];
-    result_point_affine
-        .x
-        .serialize_with_mode(&mut result_point_data[..ALT_BN128_FQ2_SIZE], Compress::No)
-        .ok()?;
-    result_point_affine
-        .y
-        .serialize_with_mode(&mut result_point_data[ALT_BN128_FQ2_SIZE..], Compress::No)
-        .ok()?;
-
-    match endianness {
-        Endianness::BE => {
-            Some(swap_endianness::<ALT_BN128_FQ2_SIZE, ALT_BN128_G2_POINT_SIZE>(result_point_data))
-        }
-        Endianness::LE => Some(result_point_data),
-    }
+    serialize_g2(p.mul_bigint(fr).into(), endianness)
 }

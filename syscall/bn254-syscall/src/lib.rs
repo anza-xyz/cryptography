@@ -18,6 +18,7 @@ pub mod pairing;
 
 use {
     ark_ec::AffineRepr,
+    ark_serialize::CanonicalSerialize,
     ark_serialize::{CanonicalDeserialize, Compress, Validate},
     bytemuck::{Pod, Zeroable},
 };
@@ -193,6 +194,53 @@ impl PodG2 {
     #[inline(always)]
     pub(crate) fn from_le_bytes(le_bytes: &[u8]) -> Option<Self> {
         le_bytes.try_into().ok().map(Self)
+    }
+}
+
+#[inline]
+pub(crate) fn serialize_g1(
+    point: G1,
+    endianness: Endianness,
+) -> Option<[u8; ALT_BN128_G1_POINT_SIZE]> {
+    let mut data = [0u8; ALT_BN128_G1_POINT_SIZE];
+    point
+        .x
+        .serialize_with_mode(&mut data[..ALT_BN128_FIELD_SIZE], Compress::No)
+        .ok()?;
+    point
+        .y
+        .serialize_with_mode(&mut data[ALT_BN128_FIELD_SIZE..], Compress::No)
+        .ok()?;
+
+    match endianness {
+        Endianness::BE => Some(swap_endianness::<
+            ALT_BN128_FIELD_SIZE,
+            ALT_BN128_G1_POINT_SIZE,
+        >(data)),
+        Endianness::LE => Some(data),
+    }
+}
+
+#[inline]
+pub(crate) fn serialize_g2(
+    point: G2,
+    endianness: Endianness,
+) -> Option<[u8; ALT_BN128_G2_POINT_SIZE]> {
+    let mut data = [0u8; ALT_BN128_G2_POINT_SIZE];
+    point
+        .x
+        .serialize_with_mode(&mut data[..ALT_BN128_FQ2_SIZE], Compress::No)
+        .ok()?;
+    point
+        .y
+        .serialize_with_mode(&mut data[ALT_BN128_FQ2_SIZE..], Compress::No)
+        .ok()?;
+
+    match endianness {
+        Endianness::BE => {
+            Some(swap_endianness::<ALT_BN128_FQ2_SIZE, ALT_BN128_G2_POINT_SIZE>(data))
+        }
+        Endianness::LE => Some(data),
     }
 }
 

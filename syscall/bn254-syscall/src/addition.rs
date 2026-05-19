@@ -1,9 +1,6 @@
-use {
-    crate::{
-        swap_endianness, Endianness, PodG1, PodG2, ALT_BN128_FIELD_SIZE, ALT_BN128_FQ2_SIZE,
-        ALT_BN128_G1_POINT_SIZE, ALT_BN128_G2_POINT_SIZE, G1, G2,
-    },
-    ark_serialize::{CanonicalSerialize, Compress},
+use crate::{
+    serialize_g1, serialize_g2, Endianness, PodG1, PodG2, ALT_BN128_G1_POINT_SIZE,
+    ALT_BN128_G2_POINT_SIZE,
 };
 
 /// Input size for the g1 add operation.
@@ -65,25 +62,7 @@ pub fn alt_bn128_versioned_g1_addition(
         ),
     };
 
-    let result_point_affine: G1 = (p + q).into();
-
-    let mut result_point_data = [0u8; ALT_BN128_G1_POINT_SIZE];
-    result_point_affine
-        .x
-        .serialize_with_mode(&mut result_point_data[..ALT_BN128_FIELD_SIZE], Compress::No)
-        .ok()?;
-    result_point_affine
-        .y
-        .serialize_with_mode(&mut result_point_data[ALT_BN128_FIELD_SIZE..], Compress::No)
-        .ok()?;
-
-    match endianness {
-        Endianness::BE => Some(swap_endianness::<
-            ALT_BN128_FIELD_SIZE,
-            ALT_BN128_G1_POINT_SIZE,
-        >(result_point_data)),
-        Endianness::LE => Some(result_point_data),
-    }
+    serialize_g1((p + q).into(), endianness)
 }
 
 /// The implementation of the `sol_alt_bn128_group_op` syscall G2 addition operation
@@ -122,22 +101,5 @@ pub fn alt_bn128_versioned_g2_addition(
         ),
     };
 
-    let result_point_affine: G2 = (p + q).into();
-
-    let mut result_point_data = [0u8; ALT_BN128_G2_POINT_SIZE];
-    result_point_affine
-        .x
-        .serialize_with_mode(&mut result_point_data[..ALT_BN128_FQ2_SIZE], Compress::No)
-        .ok()?;
-    result_point_affine
-        .y
-        .serialize_with_mode(&mut result_point_data[ALT_BN128_FQ2_SIZE..], Compress::No)
-        .ok()?;
-
-    match endianness {
-        Endianness::BE => {
-            Some(swap_endianness::<ALT_BN128_FQ2_SIZE, ALT_BN128_G2_POINT_SIZE>(result_point_data))
-        }
-        Endianness::LE => Some(result_point_data),
-    }
+    serialize_g2((p + q).into(), endianness)
 }

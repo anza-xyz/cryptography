@@ -2,7 +2,7 @@ use {
     crate::{Endianness, PodG1, PodG2, ALT_BN128_G1_POINT_SIZE, ALT_BN128_G2_POINT_SIZE, G1, G2},
     ark_bn254::{self, Config},
     ark_ec::{bn::Bn, pairing::Pairing},
-    ark_ff::{BigInteger, BigInteger256, One},
+    ark_ff::One,
 };
 
 /// Pair element size.
