@@ -180,15 +180,12 @@ use crate::field::FieldElement;
 #[cfg(feature = "group")]
 use {
     group::{GroupEncoding, cofactor::CofactorGroup, prime::PrimeGroup},
-    rand_core::TryRng,
+    rand_core::RngCore as GroupRngCore,
     subtle::CtOption,
 };
 
 #[cfg(feature = "rand_core")]
-use {
-    core::convert::Infallible,
-    rand_core::{CryptoRng, TryCryptoRng},
-};
+use rand_core::{CryptoRng, RngCore};
 
 use subtle::Choice;
 use subtle::ConditionallyNegatable;
@@ -547,7 +544,7 @@ impl RistrettoPoint {
     /// # // Need fn main() here in comment so the doctest compiles
     /// # // See https://doc.rust-lang.org/book/documentation.html#documentation-as-tests
     /// # fn main() {
-    /// let mut rng = rand::rng();
+    /// let mut rng = rand::thread_rng();
     ///
     /// let points: Vec<RistrettoPoint> =
     ///     (0..32).map(|_| RistrettoPoint::random(&mut rng)).collect();
@@ -672,34 +669,11 @@ impl RistrettoPoint {
     /// point should be unknown.  The map is applied twice and the
     /// results are added, to ensure a uniform distribution.
     #[cfg(feature = "rand_core")]
-    pub fn random<R: CryptoRng + ?Sized>(rng: &mut R) -> Self {
-        Self::try_from_rng(rng)
-            .map_err(|_: Infallible| {})
-            .expect("[bug] unfallible rng failed")
-    }
-
-    /// Return a `RistrettoPoint` chosen uniformly at random using a user-provided RNG.
-    ///
-    /// # Inputs
-    ///
-    /// * `rng`: any RNG which implements `TryCryptoRng` interface.
-    ///
-    /// # Returns
-    ///
-    /// A random element of the Ristretto group.
-    ///
-    /// # Implementation
-    ///
-    /// Uses the Ristretto-flavoured Elligator 2 map, so that the
-    /// discrete log of the output point with respect to any other
-    /// point should be unknown.  The map is applied twice and the
-    /// results are added, to ensure a uniform distribution.
-    #[cfg(feature = "rand_core")]
-    pub fn try_from_rng<R: TryCryptoRng + ?Sized>(rng: &mut R) -> Result<Self, R::Error> {
+    pub fn random<R: CryptoRng + RngCore + ?Sized>(rng: &mut R) -> Self {
         let mut uniform_bytes = [0u8; 64];
-        rng.try_fill_bytes(&mut uniform_bytes)?;
+        rng.fill_bytes(&mut uniform_bytes);
 
-        Ok(RistrettoPoint::from_uniform_bytes(&uniform_bytes))
+        RistrettoPoint::from_uniform_bytes(&uniform_bytes)
     }
 
     #[cfg(feature = "digest")]
@@ -1178,11 +1152,11 @@ impl Debug for RistrettoPoint {
 impl group::Group for RistrettoPoint {
     type Scalar = Scalar;
 
-    fn try_from_rng<R: TryRng + ?Sized>(rng: &mut R) -> Result<Self, R::Error> {
+    fn random(mut rng: impl GroupRngCore) -> Self {
         // NOTE: this is duplicated due to different `rng` bounds
         let mut uniform_bytes = [0u8; 64];
-        rng.try_fill_bytes(&mut uniform_bytes)?;
-        Ok(RistrettoPoint::from_uniform_bytes(&uniform_bytes))
+        rng.fill_bytes(&mut uniform_bytes);
+        RistrettoPoint::from_uniform_bytes(&uniform_bytes)
     }
 
     fn identity() -> Self {
@@ -1277,7 +1251,7 @@ mod test {
     #[cfg(feature = "group")]
     use proptest::prelude::*;
     #[cfg(all(feature = "rand_core", feature = "group"))]
-    use rand::rngs::SysRng;
+    use rand::rngs::OsRng;
 
     #[test]
     #[cfg(feature = "serde")]
@@ -1476,7 +1450,7 @@ mod test {
     #[cfg(feature = "rand_core")]
     #[test]
     fn four_torsion_random() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
         let P = RistrettoPoint::mul_base(&Scalar::random(&mut rng));
         let P_coset = P.coset4();
         for point in P_coset {
@@ -1487,7 +1461,7 @@ mod test {
     #[cfg(feature = "rand_core")]
     #[test]
     fn random_roundtrip() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
         for _ in 0..100 {
             let P = RistrettoPoint::mul_base(&Scalar::random(&mut rng));
             let compressed_P = P.compress();
@@ -1502,10 +1476,10 @@ mod test {
     #[cfg(all(feature = "alloc", feature = "rand_core", feature = "group"))]
     fn double_and_compress_1024_random_points() {
         use group::Group;
-        let mut rng = SysRng;
+        let mut rng = OsRng;
 
         let mut points: Vec<RistrettoPoint> = (0..1024)
-            .map(|_| RistrettoPoint::try_from_rng(&mut rng).unwrap())
+            .map(|_| RistrettoPoint::random(&mut rng))
             .collect();
         points[500] = <RistrettoPoint as Group>::identity();
 
@@ -1552,7 +1526,7 @@ mod test {
     #[test]
     #[cfg(all(feature = "alloc", feature = "rand_core"))]
     fn vartime_precomputed_vs_nonprecomputed_multiscalar() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
 
         let static_scalars = (0..128)
             .map(|_| Scalar::random(&mut rng))
@@ -1603,7 +1577,7 @@ mod test {
     #[test]
     #[cfg(all(feature = "alloc", feature = "rand_core"))]
     fn partial_precomputed_mixed_multiscalar_empty() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
 
         let n_static = 16;
         let n_dynamic = 8;
@@ -1646,7 +1620,7 @@ mod test {
     #[test]
     #[cfg(all(feature = "alloc", feature = "rand_core"))]
     fn partial_precomputed_mixed_multiscalar() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
 
         let n_static = 16;
         let n_dynamic = 8;
@@ -1691,7 +1665,7 @@ mod test {
     #[test]
     #[cfg(all(feature = "alloc", feature = "rand_core"))]
     fn partial_precomputed_multiscalar() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
 
         let n_static = 16;
 
@@ -1720,7 +1694,7 @@ mod test {
     #[test]
     #[cfg(all(feature = "alloc", feature = "rand_core"))]
     fn partial_precomputed_multiscalar_empty() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
 
         let n_static = 16;
 

@@ -42,7 +42,7 @@
 extern crate alloc;
 
 // TODO: move std-dependent tests to `tests/`
-#[cfg(test)]
+#[cfg(any(test, feature = "std"))]
 #[macro_use]
 extern crate std;
 

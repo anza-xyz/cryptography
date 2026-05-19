@@ -6,7 +6,7 @@ use crate::ed_sigs::{Signature, SigningKey, VerificationKey, VerificationKeyByte
 
 #[test]
 fn parsing() {
-    let sk = SigningKey::new(rand::rng());
+    let sk = SigningKey::new(rand::thread_rng());
     let pk = VerificationKey::from(&sk);
     let pkb = VerificationKeyBytes::from(&sk);
     let sig = sk.sign(b"test");
@@ -37,7 +37,7 @@ fn parsing() {
 
 #[test]
 fn sign_and_verify() {
-    let sk = SigningKey::new(rand::rng());
+    let sk = SigningKey::new(rand::thread_rng());
     let pk = VerificationKey::from(&sk);
 
     let msg = b"ed25519-zebra test message";

@@ -423,15 +423,15 @@ mod tests {
     use crate::{Scalar, digest::Update, traits::HEEADecomposition};
 
     #[cfg(feature = "rand_core")]
-    use rand_core::Rng;
+    use rand_core::RngCore;
 
     #[test]
     #[cfg(all(feature = "rand_core", feature = "digest"))]
     fn test_generate_half_size_scalars() {
-        use rand::rng;
+        use rand::thread_rng;
         use sha2::{Digest, Sha512};
 
-        let mut rng = rng();
+        let mut rng = thread_rng();
 
         // Test with multiple random scalars
         for _ in 0..1000 {

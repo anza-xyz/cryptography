@@ -1,7 +1,7 @@
 #[cfg(feature = "pkcs8")]
 const OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.101.112"); // RFC 8410
 #[cfg(feature = "pkcs8")]
-const ALGORITHM_ID: AlgorithmIdentifierRef = AlgorithmIdentifierRef {
+const ALGORITHM_ID: AlgorithmIdentifierRef<'_> = AlgorithmIdentifierRef {
     oid: OID,
     parameters: None,
 };
@@ -13,7 +13,7 @@ use alloc::string::String;
 use core::convert::TryFrom;
 #[cfg(feature = "pkcs8")]
 use core::convert::TryInto;
-use rand_core::{CryptoRng, Rng};
+use rand_core::{CryptoRng, RngCore};
 use sha2::{Digest, Sha512, digest::Update};
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
@@ -176,7 +176,7 @@ impl Eq for SigningKey {}
 #[cfg(feature = "pkcs8")]
 impl<'a> TryFrom<PrivateKeyInfo<'a>> for SigningKey {
     type Error = Error;
-    fn try_from(pki: PrivateKeyInfo) -> Result<Self, Self::Error> {
+    fn try_from(pki: PrivateKeyInfo<'a>) -> Result<Self, Self::Error> {
         if pki.algorithm == ALGORITHM_ID {
             SigningKey::try_from(pki.private_key)
         } else {
@@ -326,7 +326,7 @@ impl SigningKey {
     }
 
     /// Generate a new signing key.
-    pub fn new<R: Rng + CryptoRng>(mut rng: R) -> SigningKey {
+    pub fn new<R: RngCore + CryptoRng>(mut rng: R) -> SigningKey {
         let mut bytes = [0u8; 32];
         rng.fill_bytes(&mut bytes[..]);
         bytes.into()

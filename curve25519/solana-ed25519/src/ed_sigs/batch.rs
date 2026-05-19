@@ -37,13 +37,13 @@
 //! # use curve25519::ed_sigs::*;
 //! let mut batch = batch::Verifier::new();
 //! for _ in 0..32 {
-//!     let sk = SigningKey::new(rand::rng());
+//!     let sk = SigningKey::new(rand::thread_rng());
 //!     let vk_bytes = VerificationKeyBytes::from(&sk);
 //!     let msg = b"BatchVerifyTest";
 //!     let sig = sk.sign(&msg[..]);
 //!     batch.queue((vk_bytes, sig, &msg[..]));
 //! }
-//! assert!(batch.verify(rand::rng()).is_ok());
+//! assert!(batch.verify(rand::thread_rng()).is_ok());
 //! ```
 //!
 //! [ZIP215]: https://zips.z.cash/zip-0215
@@ -57,14 +57,14 @@ use crate::{
     traits::{IsIdentity, VartimeMultiscalarMul},
 };
 use hashbrown::HashMap;
-use rand_core::{CryptoRng, Rng};
+use rand_core::{CryptoRng, RngCore};
 use sha2::{Sha512, digest::Update};
 
 use super::{Error, VerificationKey, VerificationKeyBytes};
 use ed25519::Signature;
 
 // Shim to generate a u128 without importing `rand`.
-fn gen_u128<R: Rng + CryptoRng>(mut rng: R) -> u128 {
+fn gen_u128<R: RngCore + CryptoRng>(mut rng: R) -> u128 {
     let mut bytes = [0u8; 16];
     rng.fill_bytes(&mut bytes[..]);
     u128::from_le_bytes(bytes)
@@ -142,7 +142,7 @@ impl Verifier {
     /// Perform batch verification, returning `Ok(())` if all signatures were
     /// valid and `Err` otherwise.
     #[allow(non_snake_case)]
-    pub fn verify<R: Rng + CryptoRng>(self, mut rng: R) -> Result<(), Error> {
+    pub fn verify<R: RngCore + CryptoRng>(self, mut rng: R) -> Result<(), Error> {
         // The batch verification equation is
         //
         // 8*[-sum(z_i * s_i)]B + 8*sum([z_i]R_i) + 8*sum([z_i * k_i]A_i) = 0.

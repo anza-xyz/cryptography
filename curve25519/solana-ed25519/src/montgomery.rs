@@ -512,8 +512,7 @@ mod test {
     use crate::constants;
 
     #[cfg(feature = "rand_core")]
-    use rand::CryptoRng;
-    use rand::TryRng;
+    use rand::{CryptoRng, RngCore};
 
     #[test]
     fn identity_in_different_coordinates() {
@@ -602,7 +601,7 @@ mod test {
 
     /// Returns a random point on the prime-order subgroup
     #[cfg(feature = "rand_core")]
-    fn rand_prime_order_point<R: CryptoRng + ?Sized>(rng: &mut R) -> EdwardsPoint {
+    fn rand_prime_order_point<R: CryptoRng + RngCore + ?Sized>(rng: &mut R) -> EdwardsPoint {
         let s: Scalar = Scalar::random(rng);
         EdwardsPoint::mul_base(&s)
     }
@@ -622,7 +621,7 @@ mod test {
     #[cfg(feature = "rand_core")]
     #[test]
     fn montgomery_ladder_matches_edwards_scalarmult() {
-        let mut csprng = rand::rng();
+        let mut csprng = rand::thread_rng();
 
         for _ in 0..100 {
             let p_edwards = rand_prime_order_point(&mut csprng);
@@ -641,7 +640,7 @@ mod test {
     #[cfg(feature = "rand_core")]
     #[test]
     fn montgomery_mul_bits_be() {
-        let mut csprng = rand::rng();
+        let mut csprng = rand::thread_rng();
 
         for _ in 0..100 {
             // Make a random prime-order point P
@@ -650,7 +649,7 @@ mod test {
 
             // Make a random integer b
             let mut bigint = [0u8; 64];
-            csprng.try_fill_bytes(&mut bigint[..]).unwrap();
+            csprng.fill_bytes(&mut bigint[..]);
             let bigint_bits_be = bytestring_bits_le(&bigint).rev();
 
             // Check that bP is the same whether calculated as scalar-times-edwards or
@@ -666,27 +665,21 @@ mod test {
     // integers b₁, b₂ and random (curve or twist) point P.
     #[test]
     fn montgomery_mul_bits_be_twist() {
-        let mut csprng = rand::rngs::SysRng;
+        let mut csprng = rand::rngs::OsRng;
 
         for _ in 0..100 {
             // Make a random point P on the curve or its twist
             let p_montgomery = {
                 let mut buf = [0u8; 32];
-                csprng
-                    .try_fill_bytes(&mut buf)
-                    .expect("rng should not fail");
+                csprng.fill_bytes(&mut buf);
                 MontgomeryPoint(buf)
             };
 
             // Compute two big integers b₁ and b₂
             let mut bigint1 = [0u8; 64];
             let mut bigint2 = [0u8; 64];
-            csprng
-                .try_fill_bytes(&mut bigint1[..])
-                .expect("rng should not fail");
-            csprng
-                .try_fill_bytes(&mut bigint2[..])
-                .expect("rng should not fail");
+            csprng.fill_bytes(&mut bigint1[..]);
+            csprng.fill_bytes(&mut bigint2[..]);
 
             // Compute b₁P and b₂P
             let bigint1_bits_be = bytestring_bits_le(&bigint1).rev();
@@ -705,7 +698,7 @@ mod test {
     /// Check that mul_base_clamped and mul_clamped agree
     #[test]
     fn mul_base_clamped() {
-        let mut csprng = rand::rngs::SysRng;
+        let mut csprng = rand::rngs::OsRng;
 
         // Test agreement on a large integer. Even after clamping, this is not reduced mod l.
         let a_bytes = [0xff; 32];
@@ -718,9 +711,7 @@ mod test {
         for _ in 0..100 {
             // This will be reduced mod l with probability l / 2^256 ≈ 6.25%
             let mut a_bytes = [0u8; 32];
-            csprng
-                .try_fill_bytes(&mut a_bytes)
-                .expect("rng should not fail");
+            csprng.fill_bytes(&mut a_bytes);
 
             assert_eq!(
                 MontgomeryPoint::mul_base_clamped(a_bytes),

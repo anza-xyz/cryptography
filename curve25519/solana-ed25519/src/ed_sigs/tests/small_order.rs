@@ -7,6 +7,7 @@ use crate::{
 use color_eyre::Report;
 use once_cell::sync::Lazy;
 use sha2::Sha512;
+use std::vec::Vec;
 
 use super::util;
 use util::TestCase;
@@ -98,7 +99,7 @@ fn individual_matches_batch_verification() -> Result<(), Report> {
             VerificationKey::try_from(vkb).and_then(|vk| vk.verify(&sig, msg));
         let mut bv = batch::Verifier::new();
         bv.queue((vkb, sig, msg));
-        let batch_verification = bv.verify(rand::rng());
+        let batch_verification = bv.verify(rand::thread_rng());
         assert_eq!(individual_verification.is_ok(), batch_verification.is_ok());
     }
     Ok(())
