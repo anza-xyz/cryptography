@@ -422,7 +422,7 @@ mod tests {
     #[cfg(all(feature = "rand_core", feature = "digest"))]
     use crate::{Scalar, digest::Update, traits::HEEADecomposition};
 
-    #[cfg(feature = "rand_core")]
+    #[cfg(all(feature = "rand_core", feature = "digest"))]
     use rand_core::RngCore;
 
     #[test]

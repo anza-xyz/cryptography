@@ -47,7 +47,7 @@ rustc_version.workspace = true
 [[bench]]
 name = "dalek_benchmarks"
 harness = false
-required-features = ["alloc"]
+required-features = ["alloc", "digest", "group", "rand_core"]
 
 [dependencies]
 cfg-if.workspace = true
@@ -80,7 +80,7 @@ group-bits = ["group", "ff/bits"]
 digest = ["dep:digest"]
 lizard = ["digest"]
 pkcs8 = ["dep:pkcs8", "ed25519/pkcs8", "alloc"]
-pem = ["pkcs8", "dep:der", "ed25519/pem"]
+pem = ["pkcs8", "dep:der", "ed25519/pem", "zeroize"]
 
 [lints.rust.unexpected_cfgs]
 level = "warn"

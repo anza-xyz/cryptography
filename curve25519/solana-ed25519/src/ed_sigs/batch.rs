@@ -51,19 +51,22 @@
 use alloc::vec::Vec;
 use core::convert::TryFrom;
 
+use crate::scalar::Scalar;
+#[cfg(feature = "rand_core")]
 use crate::{
     edwards::{CompressedEdwardsY, EdwardsPoint},
-    scalar::Scalar,
     traits::{IsIdentity, VartimeMultiscalarMul},
 };
 use hashbrown::HashMap;
+#[cfg(feature = "rand_core")]
 use rand_core::{CryptoRng, RngCore};
 use sha2::{Sha512, digest::Update};
 
-use super::{Error, VerificationKey, VerificationKeyBytes};
+use super::{Error, VerificationKey, VerificationKeyBytes, scalar_from_sha512};
 use ed25519::Signature;
 
 // Shim to generate a u128 without importing `rand`.
+#[cfg(feature = "rand_core")]
 fn gen_u128<R: RngCore + CryptoRng>(mut rng: R) -> u128 {
     let mut bytes = [0u8; 16];
     rng.fill_bytes(&mut bytes[..]);
@@ -86,7 +89,7 @@ impl<'msg, M: AsRef<[u8]> + ?Sized> From<(VerificationKeyBytes, Signature, &'msg
     fn from(tup: (VerificationKeyBytes, Signature, &'msg M)) -> Self {
         let (vk_bytes, sig, msg) = tup;
         // Compute k now to avoid dependency on the msg lifetime.
-        let k = Scalar::from_hash(
+        let k = scalar_from_sha512(
             Sha512::default()
                 .chain(&sig.r_bytes()[..])
                 .chain(&vk_bytes.0[..])
@@ -141,6 +144,7 @@ impl Verifier {
 
     /// Perform batch verification, returning `Ok(())` if all signatures were
     /// valid and `Err` otherwise.
+    #[cfg(feature = "rand_core")]
     #[allow(non_snake_case)]
     pub fn verify<R: RngCore + CryptoRng>(self, mut rng: R) -> Result<(), Error> {
         // The batch verification equation is

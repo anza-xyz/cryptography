@@ -1446,6 +1446,7 @@ pub(crate) mod test {
 
     #[cfg(feature = "alloc")]
     use alloc::vec::Vec;
+    use rand::RngCore;
 
     /// x = 2238329342913194256032495932344128051776374960164957527413114840482143558222
     pub static X: Scalar = Scalar {

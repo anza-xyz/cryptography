@@ -1,4 +1,4 @@
-#![cfg(feature = "alloc")]
+#![cfg(all(feature = "alloc", feature = "rand_core"))]
 
 use crate::ed_sigs::*;
 use alloc::vec::Vec;
@@ -6,8 +6,10 @@ use alloc::vec::Vec;
 #[test]
 fn batch_verify() {
     let mut batch = batch::Verifier::new();
-    for _ in 0..32 {
-        let sk = SigningKey::new(rand::thread_rng());
+    for i in 0..32 {
+        let mut seed = [0u8; 32];
+        seed[0] = i as u8;
+        let sk = SigningKey::from(seed);
         let pk_bytes = VerificationKeyBytes::from(&sk);
         let msg = b"BatchVerifyTest";
         let sig = sk.sign(&msg[..]);
@@ -22,7 +24,9 @@ fn batch_verify_with_one_bad_sig() {
     let mut batch = batch::Verifier::new();
     let mut items = Vec::new();
     for i in 0..32 {
-        let sk = SigningKey::new(rand::thread_rng());
+        let mut seed = [0u8; 32];
+        seed[0] = i as u8;
+        let sk = SigningKey::from(seed);
         let pk_bytes = VerificationKeyBytes::from(&sk);
         let msg = b"BatchVerifyTest";
         let sig = if i != bad_index {
