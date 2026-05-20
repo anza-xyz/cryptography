@@ -5,17 +5,24 @@ use curve25519::ed_sigs::*;
 use ed25519::signature::Verifier as _;
 use ed25519_dalek::VerifyingKey as DalekVerifyingKey;
 
+fn signing_key_from_index(index: u64) -> SigningKey {
+    let mut seed = [0u8; 32];
+    seed[..8].copy_from_slice(&index.to_le_bytes());
+    SigningKey::from(seed)
+}
+
 fn sigs_with_distinct_pubkeys() -> impl Iterator<Item = (VerificationKeyBytes, Signature)> {
-    std::iter::repeat_with(|| {
-        let sk = SigningKey::new(rand::thread_rng());
+    (0u64..).map(|i| {
+        let sk = signing_key_from_index(i);
         let pk_bytes = VerificationKeyBytes::from(&sk);
         let sig = sk.sign(b"");
         (pk_bytes, sig)
     })
 }
 
+#[cfg(all(feature = "alloc", feature = "rand_core"))]
 fn sigs_with_same_pubkey() -> impl Iterator<Item = (VerificationKeyBytes, Signature)> {
-    let sk = SigningKey::new(rand::thread_rng());
+    let sk = signing_key_from_index(0);
     let pk_bytes = VerificationKeyBytes::from(&sk);
     std::iter::repeat_with(move || {
         let sig = sk.sign(b"");
@@ -24,7 +31,7 @@ fn sigs_with_same_pubkey() -> impl Iterator<Item = (VerificationKeyBytes, Signat
 }
 
 fn single_verify_inputs() -> (VerificationKey, Signature, DalekVerifyingKey) {
-    let sk = SigningKey::new(rand::thread_rng());
+    let sk = signing_key_from_index(0);
     let vk = VerificationKey::from(&sk);
     let sig = sk.sign(b"");
     let vk_bytes: [u8; 32] = vk.into();
@@ -51,7 +58,7 @@ fn bench_batch_verify(c: &mut Criterion) {
                 })
             },
         );
-        #[cfg(feature = "alloc")]
+        #[cfg(all(feature = "alloc", feature = "rand_core"))]
         group.bench_with_input(
             BenchmarkId::new("Signatures with Distinct Pubkeys", n),
             &sigs,
@@ -65,9 +72,9 @@ fn bench_batch_verify(c: &mut Criterion) {
                 })
             },
         );
-        #[cfg(feature = "alloc")]
+        #[cfg(all(feature = "alloc", feature = "rand_core"))]
         let sigs = sigs_with_same_pubkey().take(*n).collect::<Vec<_>>();
-        #[cfg(feature = "alloc")]
+        #[cfg(all(feature = "alloc", feature = "rand_core"))]
         group.bench_with_input(
             BenchmarkId::new("Signatures with the Same Pubkey", n),
             &sigs,

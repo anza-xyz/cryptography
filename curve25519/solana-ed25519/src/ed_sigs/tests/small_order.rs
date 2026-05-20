@@ -1,12 +1,12 @@
 #![cfg(feature = "std")]
 
 use crate::{
-    constants::EIGHT_TORSION, digest::Update, edwards::CompressedEdwardsY, scalar::Scalar,
-    traits::IsIdentity,
+    constants::EIGHT_TORSION, ed_sigs::scalar_from_sha512, edwards::CompressedEdwardsY,
+    scalar::Scalar, traits::IsIdentity,
 };
 use color_eyre::Report;
 use once_cell::sync::Lazy;
-use sha2::Sha512;
+use sha2::{Sha512, digest::Update};
 use std::vec::Vec;
 
 use super::util;
@@ -51,7 +51,7 @@ pub static SMALL_ORDER_SIGS: Lazy<Vec<TestCase>> = Lazy::new(|| {
             // * R is not an excluded point
             // * R + [k]A = 0
             // * R is canonically encoded (because the check recomputes R)
-            let k = Scalar::from_hash(
+            let k = scalar_from_sha512(
                 Sha512::default()
                     .chain(&sig_bytes[0..32])
                     .chain(vk_bytes)
@@ -84,7 +84,7 @@ fn conformance() -> Result<(), Report> {
     Ok(())
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(all(feature = "alloc", feature = "rand_core"))]
 #[test]
 fn individual_matches_batch_verification() -> Result<(), Report> {
     use crate::ed_sigs::{VerificationKey, VerificationKeyBytes, batch};

@@ -19,6 +19,7 @@ use crate::{
 };
 use core::convert::{TryFrom, TryInto};
 use sha2::{Sha512, digest::Update};
+#[cfg(feature = "zeroize")]
 use zeroize::DefaultIsZeroes;
 
 use ed25519::{Signature, signature::Verifier};
@@ -32,7 +33,7 @@ use pkcs8::spki::{
 #[cfg(feature = "pkcs8")]
 use pkcs8::{Document, ObjectIdentifier};
 
-use super::Error;
+use super::{Error, scalar_from_sha512};
 
 /// The length of an ed25519 `VerificationKey`, in bytes.
 pub const VERIFICATION_KEY_LENGTH: usize = 32;
@@ -217,6 +218,7 @@ impl Default for VerificationKey {
     }
 }
 
+#[cfg(feature = "zeroize")]
 impl DefaultIsZeroes for VerificationKey {}
 
 impl From<VerificationKey> for [u8; 32] {
@@ -296,7 +298,7 @@ impl Verifier<Signature> for VerificationKey {
 
 impl VerificationKey {
     fn challenge_scalar(&self, signature: &Signature, msg: &[u8]) -> Scalar {
-        Scalar::from_hash(
+        scalar_from_sha512(
             Sha512::default()
                 .chain(&signature.r_bytes()[..])
                 .chain(&self.A_bytes.0[..])

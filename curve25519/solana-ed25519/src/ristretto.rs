@@ -1248,9 +1248,9 @@ impl Zeroize for RistrettoPoint {
 mod test {
     use super::*;
     use crate::edwards::CompressedEdwardsY;
-    #[cfg(feature = "group")]
+    #[cfg(all(feature = "alloc", feature = "group"))]
     use proptest::prelude::*;
-    #[cfg(all(feature = "rand_core", feature = "group"))]
+    #[cfg(all(feature = "alloc", feature = "rand_core", feature = "group"))]
     use rand::rngs::OsRng;
 
     #[test]
@@ -1490,7 +1490,7 @@ mod test {
         }
     }
 
-    #[cfg(feature = "group")]
+    #[cfg(all(feature = "alloc", feature = "group"))]
     proptest! {
         #[test]
         fn multiply_double_and_compress_random_points(

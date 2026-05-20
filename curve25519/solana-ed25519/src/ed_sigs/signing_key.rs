@@ -7,15 +7,17 @@ const ALGORITHM_ID: AlgorithmIdentifierRef<'_> = AlgorithmIdentifierRef {
 };
 
 use super::Error;
-use crate::{constants, scalar::Scalar};
+use crate::{edwards::EdwardsPoint, scalar::Scalar};
 #[cfg(all(feature = "pem", feature = "pkcs8"))]
 use alloc::string::String;
 use core::convert::TryFrom;
 #[cfg(feature = "pkcs8")]
 use core::convert::TryInto;
+#[cfg(feature = "rand_core")]
 use rand_core::{CryptoRng, RngCore};
 use sha2::{Digest, Sha512, digest::Update};
 use subtle::ConstantTimeEq;
+#[cfg(feature = "zeroize")]
 use zeroize::Zeroize;
 
 use ed25519::{Signature, signature::Signer};
@@ -40,6 +42,7 @@ use zeroize::Zeroizing;
 #[cfg(all(feature = "pem", feature = "pkcs8"))]
 use pkcs8::der::pem::PemLabel;
 
+use super::scalar_from_sha512;
 use super::{VerificationKey, VerificationKeyBytes};
 
 /// The length of a ed25519 `SecretKey`, in bytes.
@@ -67,6 +70,7 @@ pub struct SigningKey {
     vk: VerificationKey,
 }
 
+#[cfg(feature = "zeroize")]
 impl Zeroize for SigningKey {
     fn zeroize(&mut self) {
         self.seed.zeroize();
@@ -145,7 +149,7 @@ impl From<SecretKey> for SigningKey {
         };
 
         // Compute the public key as A = [s]B.
-        let A = &s * constants::ED25519_BASEPOINT_TABLE;
+        let A = EdwardsPoint::mul_base(&s);
 
         SigningKey {
             seed,
@@ -326,6 +330,7 @@ impl SigningKey {
     }
 
     /// Generate a new signing key.
+    #[cfg(feature = "rand_core")]
     pub fn new<R: RngCore + CryptoRng>(mut rng: R) -> SigningKey {
         let mut bytes = [0u8; 32];
         rng.fill_bytes(&mut bytes[..]);
@@ -340,13 +345,11 @@ impl SigningKey {
     /// Create a signature on `msg` using this key.
     #[allow(non_snake_case)]
     pub fn sign(&self, msg: &[u8]) -> Signature {
-        let r = Scalar::from_hash(Sha512::default().chain(&self.prefix[..]).chain(msg));
+        let r = scalar_from_sha512(Sha512::default().chain(&self.prefix[..]).chain(msg));
 
-        let R_bytes = (&r * constants::ED25519_BASEPOINT_TABLE)
-            .compress()
-            .to_bytes();
+        let R_bytes = EdwardsPoint::mul_base(&r).compress().to_bytes();
 
-        let k = Scalar::from_hash(
+        let k = scalar_from_sha512(
             Sha512::default()
                 .chain(&R_bytes[..])
                 .chain(&self.vk.A_bytes.0[..])

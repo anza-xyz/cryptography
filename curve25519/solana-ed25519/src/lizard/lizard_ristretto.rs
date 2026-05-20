@@ -220,8 +220,15 @@ impl RistrettoPoint {
 mod test {
     use super::*;
     use crate::{edwards::EdwardsPoint, ristretto::CompressedRistretto};
-    use rand_core::RngCore;
     use sha2::Sha256;
+
+    fn test_bytes(index: u8) -> [u8; 32] {
+        core::array::from_fn(|i| index.wrapping_mul(37).wrapping_add(i as u8))
+    }
+
+    fn test_uniform_bytes(index: u8) -> [u8; 64] {
+        core::array::from_fn(|i| index.wrapping_mul(37).wrapping_add(i as u8))
+    }
 
     /// Return the coset self + E\[4\]
     fn xcoset4(pt: &RistrettoPoint) -> [EdwardsPoint; 4] {
@@ -281,9 +288,8 @@ mod test {
     // Tests that lizard_decode of a random point is None
     #[test]
     fn lizard_invalid() {
-        let mut rng = rand::thread_rng();
-        for _ in 0..100 {
-            let pt = RistrettoPoint::random(&mut rng);
+        for i in 0..100 {
+            let pt = RistrettoPoint::from_uniform_bytes(&test_uniform_bytes(i));
             assert!(
                 pt.lizard_decode::<Sha256>().is_none(),
                 "random point {:02x?} is a valid Lizard encoding",
@@ -297,24 +303,20 @@ mod test {
     // is the identity
     #[test]
     fn elligator_inv() {
-        let mut rng = rand::thread_rng();
-
         for i in 0..100 {
-            let mut fe_bytes = [0u8; 32];
-
-            if i == 0 {
+            let mut fe_bytes = if i == 0 {
                 // Test for first corner-case: fe = 0
-                fe_bytes = [0u8; 32];
+                [0u8; 32]
             } else if i == 1 {
                 // Test for second corner-case: fe = +sqrt(i*d)
-                fe_bytes = [
+                [
                     168, 27, 92, 74, 203, 42, 48, 117, 170, 109, 234, 14, 45, 169, 188, 205, 21,
                     110, 235, 115, 153, 84, 52, 117, 151, 235, 123, 244, 88, 85, 179, 5,
-                ];
+                ]
             } else {
-                // For the rest, just generate a random field element to test.
-                rng.fill_bytes(&mut fe_bytes);
-            }
+                // For the rest, use distinct field elements to test.
+                test_bytes(i)
+            };
             // Make fe positive (even) and less than the modulus
             fe_bytes[0] &= 254;
             fe_bytes[31] &= 127;
@@ -342,11 +344,8 @@ mod test {
     // Tests that map_to_curve ○ map_to_curve_inverse is the identity
     #[test]
     fn map_to_curve_inverse() {
-        let mut rng = rand::thread_rng();
-
-        for _ in 0..100 {
-            let mut input = [0u8; 32];
-            rng.fill_bytes(&mut input);
+        for i in 0..100 {
+            let input = test_bytes(i);
 
             // Map to Ristretto and invert it
             let pt = RistrettoPoint::map_to_curve(input);
@@ -365,11 +364,8 @@ mod test {
     // return value in the first 8 elements
     #[test]
     fn map_pos_felem_to_curve_inverse() {
-        let mut rng = rand::thread_rng();
-
-        for _ in 0..100 {
-            let mut input = [0u8; 32];
-            rng.fill_bytes(&mut input);
+        for i in 0..100 {
+            let mut input = test_bytes(i);
 
             // Clear bits so we can call map_to_curve_restricted
             input[31] &= 0b00111111;

@@ -512,7 +512,8 @@ mod test {
     use crate::constants;
 
     #[cfg(feature = "rand_core")]
-    use rand::{CryptoRng, RngCore};
+    use rand::CryptoRng;
+    use rand::RngCore;
 
     #[test]
     fn identity_in_different_coordinates() {
