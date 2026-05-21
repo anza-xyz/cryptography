@@ -3,18 +3,20 @@ use crate::{
     ALT_BN128_G2_POINT_SIZE,
 };
 
-/// Input size for the g1 add operation.
-pub const ALT_BN128_G1_ADDITION_INPUT_SIZE: usize = ALT_BN128_G1_POINT_SIZE * 2; // 128
+/// Input size for the g1 add operation (128 bytes).
+pub const ALT_BN128_G1_ADDITION_INPUT_SIZE: usize = ALT_BN128_G1_POINT_SIZE * 2;
 
-/// Input size for the g2 add operation.
-pub const ALT_BN128_G2_ADDITION_INPUT_SIZE: usize = ALT_BN128_G2_POINT_SIZE * 2; // 256
+/// Input size for the g2 add operation (256 bytes).
+pub const ALT_BN128_G2_ADDITION_INPUT_SIZE: usize = ALT_BN128_G2_POINT_SIZE * 2;
 
 /// The enum is used to version changes to the `alt_bn128_versioned_g1_addition` function.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VersionedG1Addition {
     V0,
 }
 
 /// The enum is used to version changes to the `alt_bn128_versioned_g2_addition` function.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VersionedG2Addition {
     V0,
 }

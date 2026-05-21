@@ -6,15 +6,16 @@ use {
     ark_ec::{self, AffineRepr},
 };
 
-/// Input size for the g1 multiplication operation.
+/// Input size for the g1 multiplication operation (96 bytes).
 pub const ALT_BN128_G1_MULTIPLICATION_INPUT_SIZE: usize =
-    ALT_BN128_G1_POINT_SIZE + ALT_BN128_FIELD_SIZE; // 96
+    ALT_BN128_G1_POINT_SIZE + ALT_BN128_FIELD_SIZE;
 
-/// Input size for the g2 multiplication operation.
+/// Input size for the g2 multiplication operation (160 bytes).
 pub const ALT_BN128_G2_MULTIPLICATION_INPUT_SIZE: usize =
-    ALT_BN128_G2_POINT_SIZE + ALT_BN128_FIELD_SIZE; // 160
+    ALT_BN128_G2_POINT_SIZE + ALT_BN128_FIELD_SIZE;
 
 /// The enum is used to version changes to the `alt_bn128_versioned_g1_multiplication` function.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VersionedG1Multiplication {
     V0,
     /// SIMD-0222 - Fix alt-bn128-multiplication Syscall Length Check
@@ -22,6 +23,7 @@ pub enum VersionedG1Multiplication {
 }
 
 /// The enum is used to version changes to the `alt_bn128_versioned_g2_multiplication` function.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VersionedG2Multiplication {
     V0,
 }

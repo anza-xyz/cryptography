@@ -38,35 +38,30 @@ pub const ALT_BN128_G2_POINT_SIZE: usize = ALT_BN128_FQ2_SIZE * 2;
 
 /// The BN254 (BN128) group element in G1 as a POD type.
 ///
-/// A group element in G1 consists of two field elements `(x, y)`. A `PodG1`
-/// type expects a group element to be encoded as `[le(x), le(y)]` where
-/// `le(..)` is the little-endian encoding of the input field element as used
-/// in the `ark-bn254` crate. Note that this differs from the EIP-197 standard,
-/// which specifies that the field elements are encoded as big-endian.
+/// A group element in G1 consists of two field elements `(x, y)`. `PodG1`
+/// acts as an encoding-agnostic transparent byte container for syscall inputs.
 ///
-/// `PodG1` can be constructed from both big-endian (EIP-197) and little-endian
-/// (ark-bn254) encodings using `from_be_bytes` and `from_le_bytes` methods,
-/// respectively.
+/// The interpretation of these bytes depends on the provided `Endianness` flag:
+/// - Little-endian (`ark-bn254`): Encoded as `[le(x), le(y)]`.
+/// - Big-endiann (EIP-197): Encoded as `[be(x), be(y)]`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
 #[repr(transparent)]
 pub struct PodG1(pub [u8; ALT_BN128_G1_POINT_SIZE]);
 
 /// The BN254 (BN128) group element in G2 as a POD type.
 ///
-/// Elements in G2 is represented by 2 field-extension elements `(x, y)`. Each
+/// Elements in G2 are represented by 2 field-extension elements `(x, y)`. Each
 /// field-extension element itself is a degree 1 polynomial `x = x0 + x1*X`,
-/// `y = y0 + y1*X`. The EIP-197 standard encodes a G2 element as
-/// `[be(x1), be(x0), be(y1), be(y0)]` where `be(..)` is the big-endian
-/// encoding of the input field element. The `ark-bn254` crate encodes a G2
-/// element as `[le(x0), le(x1), le(y0), le(y1)]` where `le(..)` is the
-/// little-endian encoding of the input field element. Notably, in addition to
-/// the differences in the big-endian vs. little-endian encodings of field
-/// elements, the order of the polynomial field coefficients `x0`, `x1`, `y0`,
-/// and `y1` are different.
+/// `y = y0 + y1*X`.
 ///
-/// `PodG2` can be constructed from both big-endian (EIP-197) and little-endian
-/// (ark-bn254) encodings using `from_be_bytes` and `from_le_bytes` methods,
-/// respectively.
+/// `PodG2` acts as an encoding-agnostic transparent byte container. The interpretation
+/// of these bytes depends on the provided `Endianness` flag:
+/// - Big-endian (EIP-197): Encodes a G2 element as `[be(x1), be(x0), be(y1), be(y0)]`.
+/// - Little-endian (`ark-bn254`): Encodes a G2 element as `[le(x0), le(x1), le(y0), le(y1)]`.
+///
+/// Notably, in addition to the differences in the big-endian vs. little-endian encodings
+/// of the field elements, the order of the polynomial field coefficients `x0`, `x1`, `y0`,
+/// and `y1` are different.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
 #[repr(transparent)]
 pub struct PodG2(pub [u8; ALT_BN128_G2_POINT_SIZE]);
