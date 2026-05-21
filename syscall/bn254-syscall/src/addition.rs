@@ -34,33 +34,12 @@ pub enum VersionedG2Addition {
 /// for strict guidelines on SIMD approvals and versioning.
 pub fn alt_bn128_versioned_g1_addition(
     _version: VersionedG1Addition,
-    input: &[u8],
+    p: &PodG1,
+    q: &PodG1,
     endianness: Endianness,
-) -> Option<[u8; ALT_BN128_G1_POINT_SIZE]> {
-    let is_valid_len = match endianness {
-        Endianness::BE => input.len() <= ALT_BN128_G1_ADDITION_INPUT_SIZE,
-        Endianness::LE => input.len() == ALT_BN128_G1_ADDITION_INPUT_SIZE,
-    };
-
-    if !is_valid_len {
-        return None;
-    }
-
-    let mut padded_input = [0u8; ALT_BN128_G1_ADDITION_INPUT_SIZE];
-    padded_input[..input.len()].copy_from_slice(input);
-
-    let (p_bytes, q_bytes) = padded_input.split_at(ALT_BN128_G1_POINT_SIZE);
-
-    let (p, q) = match endianness {
-        Endianness::BE => (
-            PodG1::from_be_bytes(p_bytes)?.into_affine()?,
-            PodG1::from_be_bytes(q_bytes)?.into_affine()?,
-        ),
-        Endianness::LE => (
-            PodG1::from_le_bytes(p_bytes)?.into_affine()?,
-            PodG1::from_le_bytes(q_bytes)?.into_affine()?,
-        ),
-    };
+) -> Option<PodG1> {
+    let p = p.deserialize_affine(endianness)?;
+    let q = q.deserialize_affine(endianness)?;
 
     serialize_g1((p + q).into(), endianness)
 }
@@ -81,25 +60,12 @@ pub fn alt_bn128_versioned_g1_addition(
 /// guidelines on SIMD approvals and versioning.
 pub fn alt_bn128_versioned_g2_addition(
     _version: VersionedG2Addition,
-    input: &[u8],
+    p: &PodG2,
+    q: &PodG2,
     endianness: Endianness,
-) -> Option<[u8; ALT_BN128_G2_POINT_SIZE]> {
-    if input.len() != ALT_BN128_G2_ADDITION_INPUT_SIZE {
-        return None;
-    }
-
-    let (p_bytes, q_bytes) = input.split_at(ALT_BN128_G2_POINT_SIZE);
-
-    let (p, q) = match endianness {
-        Endianness::BE => (
-            PodG2::from_be_bytes(p_bytes)?.into_affine_unchecked()?,
-            PodG2::from_be_bytes(q_bytes)?.into_affine_unchecked()?,
-        ),
-        Endianness::LE => (
-            PodG2::from_le_bytes(p_bytes)?.into_affine_unchecked()?,
-            PodG2::from_le_bytes(q_bytes)?.into_affine_unchecked()?,
-        ),
-    };
+) -> Option<PodG2> {
+    let p = p.deserialize_affine_unchecked(endianness)?;
+    let q = q.deserialize_affine_unchecked(endianness)?;
 
     serialize_g2((p + q).into(), endianness)
 }

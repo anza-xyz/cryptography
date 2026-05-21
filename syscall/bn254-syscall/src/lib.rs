@@ -49,7 +49,7 @@ pub const ALT_BN128_G2_POINT_SIZE: usize = ALT_BN128_FQ2_SIZE * 2;
 /// respectively.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
 #[repr(transparent)]
-pub(crate) struct PodG1(pub [u8; ALT_BN128_G1_POINT_SIZE]);
+pub struct PodG1(pub [u8; ALT_BN128_G1_POINT_SIZE]);
 
 /// The BN254 (BN128) group element in G2 as a POD type.
 ///
@@ -69,11 +69,12 @@ pub(crate) struct PodG1(pub [u8; ALT_BN128_G1_POINT_SIZE]);
 /// respectively.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
 #[repr(transparent)]
-pub(crate) struct PodG2(pub [u8; ALT_BN128_G2_POINT_SIZE]);
+pub struct PodG2(pub [u8; ALT_BN128_G2_POINT_SIZE]);
 
 pub(crate) type G1 = ark_bn254::g1::G1Affine;
 pub(crate) type G2 = ark_bn254::g2::G2Affine;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Endianness {
     BE,
     LE,
@@ -105,52 +106,49 @@ impl PodG1 {
     /// Deserializes to an affine point in G1.
     /// Because G1 has a cofactor of 1, the subgroup check is equivalent to the
     /// on-curve check.
-    pub(crate) fn into_affine(self) -> Option<G1> {
+    pub(crate) fn deserialize_affine(&self, endianness: Endianness) -> Option<G1> {
         // pre-handle point at infinity
-        if self.0 == [0u8; 64] {
+        if self.0 == [0u8; ALT_BN128_G1_POINT_SIZE] {
             return Some(G1::zero());
         }
 
+        let le_bytes = match endianness {
+            Endianness::BE => {
+                swap_endianness::<ALT_BN128_FIELD_SIZE, ALT_BN128_G1_POINT_SIZE>(self.0)
+            }
+            Endianness::LE => self.0,
+        };
+
         // The ark-serialize uncompressed format expects 64 bytes of coordinates
         // plus a 1-byte metadata flag. We append a 0 byte to indicate infinity = false.
-        let mut buf = [0u8; 65];
-        buf[..64].copy_from_slice(&self.0);
+        let mut buf = [0u8; ALT_BN128_G1_POINT_SIZE + 1];
+        buf[..ALT_BN128_G1_POINT_SIZE].copy_from_slice(&le_bytes);
 
         // Validate::Yes performs the necessary subgroup checks
         G1::deserialize_with_mode(&buf[..], Compress::No, Validate::Yes).ok()
-    }
-
-    /// Takes in an EIP-197 (big-endian) byte encoding of a group element in G1 and constructs a
-    /// `PodG1` struct that encodes the same bytes in little-endian.
-    #[inline(always)]
-    pub(crate) fn from_be_bytes(be_bytes: &[u8]) -> Option<Self> {
-        let pod_bytes = swap_endianness::<ALT_BN128_FIELD_SIZE, ALT_BN128_G1_POINT_SIZE>(
-            be_bytes.try_into().ok()?,
-        );
-        Some(Self(pod_bytes))
-    }
-
-    /// Takes in a little-endian byte encoding of a group element in G1 and constructs a
-    /// `PodG1` struct that encodes the same bytes internally.
-    #[inline(always)]
-    pub(crate) fn from_le_bytes(le_bytes: &[u8]) -> Option<Self> {
-        le_bytes.try_into().ok().map(Self)
     }
 }
 
 impl PodG2 {
     /// Deserializes to an affine point in G2.
     /// This function performs both the curve equation check and the subgroup check.
-    pub(crate) fn into_affine(self) -> Option<G2> {
+    pub(crate) fn deserialize_affine(&self, endianness: Endianness) -> Option<G2> {
         // pre-handle point at infinity
-        if self.0 == [0u8; 128] {
+        if self.0 == [0u8; ALT_BN128_G2_POINT_SIZE] {
             return Some(G2::zero());
         }
 
+        let le_bytes = match endianness {
+            Endianness::BE => {
+                swap_endianness::<ALT_BN128_FQ2_SIZE, ALT_BN128_G2_POINT_SIZE>(self.0)
+            }
+            Endianness::LE => self.0,
+        };
+
         // The ark-serialize uncompressed format expects 128 bytes of coordinates
         // plus a 1-byte metadata flag. We append a 0 byte to indicate infinity = false.
-        let mut buf = [0u8; 129];
-        buf[..128].copy_from_slice(&self.0);
+        let mut buf = [0u8; ALT_BN128_G2_POINT_SIZE + 1];
+        buf[..ALT_BN128_G2_POINT_SIZE].copy_from_slice(&le_bytes);
 
         // Validate::Yes performs the necessary subgroup checks
         G2::deserialize_with_mode(&buf[..], Compress::No, Validate::Yes).ok()
@@ -158,18 +156,25 @@ impl PodG2 {
 
     /// Deserializes to an affine point in G2.
     /// This function performs the curve equation check, but skips the subgroup check.
-    pub(crate) fn into_affine_unchecked(self) -> Option<G2> {
+    pub(crate) fn deserialize_affine_unchecked(&self, endianness: Endianness) -> Option<G2> {
         // pre-handle point at infinity
-        if self.0 == [0u8; 128] {
+        if self.0 == [0u8; ALT_BN128_G2_POINT_SIZE] {
             return Some(G2::zero());
         }
+
+        let le_bytes = match endianness {
+            Endianness::BE => {
+                swap_endianness::<ALT_BN128_FQ2_SIZE, ALT_BN128_G2_POINT_SIZE>(self.0)
+            }
+            Endianness::LE => self.0,
+        };
 
         // The `ark-serialize` uncompressed format for affine points expects the
         // x and y coordinates (128-bytes total) followed by a 1-byte metadata flag.
         // We explicitly handle point at infinity above, so we append `0` to indicate
         // `infinity = false`.
-        let mut buf = [0u8; 129];
-        buf[..128].copy_from_slice(&self.0);
+        let mut buf = [0u8; ALT_BN128_G2_POINT_SIZE + 1];
+        buf[..ALT_BN128_G2_POINT_SIZE].copy_from_slice(&le_bytes);
 
         // Skips the expensive subgroup check
         let g2 = G2::deserialize_with_mode(&buf[..], Compress::No, Validate::No).ok()?;
@@ -177,31 +182,10 @@ impl PodG2 {
         // Still check if point is on the curve
         g2.is_on_curve().then_some(g2)
     }
-
-    /// Takes in an EIP-197 (big-endian) byte encoding of a group element in G2
-    /// and constructs a `PodG2` struct that encodes the same bytes in
-    /// little-endian.
-    #[inline(always)]
-    pub(crate) fn from_be_bytes(be_bytes: &[u8]) -> Option<Self> {
-        let pod_bytes = swap_endianness::<ALT_BN128_FQ2_SIZE, ALT_BN128_G2_POINT_SIZE>(
-            be_bytes.try_into().ok()?,
-        );
-        Some(Self(pod_bytes))
-    }
-
-    /// Takes in a little-endian byte encoding of a group element in G2 and constructs a
-    /// `PodG2` struct that encodes the same bytes internally.
-    #[inline(always)]
-    pub(crate) fn from_le_bytes(le_bytes: &[u8]) -> Option<Self> {
-        le_bytes.try_into().ok().map(Self)
-    }
 }
 
 #[inline]
-pub(crate) fn serialize_g1(
-    point: G1,
-    endianness: Endianness,
-) -> Option<[u8; ALT_BN128_G1_POINT_SIZE]> {
+pub(crate) fn serialize_g1(point: G1, endianness: Endianness) -> Option<PodG1> {
     let mut data = [0u8; ALT_BN128_G1_POINT_SIZE];
     point
         .x
@@ -212,20 +196,16 @@ pub(crate) fn serialize_g1(
         .serialize_with_mode(&mut data[ALT_BN128_FIELD_SIZE..], Compress::No)
         .ok()?;
 
-    match endianness {
-        Endianness::BE => Some(swap_endianness::<
-            ALT_BN128_FIELD_SIZE,
-            ALT_BN128_G1_POINT_SIZE,
-        >(data)),
-        Endianness::LE => Some(data),
-    }
+    let final_bytes = match endianness {
+        Endianness::BE => swap_endianness::<ALT_BN128_FIELD_SIZE, ALT_BN128_G1_POINT_SIZE>(data),
+        Endianness::LE => data,
+    };
+
+    Some(PodG1(final_bytes))
 }
 
 #[inline]
-pub(crate) fn serialize_g2(
-    point: G2,
-    endianness: Endianness,
-) -> Option<[u8; ALT_BN128_G2_POINT_SIZE]> {
+pub(crate) fn serialize_g2(point: G2, endianness: Endianness) -> Option<PodG2> {
     let mut data = [0u8; ALT_BN128_G2_POINT_SIZE];
     point
         .x
@@ -236,18 +216,37 @@ pub(crate) fn serialize_g2(
         .serialize_with_mode(&mut data[ALT_BN128_FQ2_SIZE..], Compress::No)
         .ok()?;
 
-    match endianness {
-        Endianness::BE => {
-            Some(swap_endianness::<ALT_BN128_FQ2_SIZE, ALT_BN128_G2_POINT_SIZE>(data))
-        }
-        Endianness::LE => Some(data),
+    let final_bytes = match endianness {
+        Endianness::BE => swap_endianness::<ALT_BN128_FQ2_SIZE, ALT_BN128_G2_POINT_SIZE>(data),
+        Endianness::LE => data,
+    };
+
+    Some(PodG2(final_bytes))
+}
+
+/// The BN254 (BN128) scalar field element as a POD type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
+#[repr(transparent)]
+pub struct PodScalar(pub [u8; ALT_BN128_FIELD_SIZE]);
+
+impl PodScalar {
+    /// Deserializes the bytes into an uncompressed ark-ff BigInteger256.
+    pub(crate) fn deserialize_bigint(
+        &self,
+        endianness: Endianness,
+    ) -> Option<ark_ff::BigInteger256> {
+        let le_bytes = match endianness {
+            Endianness::BE => swap_endianness::<ALT_BN128_FIELD_SIZE, ALT_BN128_FIELD_SIZE>(self.0),
+            Endianness::LE => self.0,
+        };
+        ark_ff::BigInteger256::deserialize_uncompressed_unchecked(&le_bytes[..]).ok()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use {
-        crate::PodG1,
+        crate::{Endianness, PodG1},
         ark_bn254::g1::G1Affine,
         ark_ec::AffineRepr,
         ark_serialize::{CanonicalSerialize, Compress},
@@ -265,9 +264,8 @@ mod tests {
             .unwrap();
         assert_eq!(result_point_data, [0u8; 64]);
 
-        let p: G1Affine = PodG1(result_point_data[..64].try_into().unwrap())
-            .into_affine()
-            .unwrap();
+        let pod_point = PodG1(result_point_data[..64].try_into().unwrap());
+        let p: G1Affine = pod_point.deserialize_affine(Endianness::LE).unwrap();
         assert_eq!(p, zero);
     }
 }
