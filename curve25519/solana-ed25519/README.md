@@ -105,7 +105,7 @@ use curve25519::ed_sigs::{SigningKey, VerificationKey};
 let msg = b"curve25519-sol";
 
 // Generate key and sign
-let sk = SigningKey::new(rand::thread_rng());
+let sk = SigningKey::from_bytes(&[1u8; 32]);
 let sig = sk.sign(msg);
 let vk = VerificationKey::from(&sk);
 
