@@ -27,7 +27,7 @@ bytemuck = "1.25.0"
 bytemuck_derive = "1.10.2"
 cc = "1.0"
 cfg-if = "1"
-criterion = { version = "0.5" }
+criterion = { version = "0.8" }
 color-eyre = "0.6"
 curve25519 = { path = "curve25519/solana-ed25519", package = "solana-ed25519" }
 curve25519-dalek-derive = "0.1.1"
