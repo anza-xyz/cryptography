@@ -30,46 +30,16 @@ pub mod spec {
     use crate::traits::Identity;
     use crate::window::NafLookupTable5;
 
-    /// Compute \\(a_1 A_1 + a_2 A_2 + b B\\) in variable time, where \\(B\\) is the Ed25519 basepoint.
+    /// Compute \\(a_1 A_1 + a_2 A_2 + b B\\) with the optimized 128/128/256-bit path.
     ///
-    /// This function is optimized for the case where \\(a_1\\) and \\(a_2\\) are known to be less than
-    /// \\(2^{128}\\), while \\(b\\) is a full 256-bit scalar.
-    ///
-    /// # Optimization Strategy
-    ///
-    /// The function decomposes the 256-bit scalar \\(b\\) as \\(b = b_{lo} + b_{hi} \cdot 2^{128}\\),
-    /// where both \\(b_{lo}\\) and \\(b_{hi}\\) are 128-bit values. This allows computing:
-    ///
-    /// \\[
-    /// a_1 A_1 + a_2 A_2 + b_{lo} B + b_{hi} B'
-    /// \\]
-    ///
-    /// where \\(B' = B \cdot 2^{128}\\) is a precomputed constant. Now all four scalars
-    /// (\\(a_1, a_2, b_{lo}, b_{hi}\\)) are 128 bits, and two of the bases (\\(B\\) and \\(B'\\))
-    /// use precomputed tables.
-    ///
-    /// # Implementation
-    ///
-    /// - For \\(A_1\\) and \\(A_2\\): NAF with window width 5 (8 precomputed points each)
-    /// - For \\(B\\): NAF with window width 8 when precomputed tables available (64 points), otherwise width 5
-    /// - For \\(B'\\): NAF with window width 5
-    ///
-    /// The algorithm shares doublings across all four scalar multiplications, processing
-    /// only 128 bits instead of 256, providing approximately 2x speedup over the naive approach.
-    ///
-    /// This SIMD implementation uses vectorized point operations (AVX2 or AVX512-IFMA) for
-    /// improved performance over the serial backend.
-    pub fn mul_128_128_256(
+    /// Callers must ensure \\(a_1\\) and \\(a_2\\) are less than \\(2^{128}\\).
+    pub(crate) fn mul_128_128_256_prechecked(
         a1: &Scalar,
         A1: &EdwardsPoint,
         a2: &Scalar,
         A2: &EdwardsPoint,
         b: &Scalar,
     ) -> EdwardsPoint {
-        // assert that a1 and a2 are less than 2^128
-        debug_assert!(a1.as_bytes()[16..32].iter().all(|&b| b == 0));
-        debug_assert!(a2.as_bytes()[16..32].iter().all(|&b| b == 0));
-
         // Decompose b into b_lo (lower 128 bits) and b_hi (upper 128 bits)
         // b = b_lo + b_hi * 2^128
         let b_bytes = b.as_bytes();

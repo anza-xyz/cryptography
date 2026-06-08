@@ -387,8 +387,11 @@ impl VerificationKey {
         // Compute τs
         let ts = tau * s;
         let A = if flip_h { -self.minus_A } else { self.minus_A };
-        // Compute the multi-scalar multiplication
-        let result = EdwardsPoint::vartime_triple_scalar_mul_basepoint(&tau, &neg_R, &rho, &A, &ts);
+        // HEEA decomposition guarantees tau and rho fit the optimized
+        // 128/128/256-bit multiplication path.
+        let result = crate::backend::vartime_triple_base_mul_128_128_256_prechecked(
+            &tau, &neg_R, &rho, &A, &ts,
+        );
 
         if result.mul_by_cofactor().is_identity() {
             Ok(())
