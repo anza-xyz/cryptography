@@ -79,6 +79,45 @@ fn decode_der_to_verification_key() {
 }
 
 #[test]
+#[cfg(feature = "pkcs8")]
+fn reject_public_key_der_with_wrong_algorithm_oid() {
+    let vk = VerificationKey::from_public_key_der(PUBLIC_KEY_DER).unwrap();
+    let oid = pkcs8::ObjectIdentifier::new_unwrap("1.3.101.110"); // X25519
+    let spki = pkcs8::spki::SubjectPublicKeyInfoRef {
+        algorithm: pkcs8::spki::AlgorithmIdentifierRef {
+            oid,
+            parameters: None,
+        },
+        subject_public_key: pkcs8::der::asn1::BitStringRef::from_bytes(vk.as_ref()).unwrap(),
+    };
+    let doc = pkcs8::Document::try_from(spki).unwrap();
+
+    assert_eq!(
+        VerificationKey::from_public_key_der(doc.as_bytes()).unwrap_err(),
+        pkcs8::spki::Error::OidUnknown { oid }
+    );
+}
+
+#[test]
+#[cfg(feature = "pkcs8")]
+fn reject_public_key_der_with_malformed_key_bytes() {
+    let oid = pkcs8::ObjectIdentifier::new_unwrap("1.3.101.112"); // Ed25519
+    let spki = pkcs8::spki::SubjectPublicKeyInfoRef {
+        algorithm: pkcs8::spki::AlgorithmIdentifierRef {
+            oid,
+            parameters: None,
+        },
+        subject_public_key: pkcs8::der::asn1::BitStringRef::from_bytes(&[0u8; 31]).unwrap(),
+    };
+    let doc = pkcs8::Document::try_from(spki).unwrap();
+
+    assert_eq!(
+        VerificationKey::from_public_key_der(doc.as_bytes()).unwrap_err(),
+        pkcs8::spki::Error::KeyMalformed
+    );
+}
+
+#[test]
 #[cfg(feature = "pem")]
 fn decode_doc_to_verification_key() {
     let vk = VerificationKey::from_public_key_pem(PUBLIC_KEY_PEM).unwrap();

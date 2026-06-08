@@ -28,7 +28,8 @@ use ed25519::{Signature, signature::Verifier};
 use pkcs8::der::asn1::BitStringRef;
 #[cfg(feature = "pkcs8")]
 use pkcs8::spki::{
-    AlgorithmIdentifierRef, DecodePublicKey, EncodePublicKey, SubjectPublicKeyInfoRef,
+    AlgorithmIdentifierRef, DecodePublicKey, EncodePublicKey, Error as SpkiError,
+    SubjectPublicKeyInfoRef,
 };
 #[cfg(feature = "pkcs8")]
 use pkcs8::{Document, ObjectIdentifier};
@@ -37,6 +38,14 @@ use super::{Error, scalar_from_sha512};
 
 /// The length of an ed25519 `VerificationKey`, in bytes.
 pub const VERIFICATION_KEY_LENGTH: usize = 32;
+
+#[cfg(feature = "pkcs8")]
+const OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.101.112"); // RFC 8410
+#[cfg(feature = "pkcs8")]
+const ALGORITHM_ID: AlgorithmIdentifierRef<'_> = AlgorithmIdentifierRef {
+    oid: OID,
+    parameters: None,
+};
 
 const LEGACY_EXCLUDED_R_ENCODINGS: [[u8; 32]; 11] = [
     [
@@ -163,8 +172,30 @@ impl<'a> TryFrom<SubjectPublicKeyInfoRef<'a>> for VerificationKeyBytes {
     type Error = Error;
 
     fn try_from(spki: SubjectPublicKeyInfoRef<'a>) -> Result<VerificationKeyBytes, Error> {
-        Ok(VerificationKeyBytes::try_from(spki.subject_public_key.as_bytes().unwrap()).unwrap())
+        verification_key_bytes_from_spki(spki).map_err(|_| Error::MalformedPublicKey)
     }
+}
+
+#[cfg(feature = "pkcs8")]
+fn verification_key_bytes_from_spki(
+    spki: SubjectPublicKeyInfoRef<'_>,
+) -> Result<VerificationKeyBytes, SpkiError> {
+    if spki.algorithm.oid != OID {
+        return Err(SpkiError::OidUnknown {
+            oid: spki.algorithm.oid,
+        });
+    }
+
+    if spki.algorithm != ALGORITHM_ID {
+        return Err(SpkiError::KeyMalformed);
+    }
+
+    let bytes = spki
+        .subject_public_key
+        .as_bytes()
+        .ok_or(SpkiError::KeyMalformed)?;
+
+    VerificationKeyBytes::try_from(bytes).map_err(|_| SpkiError::KeyMalformed)
 }
 
 /// A valid Ed25519 verification key.
@@ -262,12 +293,8 @@ impl TryFrom<[u8; 32]> for VerificationKey {
 impl EncodePublicKey for VerificationKey {
     /// Serialize [`VerificationKey`] to an ASN.1 DER-encoded document.
     fn to_public_key_der(&self) -> pkcs8::spki::Result<Document> {
-        let alg_info = AlgorithmIdentifierRef {
-            oid: ObjectIdentifier::new_unwrap("1.3.101.112"), // RFC 8410
-            parameters: None,
-        };
         SubjectPublicKeyInfoRef {
-            algorithm: alg_info,
+            algorithm: ALGORITHM_ID,
             subject_public_key: BitStringRef::from_bytes(&self.A_bytes.0[..])?,
         }
         .try_into()
@@ -278,9 +305,9 @@ impl EncodePublicKey for VerificationKey {
 impl DecodePublicKey for VerificationKey {
     /// Deserialize [`VerificationKey`] from ASN.1 DER bytes (32 bytes).
     fn from_public_key_der(bytes: &[u8]) -> Result<Self, pkcs8::spki::Error> {
-        let spki = SubjectPublicKeyInfoRef::try_from(bytes).unwrap();
-        let pk_bytes = spki.subject_public_key.as_bytes().unwrap();
-        Ok(Self::try_from(pk_bytes).unwrap())
+        let spki = SubjectPublicKeyInfoRef::try_from(bytes)?;
+        let pk_bytes = verification_key_bytes_from_spki(spki)?;
+        Self::try_from(pk_bytes).map_err(|_| SpkiError::KeyMalformed)
     }
 }
 
