@@ -232,6 +232,13 @@ impl Scalar {
         CtOption::new(candidate, high_bit_unset & candidate.is_canonical())
     }
 
+    /// Construct a `Scalar` from bytes that are known to be canonical.
+    #[inline]
+    #[cfg(target_arch = "x86_64")]
+    pub(crate) const fn from_canonical_bytes_unchecked(bytes: [u8; 32]) -> Scalar {
+        Scalar { bytes }
+    }
+
     /// Construct a `Scalar` from the low 255 bits of a 256-bit integer. This breaks the invariant
     /// that scalars are always reduced. Scalar-scalar arithmetic, i.e., addition, subtraction,
     /// multiplication, **does not work** on scalars produced from this function. You may only use

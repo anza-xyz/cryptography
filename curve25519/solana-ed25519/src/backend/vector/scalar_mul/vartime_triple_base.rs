@@ -15,10 +15,13 @@ pub mod spec {
     #[for_target_feature("avx2")]
     use crate::backend::vector::avx2::{CachedPoint, ExtendedPoint};
 
+    #[for_target_feature("avx2")]
+    use crate::backend::vector::avx2::constants::BASEPOINT_128_ODD_LOOKUP_TABLE;
     #[cfg(feature = "precomputed-tables")]
     #[for_target_feature("avx2")]
     use crate::backend::vector::avx2::constants::BASEPOINT_ODD_LOOKUP_TABLE;
 
+    #[cfg(not(feature = "precomputed-tables"))]
     use crate::constants;
     use crate::edwards::EdwardsPoint;
     use crate::scalar::HEEA_MAX_INDEX;
@@ -78,8 +81,8 @@ pub mod spec {
         b_lo_bytes[..16].copy_from_slice(&b_bytes[..16]);
         b_hi_bytes[..16].copy_from_slice(&b_bytes[16..]);
 
-        let b_lo = Scalar::from_canonical_bytes(b_lo_bytes).unwrap();
-        let b_hi = Scalar::from_canonical_bytes(b_hi_bytes).unwrap();
+        let b_lo = Scalar::from_canonical_bytes_unchecked(b_lo_bytes);
+        let b_hi = Scalar::from_canonical_bytes_unchecked(b_hi_bytes);
 
         // Compute NAF representations (all scalars are now ~128 bits)
         let a1_naf = a1.non_adjacent_form(5);
@@ -111,10 +114,8 @@ pub mod spec {
         #[cfg(not(feature = "precomputed-tables"))]
         let table_B = &NafLookupTable5::<CachedPoint>::from(&constants::ED25519_BASEPOINT_POINT);
 
-        // B' = B * 2^128 (precomputed constant point)
-        // TODO: For optimal performance, this should also use the wider lookup table when precomputed-tables is enabled
-        let table_B_128 =
-            &NafLookupTable5::<CachedPoint>::from(&constants::ED25519_BASEPOINT_128_POINT);
+        // B' = B * 2^128.
+        let table_B_128 = &BASEPOINT_128_ODD_LOOKUP_TABLE;
 
         let mut Q = ExtendedPoint::identity();
 
