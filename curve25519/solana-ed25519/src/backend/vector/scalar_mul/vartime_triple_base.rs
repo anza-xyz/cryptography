@@ -78,8 +78,8 @@ pub mod spec {
         b_lo_bytes[..16].copy_from_slice(&b_bytes[..16]);
         b_hi_bytes[..16].copy_from_slice(&b_bytes[16..]);
 
-        let b_lo = Scalar::from_canonical_bytes(b_lo_bytes).unwrap();
-        let b_hi = Scalar::from_canonical_bytes(b_hi_bytes).unwrap();
+        let b_lo = Scalar::from_canonical_bytes_unchecked(b_lo_bytes);
+        let b_hi = Scalar::from_canonical_bytes_unchecked(b_hi_bytes);
 
         // Compute NAF representations (all scalars are now ~128 bits)
         let a1_naf = a1.non_adjacent_form(5);
