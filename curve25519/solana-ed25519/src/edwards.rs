@@ -2438,7 +2438,7 @@ mod test {
             let A2 = constants::ED25519_BASEPOINT_POINT * Scalar::from(19u64);
 
             let result = EdwardsPoint::vartime_triple_scalar_mul_basepoint(&a1, &A1, &a2, &A2, &b);
-            let expected = (&a1 * &A1) + (&a2 * &A2) + EdwardsPoint::mul_base(&b);
+            let expected = (a1 * A1) + (a2 * A2) + EdwardsPoint::mul_base(&b);
 
             assert_eq!(result, expected);
         }
