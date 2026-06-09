@@ -19,9 +19,38 @@ use crate::scalar::{HEEA_MAX_INDEX, Scalar};
 use crate::traits::Identity;
 use crate::window::NafLookupTable5;
 
-/// Compute \\(a_1 A_1 + a_2 A_2 + b B\\) with the optimized 128/128/256-bit path.
+/// Compute \\(a_1 A_1 + a_2 A_2 + b B\\) in variable time, where \\(B\\) is the Ed25519 basepoint.
 ///
-/// Callers must ensure \\(a_1\\) and \\(a_2\\) are less than \\(2^{128}\\).
+/// This function is optimized for the case where \\(a_1\\) and \\(a_2\\) are known to be less than
+/// \\(2^{128}\\), while \\(b\\) is a full 256-bit scalar.
+///
+/// # Precondition
+///
+/// Callers must ensure \\(a_1\\) and \\(a_2\\) are less than \\(2^{128}\\). Use
+/// `vartime_triple_base_mul_128_128_256` for a checked wrapper that falls back
+/// to general scalar multiplication for full-width scalars.
+///
+/// # Optimization Strategy
+///
+/// The function decomposes the 256-bit scalar \\(b\\) as \\(b = b_{lo} + b_{hi} \cdot 2^{128}\\),
+/// where both \\(b_{lo}\\) and \\(b_{hi}\\) are 128-bit values. This allows computing:
+///
+/// \\[
+/// a_1 A_1 + a_2 A_2 + b_{lo} B + b_{hi} B'
+/// \\]
+///
+/// where \\(B' = B \cdot 2^{128}\\) is a precomputed constant. Now all four scalars
+/// (\\(a_1, a_2, b_{lo}, b_{hi}\\)) are 128 bits, and two of the bases (\\(B\\) and \\(B'\\))
+/// use precomputed tables.
+///
+/// # Implementation
+///
+/// - For \\(A_1\\) and \\(A_2\\): NAF with window width 5 (8 precomputed points each)
+/// - For \\(B\\): NAF with window width 8 when precomputed tables are available (64 points)
+/// - For \\(B'\\): NAF with window width 5 (could be optimized with precomputed table)
+///
+/// The algorithm shares doublings across all four scalar multiplications, processing
+/// only 128 bits instead of 256, providing approximately 2x speedup over the naive approach.
 pub(crate) fn mul_128_128_256_prechecked(
     a1: &Scalar,
     A1: &EdwardsPoint,
