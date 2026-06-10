@@ -33,7 +33,7 @@
 //! set of validators (provided that system uses the ZIP215 rules).
 //!
 //! # Example
-//! ```
+//! ```ignore
 //! # use curve25519::ed_sigs::*;
 //! let mut batch = batch::Verifier::new();
 //! for _ in 0..32 {

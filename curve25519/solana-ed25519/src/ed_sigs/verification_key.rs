@@ -109,7 +109,7 @@ const LEGACY_EXCLUDED_R_ENCODINGS: [[u8; 32]; 11] = [
 /// use core::convert::TryFrom;
 /// # use curve25519::ed_sigs::*;
 /// # let msg = b"Zcash";
-/// # let sk = SigningKey::new(rand::thread_rng());
+/// # let sk = SigningKey::from_bytes(&[1u8; 32]);
 /// # let sig = sk.sign(msg);
 /// # let vk_bytes = VerificationKeyBytes::from(&sk);
 /// VerificationKey::try_from(vk_bytes)
