@@ -8,36 +8,7 @@ use p256::{
     AffinePoint as P256AffinePoint, ProjectivePoint as P256ProjectivePoint, Scalar,
     elliptic_curve::{ff::PrimeField, group::Group},
 };
-use secp256r1::{
-    field::FieldElement,
-    group::{AffinePoint, ProjectivePoint},
-};
-
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-struct NistzPoint {
-    x: [u64; 4],
-    y: [u64; 4],
-    z: [u64; 4],
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-struct NistzAffinePoint {
-    x: [u64; 4],
-    y: [u64; 4],
-}
-
-#[link(name = "crypto")]
-unsafe extern "C" {
-    fn ecp_nistz256_point_double(res: *mut NistzPoint, a: *const NistzPoint);
-    fn ecp_nistz256_point_add(res: *mut NistzPoint, a: *const NistzPoint, b: *const NistzPoint);
-    fn ecp_nistz256_point_add_affine(
-        res: *mut NistzPoint,
-        a: *const NistzPoint,
-        b: *const NistzAffinePoint,
-    );
-}
+use secp256r1::group::{AffinePoint, ProjectivePoint};
 
 const SCALAR: [u8; 32] = [
     0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
@@ -84,32 +55,10 @@ fn openssl_fixture() -> (EcGroup, BigNumContext, EcPoint, EcPoint) {
     (group, context, generator, double_generator)
 }
 
-fn openssl_nistz_fixture() -> (NistzPoint, NistzPoint, NistzAffinePoint) {
-    let affine = AffinePoint::generator();
-    let generator = NistzPoint {
-        x: affine.x().unwrap().montgomery_limbs(),
-        y: affine.y().unwrap().montgomery_limbs(),
-        z: FieldElement::ONE.montgomery_limbs(),
-    };
-    let affine_generator = NistzAffinePoint {
-        x: generator.x,
-        y: generator.y,
-    };
-    let mut double_generator = NistzPoint::default();
-
-    unsafe {
-        ecp_nistz256_point_double(&mut double_generator, &generator);
-    }
-
-    (generator, double_generator, affine_generator)
-}
-
 fn bench_group_double(c: &mut Criterion) {
     let fixture = Fixture::new();
     let (openssl_group, mut openssl_context, openssl_g, _) = openssl_fixture();
-    let (nistz_g, _, _) = openssl_nistz_fixture();
     let mut openssl_out = EcPoint::new(&openssl_group).unwrap();
-    let mut nistz_out = NistzPoint::default();
     let mut group = c.benchmark_group("secp256r1_group_double");
 
     group.bench_function("rust", |b| {
@@ -134,22 +83,13 @@ fn bench_group_double(c: &mut Criterion) {
         });
     });
 
-    group.bench_function("openssl_nistz256_point_double", |b| {
-        b.iter(|| unsafe {
-            ecp_nistz256_point_double(&mut nistz_out, black_box(&nistz_g));
-            black_box(nistz_out);
-        });
-    });
-
     group.finish();
 }
 
 fn bench_group_add(c: &mut Criterion) {
     let fixture = Fixture::new();
     let (openssl_group, mut openssl_context, openssl_g, openssl_2g) = openssl_fixture();
-    let (nistz_g, nistz_2g, _) = openssl_nistz_fixture();
     let mut openssl_out = EcPoint::new(&openssl_group).unwrap();
-    let mut nistz_out = NistzPoint::default();
     let mut group = c.benchmark_group("secp256r1_group_add");
 
     group.bench_function("rust", |b| {
@@ -174,20 +114,11 @@ fn bench_group_add(c: &mut Criterion) {
         });
     });
 
-    group.bench_function("openssl_nistz256_point_add", |b| {
-        b.iter(|| unsafe {
-            ecp_nistz256_point_add(&mut nistz_out, black_box(&nistz_2g), black_box(&nistz_g));
-            black_box(nistz_out);
-        });
-    });
-
     group.finish();
 }
 
 fn bench_group_mixed_add(c: &mut Criterion) {
     let fixture = Fixture::new();
-    let (_, nistz_2g, nistz_affine_g) = openssl_nistz_fixture();
-    let mut nistz_out = NistzPoint::default();
     let mut group = c.benchmark_group("secp256r1_group_mixed_add");
 
     group.bench_function("rust", |b| {
@@ -196,17 +127,6 @@ fn bench_group_mixed_add(c: &mut Criterion) {
 
     group.bench_function("p256", |b| {
         b.iter(|| black_box(fixture.p256_2g) + black_box(fixture.p256_affine_g));
-    });
-
-    group.bench_function("openssl_nistz256_point_add_affine", |b| {
-        b.iter(|| unsafe {
-            ecp_nistz256_point_add_affine(
-                &mut nistz_out,
-                black_box(&nistz_2g),
-                black_box(&nistz_affine_g),
-            );
-            black_box(nistz_out);
-        });
     });
 
     group.finish();

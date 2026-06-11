@@ -148,11 +148,11 @@ cargo bench
 Focused benchmark groups:
 
 ```sh
-cargo bench --bench verify
-cargo bench --bench sign
-cargo bench --bench field
-cargo bench --bench scalar
-cargo bench --bench group
+cargo bench -p secp256r1 --bench verify
+cargo bench -p secp256r1 --bench sign
+cargo bench -p secp256r1 --bench field
+cargo bench -p secp256r1 --bench scalar
+cargo bench -p secp256r1 --bench group
 ```
 
 Representative local results from this workspace:
@@ -178,11 +178,11 @@ Representative local results from this workspace:
 
 | Benchmark | rust | p256 | OpenSSL |
 |---|---:|---:|---:|
-| point double | 89.851 ns | 210.85 ns | 57.582 ns nistz |
-| point add | 141.95 ns | 229.71 ns | 99.978 ns nistz |
-| mixed add | 101.93 ns | 205.46 ns | 75.010 ns nistz |
-| base scalar mul | 3.236 us fixed-base window8 | 76.277 us | 3.543 us |
-| double scalar mul | 32.682 us separate wNAF6 | 151.99 us | 25.704 us |
+| point double | 81.611 ns | 195.83 ns | 213.29 ns public EC |
+| point add | 133.17 ns | 213.19 ns | 210.09 ns public EC |
+| mixed add | 97.422 ns | 193.13 ns | n/a |
+| base scalar mul | 3.033 us fixed-base window8 | 71.555 us | 3.415 us |
+| double scalar mul | 31.197 us separate wNAF6 | 143.96 us | 24.258 us |
 
 Benchmark numbers are machine- and compiler-dependent. Re-run locally before
 making performance decisions.
@@ -200,5 +200,5 @@ making performance decisions.
 
 ## Safety
 
-The crate forbids `unsafe` in library code. Benchmark code links to OpenSSL
-internal/public routines for comparison and is not part of the library.
+The crate forbids `unsafe` in library code. Benchmark code uses OpenSSL public
+APIs for comparison and is not part of the library.
