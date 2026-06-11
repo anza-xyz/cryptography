@@ -24,7 +24,8 @@ A new `HEEADecomposition` trait and implementation have been added in:
 Given a 256-bit hash scalar `h`, `heea_decompose` returns `(ρ, τ, flip_h)` such that:
 
 ```text
-ρ ≡ ±τ·h  (mod ℓ)     // ρ and τ are both ≤ 128 bits
+flip_h = false:  ρ ≡  τ·h  (mod ℓ)
+flip_h = true:   ρ ≡ -τ·h  (mod ℓ)
 ```
 
 This allows verification of `sB = R + hA` to be rewritten as a 4-point MSM over ~128-bit
@@ -58,9 +59,9 @@ verification.
 
 ### `verify_zebra`: fast-path signature verification
 
-A new method `VerificationKey::verify_zebra` sits alongside the existing `verify`.
-Both accept the same arguments and produce identical results — `verify_zebra` is a
-**drop-in accelerated replacement** for `verify`.
+`VerificationKey::verify_zebra` is the HEEA implementation used by the default
+`VerificationKey::verify` method. Both accept the same arguments and produce identical
+ZIP-215 results.
 
 The HEEA method (TCHES 2025) transforms the standard 2-point MSM:
 
@@ -137,7 +138,8 @@ let h = Scalar::from_hash(Sha512::new().chain_update(b"some message"));
 
 // Decompose into two ~128-bit scalars
 let (rho, tau, flip_h) = h.heea_decompose();
-// rho ≡ ±tau·h  (mod ℓ)
+// flip_h == false: rho ≡  tau·h  (mod ℓ)
+// flip_h == true:  rho ≡ -tau·h  (mod ℓ)
 ```
 
 ---

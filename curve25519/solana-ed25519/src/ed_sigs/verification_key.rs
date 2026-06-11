@@ -1,16 +1,16 @@
 // -*- mode: rust; -*-
 //
-// This file is part of ed25519-heea, a fork of ed25519-zebra.
+// This file is part of solana-ed25519's ed_sigs module, forked from ed25519-zebra.
 // Original ed25519-zebra code: Copyright (c) Zcash Foundation contributors
 // Modifications for HEEA: Copyright (c) 2025 curve25519-sol contributors
 // See LICENSE-APACHE and LICENSE-MIT for licensing information.
 //
 // Modifications from ed25519-zebra:
-// - Added `verify_heea`, an accelerated verification path using the HEEA
+// - Added `verify_zebra`, an accelerated verification path using the HEEA
 //   scalar decomposition from curve25519-sol's `HEEADecomposition` trait.
 //   See "Accelerating EdDSA Signature Verification with Faster Scalar Size
 //   Halving" (TCHES 2025) for the algorithm.
-// - `verify` and all ZIP-215 consensus logic are unchanged from ed25519-zebra.
+// - `verify` dispatches to `verify_zebra`, preserving ZIP-215 semantics.
 
 use crate::{
     edwards::{CompressedEdwardsY, EdwardsPoint},
@@ -105,12 +105,12 @@ const LEGACY_EXCLUDED_R_ENCODINGS: [[u8; 32]; 11] = [
     ],
 ];
 
-/// A refinement type for `[u8; 32]` indicating that the bytes represent an
-/// encoding of an Ed25519 verification key.
+/// A container for the 32-byte encoded form of an Ed25519 verification key.
 ///
-/// This is useful for representing an encoded verification key, while the
-/// [`VerificationKey`] type in this library caches other decoded state used in
-/// signature verification.
+/// This type only checks or carries the byte length. It does not prove that the
+/// bytes decompress to a valid Ed25519 verification key. Convert it to
+/// [`VerificationKey`] to validate the encoded point and cache decoded state
+/// used in signature verification.
 ///
 /// A `VerificationKeyBytes` can be used to verify a single signature using the
 /// following idiom:
@@ -204,7 +204,7 @@ fn verification_key_bytes_from_spki(
 ///
 /// This type holds decompressed state used in signature verification; if the
 /// verification key may not be used immediately, it is probably better to use
-/// [`VerificationKeyBytes`], which is a refinement type for `[u8; 32]`.
+/// [`VerificationKeyBytes`], which stores only the length-checked encoded bytes.
 ///
 /// ## Zcash-specific consensus properties
 ///
@@ -366,17 +366,17 @@ impl VerificationKey {
     /// This implements the algorithm from "Accelerating EdDSA Signature Verification
     /// with Faster Scalar Size Halving" (TCHES 2025).
     ///
-    /// The standard verification equation sB = R + hA is transformed to:
-    /// τsB = τR + ρA where ρ ≡ τh (mod ℓ)
+    /// The decomposition returns ρ and τ such that either ρ ≡ τh (mod ℓ) or
+    /// ρ ≡ -τh (mod ℓ). The standard verification equation sB = R + hA is
+    /// multiplied by τ and the sign of A is selected according to `flip_h`.
     ///
     /// Both ρ and τ are approximately half the size of h.
     ///
     /// We then decompose τs into two 128-bit scalars:
     /// τs = τs_hi * 2^128 + τs_lo
     ///
-    /// The verification equation becomes:
-    /// τs_lo B + τs_hi (2^128 B) = τR + ρA
-    /// which can be done via 4-variable MSM with half-size scalars.
+    /// The resulting equation can be checked with a 4-variable MSM with
+    /// half-size scalars.
     #[allow(non_snake_case)]
     pub fn verify_zebra(&self, signature: &Signature, msg: &[u8]) -> Result<(), Error> {
         self.verify_zebra_prehashed(signature, self.challenge_scalar(signature, msg))
@@ -388,12 +388,9 @@ impl VerificationKey {
         signature: &Signature,
         h: Scalar,
     ) -> Result<(), Error> {
-        // Generate half-size scalars ρ and τ such that ρ ≡ τh (mod ℓ)
-        // in order to have rho and tau approximately half the size of h
-        // it is possible that we compute ρ ≡ -τh (mod ℓ)
-        // this is indicated by `flip_h` flag being true,
-        // in which case we will need to negate A later
-        // let (rho, tau, flip_h) = crate::heea::generate_half_size_scalars(&h);
+        // Generate half-size scalars ρ and τ. If flip_h is false, then
+        // ρ ≡ τh (mod ℓ). If flip_h is true, then ρ ≡ -τh (mod ℓ), so the
+        // sign of A is flipped below.
         let (rho, tau, flip_h) = h.heea_decompose();
 
         // Extract s from the signature
@@ -405,11 +402,11 @@ impl VerificationKey {
             .decompress()
             .ok_or(Error::InvalidSignature)?;
 
-        // Standard verification checks: sB = R + hA
-        // Transformed verification: -τsB + τR + ρA == 0
+        // Standard verification checks: sB = R + hA.
         //
         // We verify:
-        //  [8] τs B + [8] τ (-R) + [8] ρ (-A) == 0
+        //   [8] τs B + [8] τ (-R) + [8] ρ A_term == 0
+        // where A_term is -A when ρ ≡ τh and A when ρ ≡ -τh.
 
         // Compute τs
         let ts = tau * s;
@@ -424,12 +421,18 @@ impl VerificationKey {
         }
     }
 
-    /// Verify a signature with exact `ed25519-dalek`-style byte-level behavior.
+    /// Verify a signature with dalek-style canonical-`R` byte comparison.
     ///
     /// This recomputes the expected canonical `R` encoding and compares it to the
-    /// signature's `R` bytes, matching dalek's ordinary verification behavior.
+    /// signature's `R` bytes.
     ///
-    /// Note that exact dalek-compatible behavior is incompatible with the HEEA
+    /// This helper also preserves this crate's legacy compatibility filters: it
+    /// rejects an all-zero encoded public key and the known legacy-excluded `R`
+    /// encodings before running the canonical-`R` comparison. Because of those
+    /// extra checks, this is not a byte-for-byte clone of every `ed25519-dalek`
+    /// release.
+    ///
+    /// Note that dalek-style canonical-`R` comparison is incompatible with the HEEA
     /// transformed equation because the transformed check does not preserve the
     /// original `R` encoding needed for the byte comparison.
     #[allow(non_snake_case)]

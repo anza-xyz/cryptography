@@ -8,7 +8,7 @@ use core::convert::TryFrom;
 use ed25519::Signature;
 
 #[test]
-fn test_verify_heea_invalid_signature() {
+fn test_verify_zebra_invalid_signature() {
     let signing_key = SigningKey::from([1u8; 32]);
     let verification_key = VerificationKey::from(&signing_key);
 
@@ -37,7 +37,7 @@ fn test_verify_heea_invalid_signature() {
 }
 
 #[test]
-fn test_verify_heea_multiple_signatures() {
+fn test_verify_zebra_multiple_signatures() {
     for i in 0..100 {
         let mut seed = [0u8; 32];
         seed[0] = i;

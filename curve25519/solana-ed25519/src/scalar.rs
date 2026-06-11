@@ -537,12 +537,15 @@ impl Zeroize for Scalar {
 }
 
 impl HEEADecomposition for Scalar {
-    /// Generate half-size scalars (rho, tau) for a given hash value h
+    /// Generate approximately half-size non-negative scalars `(rho, tau)` for a
+    /// given challenge scalar `h`.
     ///
-    /// This function takes the hash value h from the signature verification equation
-    /// and produces two half-size scalars rho and tau such that rho = tau*h (mod ell).
+    /// The signed HEEA output satisfies `rho_i = tau_i * h (mod ell)`. This
+    /// method returns the absolute values of `rho_i` and `tau_i`, plus `flip_h`
+    /// to record whether exactly one of the signed values was negative.
     ///
-    /// And a flag indicating if rho is negative in its signed representation.
+    /// If `flip_h` is false, then `rho = tau * h (mod ell)`. If `flip_h` is
+    /// true, then `rho = -tau * h (mod ell)`.
     fn heea_decompose(&self) -> (Scalar, Scalar, bool) {
         // Convert h to I256
         let v = self.into();
