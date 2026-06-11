@@ -1,0 +1,864 @@
+//! P-256 elliptic curve group operations.
+//!
+//! Points are represented in two forms:
+//!
+//! - [`AffinePoint`] — standard `(x, y)` coordinates, used for storage and
+//!   table entries. Includes an `infinity` flag for the identity element.
+//! - [`ProjectivePoint`] — Jacobian `(X : Y : Z)` coordinates, used during
+//!   multi-step scalar multiplication to avoid per-step field inversions.
+//!
+//! Use [`ProjectivePoint::to_affine`] to convert back and pay the single
+//! field inversion, or [`batch_normalize`][`ProjectivePoint`] implicitly via
+//! the precomputed table builders.
+
+use core::ops::{Add, Neg, Sub};
+use std::sync::OnceLock;
+
+use crate::field::FieldElement;
+use zeroize::Zeroize;
+
+const BASE_WINDOWS: usize = 32;
+const BASE_WINDOW_POINTS: usize = 256;
+const SHAMIR_WINDOW_POINTS: usize = 16;
+const WNAF_DIGITS: usize = 257;
+
+const CURVE_B: FieldElement = FieldElement::from_montgomery_limbs([
+    0xd89c_df62_29c4_bddf,
+    0xacf0_05cd_7884_3090,
+    0xe5a2_20ab_f721_2ed6,
+    0xdc30_061d_0487_4834,
+]);
+
+const GENERATOR_X: FieldElement = FieldElement::from_montgomery_limbs([
+    0x79e7_30d4_18a9_143c,
+    0x75ba_95fc_5fed_b601,
+    0x79fb_732b_7762_2510,
+    0x1890_5f76_a537_55c6,
+]);
+
+const GENERATOR_Y: FieldElement = FieldElement::from_montgomery_limbs([
+    0xddf2_5357_ce95_560a,
+    0x8b4a_b8e4_ba19_e45c,
+    0xd2e8_8688_dd21_f325,
+    0x8571_ff18_2588_5d85,
+]);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AffinePoint {
+    x: FieldElement,
+    y: FieldElement,
+    infinity: bool,
+}
+
+impl AffinePoint {
+    pub const IDENTITY: Self = Self {
+        x: FieldElement::ZERO,
+        y: FieldElement::ZERO,
+        infinity: true,
+    };
+
+    pub const GENERATOR: Self = Self {
+        x: GENERATOR_X,
+        y: GENERATOR_Y,
+        infinity: false,
+    };
+
+    #[inline]
+    pub fn identity() -> Self {
+        Self::IDENTITY
+    }
+
+    #[inline]
+    pub fn generator() -> Self {
+        Self::GENERATOR
+    }
+
+    #[inline]
+    pub fn new(x: FieldElement, y: FieldElement) -> Option<Self> {
+        let point = Self {
+            x,
+            y,
+            infinity: false,
+        };
+
+        point.is_on_curve().then_some(point)
+    }
+
+    #[inline]
+    pub fn from_sec1_uncompressed(bytes: [u8; 65]) -> Option<Self> {
+        if bytes[0] != 0x04 {
+            return None;
+        }
+
+        let mut x = [0u8; 32];
+        let mut y = [0u8; 32];
+        x.copy_from_slice(&bytes[1..33]);
+        y.copy_from_slice(&bytes[33..65]);
+
+        Self::new(
+            FieldElement::from_be_bytes(x)?,
+            FieldElement::from_be_bytes(y)?,
+        )
+    }
+
+    #[inline]
+    pub fn from_sec1_compressed(bytes: [u8; 33]) -> Option<Self> {
+        if bytes[0] != 0x02 && bytes[0] != 0x03 {
+            return None;
+        }
+
+        let mut x_bytes = [0u8; 32];
+        x_bytes.copy_from_slice(&bytes[1..33]);
+        let x = FieldElement::from_be_bytes(x_bytes)?;
+        let rhs = x.square() * x - triple(x) + CURVE_B;
+        let mut y = rhs.sqrt()?;
+
+        if (y.to_be_bytes()[31] & 1) != (bytes[0] & 1) {
+            y = -y;
+        }
+
+        ((y.to_be_bytes()[31] & 1) == (bytes[0] & 1)).then_some(Self {
+            x,
+            y,
+            infinity: false,
+        })
+    }
+
+    #[inline]
+    pub fn to_projective(self) -> ProjectivePoint {
+        if self.infinity {
+            ProjectivePoint::IDENTITY
+        } else {
+            ProjectivePoint {
+                x: self.x,
+                y: self.y,
+                z: FieldElement::ONE,
+            }
+        }
+    }
+
+    #[inline]
+    pub fn to_sec1_uncompressed(self) -> Option<[u8; 65]> {
+        if self.infinity {
+            return None;
+        }
+
+        let mut out = [0u8; 65];
+        out[0] = 0x04;
+        out[1..33].copy_from_slice(&self.x.to_be_bytes());
+        out[33..65].copy_from_slice(&self.y.to_be_bytes());
+        Some(out)
+    }
+
+    #[inline]
+    pub fn is_identity(self) -> bool {
+        self.infinity
+    }
+
+    #[inline]
+    pub fn x(self) -> Option<FieldElement> {
+        (!self.infinity).then_some(self.x)
+    }
+
+    #[inline]
+    pub fn y(self) -> Option<FieldElement> {
+        (!self.infinity).then_some(self.y)
+    }
+
+    #[inline]
+    fn is_on_curve(self) -> bool {
+        if self.infinity {
+            return true;
+        }
+
+        let y2 = self.y.square();
+        let x2 = self.x.square();
+        let x3 = x2 * self.x;
+        let three_x = triple(self.x);
+        y2 == x3 - three_x + CURVE_B
+    }
+}
+
+impl Neg for AffinePoint {
+    type Output = Self;
+
+    #[inline]
+    fn neg(self) -> Self::Output {
+        if self.infinity {
+            self
+        } else {
+            Self {
+                x: self.x,
+                y: -self.y,
+                infinity: false,
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProjectivePoint {
+    x: FieldElement,
+    y: FieldElement,
+    z: FieldElement,
+}
+
+impl ProjectivePoint {
+    pub const IDENTITY: Self = Self {
+        x: FieldElement::ZERO,
+        y: FieldElement::ONE,
+        z: FieldElement::ZERO,
+    };
+
+    pub const GENERATOR: Self = Self {
+        x: GENERATOR_X,
+        y: GENERATOR_Y,
+        z: FieldElement::ONE,
+    };
+
+    #[inline]
+    pub fn identity() -> Self {
+        Self::IDENTITY
+    }
+
+    #[inline]
+    pub fn generator() -> Self {
+        Self::GENERATOR
+    }
+
+    #[inline]
+    pub fn from_affine(point: AffinePoint) -> Self {
+        point.to_projective()
+    }
+
+    #[inline]
+    pub fn to_affine(self) -> AffinePoint {
+        match self.z.invert() {
+            Some(zinv) => {
+                let zinv2 = zinv.square();
+                AffinePoint {
+                    x: self.x * zinv2,
+                    y: self.y * zinv2 * zinv,
+                    infinity: false,
+                }
+            }
+            None => AffinePoint::IDENTITY,
+        }
+    }
+
+    #[inline]
+    pub fn to_sec1_uncompressed(self) -> Option<[u8; 65]> {
+        self.to_affine().to_sec1_uncompressed()
+    }
+
+    #[inline]
+    pub fn is_identity(self) -> bool {
+        self.z.is_zero()
+    }
+
+    #[inline]
+    pub fn has_affine_x(self, x: FieldElement) -> bool {
+        !self.is_identity() && self.x == x * self.z.square()
+    }
+
+    #[inline]
+    pub fn double(self) -> Self {
+        if self.is_identity() || self.y.is_zero() {
+            return Self::IDENTITY;
+        }
+
+        let xx = self.x.square();
+        let yy = self.y.square();
+        let yyyy = yy.square();
+        let zz = self.z.square();
+        let s = double((self.x + yy).square() - xx - yyyy);
+        let m = triple(xx - zz.square());
+        let x = m.square() - double(s);
+        let y = m * (s - x) - double(double(double(yyyy)));
+        let z = (self.y + self.z).square() - yy - zz;
+
+        Self { x, y, z }
+    }
+
+    #[inline]
+    pub fn add_mixed(self, rhs: AffinePoint) -> Self {
+        if rhs.infinity {
+            return self;
+        }
+        if self.is_identity() {
+            return rhs.to_projective();
+        }
+
+        let z1z1 = self.z.square();
+        let u2 = rhs.x * z1z1;
+        let s2 = rhs.y * self.z * z1z1;
+        let h = u2 - self.x;
+        let slope_num = double(s2 - self.y);
+
+        if h.is_zero() {
+            return if slope_num.is_zero() {
+                self.double()
+            } else {
+                Self::IDENTITY
+            };
+        }
+
+        let hh = h.square();
+        let i = double(double(hh));
+        let j = h * i;
+        let v = self.x * i;
+        let x = slope_num.square() - j - double(v);
+        let y = slope_num * (v - x) - double(self.y * j);
+        let z = (self.z + h).square() - z1z1 - hh;
+
+        Self { x, y, z }
+    }
+
+    #[inline]
+    pub fn mul_generator_vartime(mut scalar: [u8; 32]) -> Self {
+        let out = mul_window8_vartime(generator_window8_table(), &scalar);
+        scalar.zeroize();
+        out
+    }
+
+    #[inline]
+    pub fn mul_affine_scalar_vartime(base: AffinePoint, mut scalar: [u8; 32]) -> Self {
+        let out = mul_window4_vartime(&window4_table(base), &scalar);
+        scalar.zeroize();
+        out
+    }
+
+    #[inline]
+    pub fn double_scalar_mul_shamir_vartime(
+        mut generator_scalar: [u8; 32],
+        point: AffinePoint,
+        mut point_scalar: [u8; 32],
+    ) -> Self {
+        let generator_table = generator_window4_table();
+        let point_table = window4_table(point);
+        let mut out = Self::IDENTITY;
+
+        for (&generator_byte, &point_byte) in generator_scalar.iter().zip(point_scalar.iter()) {
+            out = double_n(out, 4)
+                .add_mixed(generator_table[(generator_byte >> 4) as usize])
+                .add_mixed(point_table[(point_byte >> 4) as usize]);
+            out = double_n(out, 4)
+                .add_mixed(generator_table[(generator_byte & 0x0f) as usize])
+                .add_mixed(point_table[(point_byte & 0x0f) as usize]);
+        }
+
+        generator_scalar.zeroize();
+        point_scalar.zeroize();
+        out
+    }
+
+    #[inline]
+    pub fn double_scalar_mul_shamir_window8_vartime(
+        mut generator_scalar: [u8; 32],
+        point: AffinePoint,
+        mut point_scalar: [u8; 32],
+    ) -> Self {
+        let generator_table = generator_shamir_window8_table();
+        let point_table = projective_window8_table(ProjectivePoint::from_affine(point));
+        let mut out = Self::IDENTITY;
+
+        for (&generator_byte, &point_byte) in generator_scalar.iter().zip(point_scalar.iter()) {
+            out = double_n(out, 8)
+                .add_mixed(generator_table[generator_byte as usize])
+                .add_mixed(point_table[point_byte as usize]);
+        }
+
+        generator_scalar.zeroize();
+        point_scalar.zeroize();
+        out
+    }
+
+    #[inline]
+    pub fn mul_scalar_vartime(self, mut scalar: [u8; 32]) -> Self {
+        let mut table = [Self::IDENTITY; 16];
+        table[1] = self;
+
+        for i in 2..16 {
+            table[i] = table[i - 1] + self;
+        }
+
+        let mut out = Self::IDENTITY;
+
+        for &byte in scalar.iter() {
+            out = out.double().double().double().double();
+            out = out + table[(byte >> 4) as usize];
+            out = out.double().double().double().double();
+            out = out + table[(byte & 0x0f) as usize];
+        }
+
+        scalar.zeroize();
+        out
+    }
+
+    #[inline]
+    pub fn mul_scalar_wnaf5_vartime(self, mut scalar: [u8; 32]) -> Self {
+        let out = mul_wnaf_projective_vartime::<8>(self, &scalar, 5);
+        scalar.zeroize();
+        out
+    }
+
+    #[inline]
+    pub fn mul_scalar_wnaf6_vartime(self, mut scalar: [u8; 32]) -> Self {
+        let out = mul_wnaf_projective_vartime::<16>(self, &scalar, 6);
+        scalar.zeroize();
+        out
+    }
+}
+
+impl Add for ProjectivePoint {
+    type Output = Self;
+
+    #[inline]
+    fn add(self, rhs: Self) -> Self::Output {
+        if self.is_identity() {
+            return rhs;
+        }
+        if rhs.is_identity() {
+            return self;
+        }
+
+        let z1z1 = self.z.square();
+        let z2z2 = rhs.z.square();
+        let u1 = self.x * z2z2;
+        let u2 = rhs.x * z1z1;
+        let s1 = self.y * rhs.z * z2z2;
+        let s2 = rhs.y * self.z * z1z1;
+
+        if u1 == u2 {
+            return if s1 == s2 {
+                self.double()
+            } else {
+                Self::IDENTITY
+            };
+        }
+
+        let h = u2 - u1;
+        let i = double(h).square();
+        let j = h * i;
+        let slope_num = double(s2 - s1);
+        let v = u1 * i;
+        let x = slope_num.square() - j - double(v);
+        let y = slope_num * (v - x) - double(s1 * j);
+        let z = ((self.z + rhs.z).square() - z1z1 - z2z2) * h;
+
+        Self { x, y, z }
+    }
+}
+
+impl Sub for ProjectivePoint {
+    type Output = Self;
+
+    #[inline]
+    fn sub(self, rhs: Self) -> Self::Output {
+        self + (-rhs)
+    }
+}
+
+impl Neg for ProjectivePoint {
+    type Output = Self;
+
+    #[inline]
+    fn neg(self) -> Self::Output {
+        Self {
+            x: self.x,
+            y: -self.y,
+            z: self.z,
+        }
+    }
+}
+
+#[inline]
+fn double(x: FieldElement) -> FieldElement {
+    x + x
+}
+
+#[inline]
+fn triple(x: FieldElement) -> FieldElement {
+    x + x + x
+}
+
+fn generator_window8_table() -> &'static [[AffinePoint; BASE_WINDOW_POINTS]; BASE_WINDOWS] {
+    static TABLE: OnceLock<Box<[[AffinePoint; BASE_WINDOW_POINTS]; BASE_WINDOWS]>> =
+        OnceLock::new();
+
+    TABLE
+        .get_or_init(|| build_window8_table(ProjectivePoint::GENERATOR))
+        .as_ref()
+}
+
+fn generator_window4_table() -> &'static [AffinePoint; SHAMIR_WINDOW_POINTS] {
+    static TABLE: OnceLock<[AffinePoint; SHAMIR_WINDOW_POINTS]> = OnceLock::new();
+
+    TABLE.get_or_init(|| window4_table(AffinePoint::GENERATOR))
+}
+
+fn generator_shamir_window8_table() -> &'static [AffinePoint; BASE_WINDOW_POINTS] {
+    static TABLE: OnceLock<[AffinePoint; BASE_WINDOW_POINTS]> = OnceLock::new();
+
+    TABLE.get_or_init(|| projective_window8_table(ProjectivePoint::GENERATOR))
+}
+
+fn window4_table(base: AffinePoint) -> [AffinePoint; SHAMIR_WINDOW_POINTS] {
+    let mut projective = [ProjectivePoint::IDENTITY; SHAMIR_WINDOW_POINTS];
+
+    for i in 1..SHAMIR_WINDOW_POINTS {
+        projective[i] = projective[i - 1].add_mixed(base);
+    }
+
+    batch_normalize(projective)
+}
+
+fn batch_normalize<const N: usize>(points: [ProjectivePoint; N]) -> [AffinePoint; N] {
+    let mut products = [FieldElement::ONE; N];
+    let mut acc = FieldElement::ONE;
+
+    for (i, point) in points.iter().enumerate() {
+        products[i] = acc;
+        if !point.is_identity() {
+            acc = acc * point.z;
+        }
+    }
+
+    let Some(mut acc_inverse) = acc.invert() else {
+        return [AffinePoint::IDENTITY; N];
+    };
+    let mut out = [AffinePoint::IDENTITY; N];
+
+    for i in (0..N).rev() {
+        let point = points[i];
+        if point.is_identity() {
+            continue;
+        }
+
+        let z_inverse = acc_inverse * products[i];
+        acc_inverse = acc_inverse * point.z;
+        let z_inverse2 = z_inverse.square();
+        out[i] = AffinePoint {
+            x: point.x * z_inverse2,
+            y: point.y * z_inverse2 * z_inverse,
+            infinity: false,
+        };
+    }
+
+    out
+}
+
+#[inline]
+fn mul_window4_vartime(
+    table: &[AffinePoint; SHAMIR_WINDOW_POINTS],
+    scalar: &[u8; 32],
+) -> ProjectivePoint {
+    let mut out = ProjectivePoint::IDENTITY;
+
+    for &byte in scalar {
+        out = double_n(out, 4).add_mixed(table[(byte >> 4) as usize]);
+        out = double_n(out, 4).add_mixed(table[(byte & 0x0f) as usize]);
+    }
+
+    out
+}
+
+#[inline]
+fn mul_wnaf_projective_vartime<const TABLE_POINTS: usize>(
+    base: ProjectivePoint,
+    scalar: &[u8; 32],
+    width: usize,
+) -> ProjectivePoint {
+    let table = odd_projective_table::<TABLE_POINTS>(base);
+    let (mut digits, len) = wnaf_digits(scalar, width);
+    let mut out = ProjectivePoint::IDENTITY;
+
+    for i in (0..len).rev() {
+        out = out.double();
+
+        let digit = digits[i];
+        if digit > 0 {
+            out = out + table[(digit as usize) >> 1];
+        } else if digit < 0 {
+            out = out - table[((-digit) as usize) >> 1];
+        }
+    }
+
+    digits.zeroize();
+    out
+}
+
+#[inline]
+fn odd_projective_table<const TABLE_POINTS: usize>(
+    base: ProjectivePoint,
+) -> [ProjectivePoint; TABLE_POINTS] {
+    let mut table = [ProjectivePoint::IDENTITY; TABLE_POINTS];
+    table[0] = base;
+
+    let two_base = base.double();
+    for i in 1..TABLE_POINTS {
+        table[i] = table[i - 1] + two_base;
+    }
+
+    table
+}
+
+fn wnaf_digits(scalar: &[u8; 32], width: usize) -> ([i8; WNAF_DIGITS], usize) {
+    let mut k = scalar_limbs(scalar);
+    let mut digits = [0i8; WNAF_DIGITS];
+    let mask = (1u64 << width) - 1;
+    let cutoff = 1i64 << (width - 1);
+    let radix = 1i64 << width;
+    let mut len = 0;
+
+    for (i, digit) in digits.iter_mut().enumerate() {
+        if scalar_limbs_are_zero(k) {
+            break;
+        }
+
+        if k[0] & 1 == 1 {
+            let residue = (k[0] & mask) as i64;
+            let signed_digit = if residue >= cutoff {
+                residue - radix
+            } else {
+                residue
+            };
+
+            *digit = signed_digit as i8;
+            if signed_digit > 0 {
+                sub_small(&mut k, signed_digit as u64);
+            } else {
+                add_small(&mut k, (-signed_digit) as u64);
+            }
+        }
+
+        shift_right_one(&mut k);
+        len = i + 1;
+    }
+
+    k.zeroize();
+    (digits, len)
+}
+
+#[inline]
+fn scalar_limbs(scalar: &[u8; 32]) -> [u64; 5] {
+    let mut limbs = [0u64; 5];
+
+    for (i, chunk) in scalar.chunks_exact(8).rev().enumerate() {
+        limbs[i] = u64::from_be_bytes(chunk.try_into().expect("chunk length is 8"));
+    }
+
+    limbs
+}
+
+#[inline]
+fn scalar_limbs_are_zero(limbs: [u64; 5]) -> bool {
+    limbs.into_iter().all(|limb| limb == 0)
+}
+
+#[inline]
+fn add_small(limbs: &mut [u64; 5], value: u64) {
+    let (sum, carry) = limbs[0].overflowing_add(value);
+    limbs[0] = sum;
+
+    let mut carry = u64::from(carry);
+    for limb in limbs.iter_mut().skip(1) {
+        if carry == 0 {
+            break;
+        }
+
+        let (sum, next_carry) = limb.overflowing_add(carry);
+        *limb = sum;
+        carry = u64::from(next_carry);
+    }
+}
+
+#[inline]
+fn sub_small(limbs: &mut [u64; 5], value: u64) {
+    let (difference, borrow) = limbs[0].overflowing_sub(value);
+    limbs[0] = difference;
+
+    let mut borrow = u64::from(borrow);
+    for limb in limbs.iter_mut().skip(1) {
+        if borrow == 0 {
+            break;
+        }
+
+        let (difference, next_borrow) = limb.overflowing_sub(borrow);
+        *limb = difference;
+        borrow = u64::from(next_borrow);
+    }
+}
+
+#[inline]
+fn shift_right_one(limbs: &mut [u64; 5]) {
+    let mut carry = 0;
+
+    for limb in limbs.iter_mut().rev() {
+        let next_carry = *limb << 63;
+        *limb = (*limb >> 1) | carry;
+        carry = next_carry;
+    }
+}
+
+#[inline]
+fn double_n(mut point: ProjectivePoint, count: usize) -> ProjectivePoint {
+    for _ in 0..count {
+        point = point.double();
+    }
+
+    point
+}
+
+fn build_window8_table(
+    mut base: ProjectivePoint,
+) -> Box<[[AffinePoint; BASE_WINDOW_POINTS]; BASE_WINDOWS]> {
+    let mut rows = Vec::with_capacity(BASE_WINDOWS);
+
+    for _ in 0..BASE_WINDOWS {
+        rows.push(projective_window8_table(base));
+
+        for _ in 0..8 {
+            base = base.double();
+        }
+    }
+
+    rows.into_boxed_slice()
+        .try_into()
+        .expect("fixed-point table has the expected number of rows")
+}
+
+fn projective_window8_table(base: ProjectivePoint) -> [AffinePoint; BASE_WINDOW_POINTS] {
+    let mut projective = [ProjectivePoint::IDENTITY; BASE_WINDOW_POINTS];
+    let mut multiple = ProjectivePoint::IDENTITY;
+
+    for entry in projective.iter_mut().skip(1) {
+        multiple = multiple + base;
+        *entry = multiple;
+    }
+
+    batch_normalize(projective)
+}
+
+#[inline]
+fn mul_window8_vartime(
+    table: &[[AffinePoint; BASE_WINDOW_POINTS]; BASE_WINDOWS],
+    scalar: &[u8; 32],
+) -> ProjectivePoint {
+    let mut out = ProjectivePoint::IDENTITY;
+
+    for (window, byte) in scalar.iter().rev().enumerate() {
+        out = out.add_mixed(table[window][*byte as usize]);
+    }
+
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AffinePoint, ProjectivePoint};
+    use p256::{
+        ProjectivePoint as P256ProjectivePoint, Scalar,
+        elliptic_curve::{ff::PrimeField, group::Group, sec1::ToEncodedPoint},
+    };
+
+    const SCALAR: [u8; 32] = [
+        0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+        0x88, 0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
+        0x77, 0x88,
+    ];
+
+    fn assert_matches_p256(rust: ProjectivePoint, p256: P256ProjectivePoint) {
+        let rust_bytes = rust.to_sec1_uncompressed().unwrap();
+        let p256_bytes = p256.to_affine().to_encoded_point(false);
+        assert_eq!(rust_bytes.as_slice(), p256_bytes.as_bytes());
+    }
+
+    #[test]
+    fn generator_matches_p256() {
+        assert_matches_p256(
+            ProjectivePoint::generator(),
+            P256ProjectivePoint::generator(),
+        );
+    }
+
+    #[test]
+    fn parses_and_serializes_generator() {
+        let bytes = ProjectivePoint::generator().to_sec1_uncompressed().unwrap();
+        assert_eq!(
+            AffinePoint::from_sec1_uncompressed(bytes).unwrap(),
+            AffinePoint::generator()
+        );
+    }
+
+    #[test]
+    fn double_matches_p256() {
+        let p256 = P256ProjectivePoint::generator().double();
+        assert_matches_p256(ProjectivePoint::generator().double(), p256);
+    }
+
+    #[test]
+    fn add_matches_p256() {
+        let rust_g = ProjectivePoint::generator();
+        let rust_2g = rust_g.double();
+        let p256_g = P256ProjectivePoint::generator();
+        let p256_2g = p256_g.double();
+
+        assert_matches_p256(rust_2g + rust_g, p256_2g + p256_g);
+    }
+
+    #[test]
+    fn mixed_add_matches_p256() {
+        let rust_g = ProjectivePoint::generator();
+        let rust_2g = rust_g.double();
+        let p256_g = P256ProjectivePoint::generator();
+        let p256_2g = p256_g.double();
+
+        assert_matches_p256(
+            rust_2g.add_mixed(AffinePoint::generator()),
+            p256_2g + p256_g,
+        );
+    }
+
+    #[test]
+    fn scalar_mul_matches_p256() {
+        let scalar = Option::<Scalar>::from(Scalar::from_repr(SCALAR.into())).unwrap();
+        assert_matches_p256(
+            ProjectivePoint::generator().mul_scalar_vartime(SCALAR),
+            P256ProjectivePoint::generator() * scalar,
+        );
+        assert_matches_p256(
+            ProjectivePoint::generator().mul_scalar_wnaf5_vartime(SCALAR),
+            P256ProjectivePoint::generator() * scalar,
+        );
+        assert_matches_p256(
+            ProjectivePoint::generator().mul_scalar_wnaf6_vartime(SCALAR),
+            P256ProjectivePoint::generator() * scalar,
+        );
+        assert_matches_p256(
+            ProjectivePoint::mul_affine_scalar_vartime(AffinePoint::generator(), SCALAR),
+            P256ProjectivePoint::generator() * scalar,
+        );
+    }
+
+    #[test]
+    fn base_scalar_mul_matches_p256() {
+        let scalar = Option::<Scalar>::from(Scalar::from_repr(SCALAR.into())).unwrap();
+        assert_matches_p256(
+            ProjectivePoint::mul_generator_vartime(SCALAR),
+            P256ProjectivePoint::generator() * scalar,
+        );
+    }
+
+    #[test]
+    fn shamir_double_scalar_mul_matches_p256() {
+        let scalar = Option::<Scalar>::from(Scalar::from_repr(SCALAR.into())).unwrap();
+        let point = ProjectivePoint::generator().double().to_affine();
+        let p256_point = P256ProjectivePoint::generator().double();
+
+        assert_matches_p256(
+            ProjectivePoint::double_scalar_mul_shamir_vartime(SCALAR, point, SCALAR),
+            (P256ProjectivePoint::generator() * scalar) + (p256_point * scalar),
+        );
+    }
+}
