@@ -29,7 +29,8 @@ HEEA (from the TCHES 2025 paper _"Accelerating EdDSA Signature Verification with
 Size Halving"_) transforms this into a 4-point MSM with ~128-bit scalars:
 
 ```
-τs_lo · B + τs_hi · (2¹²⁸·B) = τ·R + ρ·A
+flip_h = false:  τs_lo · B + τs_hi · (2¹²⁸·B) = τ·R + ρ·A
+flip_h = true:   τs_lo · B + τs_hi · (2¹²⁸·B) = τ·R - ρ·A
 ```
 
 where `ρ` and `τ` are half-size (~127-bit) values derived from `h` via a half-extended

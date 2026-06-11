@@ -72,10 +72,12 @@ The HEEA method (TCHES 2025) transforms the standard 2-point MSM:
 into a 4-point MSM over half-size (~128-bit) scalars:
 
 ```text
-τs_lo·B + τs_hi·(2¹²⁸·B) = τ·R + ρ·A     (HEEA)
+flip_h = false:  τs_lo·B + τs_hi·(2¹²⁸·B) = τ·R + ρ·A
+flip_h = true:   τs_lo·B + τs_hi·(2¹²⁸·B) = τ·R - ρ·A
 ```
 
-where `ρ ≡ ±τ·h (mod ℓ)` and `τs = τs_hi·2¹²⁸ + τs_lo`.  All four scalars are ≤128 bits
+where `ρ ≡ τ·h (mod ℓ)` when `flip_h` is false, `ρ ≡ -τ·h (mod ℓ)` when
+`flip_h` is true, and `τs = τs_hi·2¹²⁸ + τs_lo`. All four scalars are ≤128 bits
 and the two basepoints (`B` and `2¹²⁸B`) use precomputed lookup tables, giving approximately
 **~15% faster** verification compared to the standard path.
 
@@ -148,10 +150,10 @@ let (rho, tau, flip_h) = h.heea_decompose();
 
 | Feature | Default? | Description |
 |---|:---:|---|
-| `alloc` | ✓ | Multiscalar multiplication, batch inversion, batch compress, batch Ed25519 verification. |
+| `alloc` | ✓ | Multiscalar multiplication, batch inversion, batch compress, and the Ed25519 batch module. |
 | `zeroize` | ✓ | `Zeroize` for all scalar and point types. |
 | `precomputed-tables` | ✓ | Precomputed basepoint tables (~400 KB, ~4× faster basepoint mul). |
-| `rand_core` | ✓ | `Scalar::random`, `RistrettoPoint::random`, `SigningKey::new`. |
+| `rand_core` | ✓ | `Scalar::random`, `RistrettoPoint::random`, `SigningKey::new`, and randomized batch verification. |
 | `digest` | ✓ | Hash-to-curve, `Scalar::from_hash`, and Ed25519 hashing. |
 | `std` | | Enables `std::error::Error` impl on `ed_sigs::Error`. |
 | `serde` | | Serialization for all point, scalar, and key types. |

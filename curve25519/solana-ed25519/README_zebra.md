@@ -1,3 +1,7 @@
+> This is an upstream `ed25519-zebra` README snapshot retained for provenance.
+> It describes the upstream crate, not this fork's current `curve25519::ed_sigs`
+> API. See [README.md](README.md) for current `solana-ed25519` usage.
+
 [![Build status](https://github.com/ZcashFoundation/ed25519-zebra/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/ZcashFoundation/ed25519-zebra/actions/workflows/main.yml?query=branch%3Amain)
 [![dependency status](https://deps.rs/repo/github/ZcashFoundation/ed25519-zebra/status.svg)](https://deps.rs/repo/github/ZcashFoundation/ed25519-zebra)
 
