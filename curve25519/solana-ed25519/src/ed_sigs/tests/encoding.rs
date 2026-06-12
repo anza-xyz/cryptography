@@ -19,7 +19,7 @@ const PKCS8_V1_PEM: &str = include_str!("../../../examples/pkcs8-v1.pem");
 #[cfg(feature = "pkcs8")]
 const PKCS8_V2_DER: &[u8] = include_bytes!("../../../examples/pkcs8-v2.der");
 
-/// Ed25519 PKCS#8 v1 private key encoded as PEM.
+/// Ed25519 PKCS#8 v2 private key + public key encoded as PEM.
 #[cfg(feature = "pem")]
 const PKCS8_V2_PEM: &str = include_str!("../../../examples/pkcs8-v2.pem");
 
