@@ -31,7 +31,7 @@ criterion = { version = "0.8" }
 color-eyre = "0.6"
 curve25519 = { path = "curve25519/solana-ed25519", package = "solana-ed25519" }
 curve25519-dalek-derive = "0.1.1"
-cpufeatures = "0.2.17"
+cpufeatures = "0.3.0"
 der = "0.7.9"
 digest = { version = "0.11.0", default-features = false }
 ed25519 = { version = "2.2.3", default-features = false }
