@@ -10,7 +10,7 @@ license = { workspace = true }
 [dependencies]
 bincode.workspace = true
 curve25519.workspace = true
-p3-air = "0.4.2"
+p3-air = "0.5.3"
 p3-challenger = "0.4.2"
 p3-commit = "0.4.2"
 p3-dft = { version = "0.4.2", features = ["parallel"] }
