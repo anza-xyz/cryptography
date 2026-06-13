@@ -52,7 +52,7 @@ rustc_version = "0.4.0"
 serde = { version = "1.0", default-features = false }
 sha2 = { version = "0.11.0", default-features = false }
 subtle = { version = "2.6.0", default-features = false }
-which = "4.4"
+which = "8.0"
 zeroize = { version = "1", default-features = false }
 
 [profile.dev]
