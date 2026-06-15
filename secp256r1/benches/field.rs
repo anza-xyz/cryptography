@@ -1,4 +1,6 @@
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use std::hint::black_box;
+
+use criterion::{Criterion, criterion_group, criterion_main};
 use openssl::bn::{BigNum, BigNumContext};
 use p256::{FieldElement as P256FieldElement, elliptic_curve::ff::PrimeField};
 use secp256r1::field::FieldElement;
