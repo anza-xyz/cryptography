@@ -8,17 +8,10 @@
 //! big-endian representation.
 
 use core::ops::{Add, Mul, Neg, Sub};
-use zeroize::Zeroize;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Scalar {
     limbs: [u64; 4],
-}
-
-impl Zeroize for Scalar {
-    fn zeroize(&mut self) {
-        self.limbs.zeroize();
-    }
 }
 
 const MODULUS: [u64; 4] = [
@@ -96,7 +89,7 @@ impl Scalar {
             return None;
         }
 
-        let mut table = odd_powers(self);
+        let table = odd_powers(self);
         let mut out = Self::ONE;
         let mut bit = 255isize;
 
@@ -125,7 +118,6 @@ impl Scalar {
             bit -= width as isize;
         }
 
-        table.zeroize();
         Some(out)
     }
 

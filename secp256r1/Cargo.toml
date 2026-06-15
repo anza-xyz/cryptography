@@ -1,6 +1,6 @@
 [package]
 name = "secp256r1"
-description = "Pure-Rust secp256r1/P-256 ECDSA keys, signatures, signing, and verification"
+description = "Pure-Rust secp256r1/P-256 field, scalar, and group operations"
 version = "0.1.0"
 authors = { workspace = true }
 repository = { workspace = true }
@@ -9,20 +9,10 @@ license = { workspace = true }
 edition = "2024"
 readme = "README.md"
 
-[dependencies]
-hmac.workspace = true
-rand_core = { workspace = true, features = ["getrandom"] }
-sha2 = "0.10"
-zeroize.workspace = true
-
 [dev-dependencies]
 criterion.workspace = true
 openssl.workspace = true
 p256.workspace = true
-
-[[bench]]
-name = "verify"
-harness = false
 
 [[bench]]
 name = "field"
@@ -34,8 +24,4 @@ harness = false
 
 [[bench]]
 name = "scalar"
-harness = false
-
-[[bench]]
-name = "sign"
 harness = false

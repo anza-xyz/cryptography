@@ -179,6 +179,8 @@ fn bench_group_base_scalar_mul(c: &mut Criterion) {
 fn bench_group_double_scalar_mul(c: &mut Criterion) {
     let fixture = Fixture::new();
     let rust_q = fixture.rust_2g.to_affine();
+    let rust_msm_points = [AffinePoint::generator(), rust_q];
+    let rust_msm_scalars = [SCALAR, SCALAR];
     let (openssl_group, mut openssl_context, _, openssl_q) = openssl_fixture();
     let openssl_scalar = BigNum::from_slice(&SCALAR).unwrap();
     let mut openssl_out = EcPoint::new(&openssl_group).unwrap();
@@ -212,6 +214,16 @@ fn bench_group_double_scalar_mul(c: &mut Criterion) {
         b.iter(|| {
             ProjectivePoint::mul_generator_vartime(black_box(SCALAR))
                 + ProjectivePoint::mul_affine_scalar_vartime(black_box(rust_q), black_box(SCALAR))
+        });
+    });
+
+    group.bench_function("rust_msm_window4", |b| {
+        b.iter(|| {
+            ProjectivePoint::multi_scalar_mul_vartime(
+                black_box(&rust_msm_points),
+                black_box(&rust_msm_scalars),
+            )
+            .unwrap()
         });
     });
 

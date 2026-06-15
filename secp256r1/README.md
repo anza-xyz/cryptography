@@ -1,32 +1,26 @@
 # secp256r1
 
-Pure-Rust secp256r1/P-256 ECDSA keys, signatures, signing, and verification.
+Pure-Rust secp256r1/P-256 field, scalar, and group operations.
 
-The public API is intentionally close to RustCrypto `p256` for the common flows:
-`SigningKey`, `VerifyingKey`, `Signature`, SEC1 public keys, fixed-width
-signatures, DER signatures, message signing with SHA-256, and prehashed
-verification.
+This crate is scoped to low-level public curve arithmetic for benchmarking,
+experimentation, and syscall plumbing. It does not expose ECDSA signing or
+verification APIs.
 
 ## Status
 
 This crate is performance-oriented and experimental. It has not been audited.
-Do not treat it as production cryptography without independent review.
-Signing and signing-key import use variable-time scalar multiplication for
-secret-dependent values. This is acceptable for local benchmarking, but not for
-production signing or side-channel-exposed environments.
-`SigningKey` and RFC6979 nonce state are zeroized on drop, but callers are
-responsible for clearing secret byte arrays returned by APIs such as
-`SigningKey::to_bytes`.
+Group scalar multiplication APIs are variable time and intended for public
+inputs. Do not use them with secret scalars in environments where local
+timing/cache side channels are in scope.
 
 Current scope:
 
-- secp256r1/P-256 ECDSA
-- SHA-256 message signing and verification
-- 32-byte prehash signing and verification
-- deterministic RFC6979/SHA-256 signing nonces
-- compressed and uncompressed SEC1 public-key input
-- compressed and uncompressed SEC1 public-key output
-- fixed-width `r || s` and DER signature encodings
+- Base-field arithmetic modulo the P-256 field modulus
+- Scalar-field arithmetic modulo the P-256 group order
+- Affine and Jacobian projective point operations
+- Compressed and uncompressed SEC1 point input
+- Uncompressed SEC1 point output
+- Fixed-base, arbitrary-base, double-scalar, and multiscalar multiplication
 
 OpenSSL and `p256` are used only as dev/benchmark comparison dependencies.
 
@@ -37,142 +31,74 @@ OpenSSL and `p256` are used only as dev/benchmark comparison dependencies.
 secp256r1 = { path = "." }
 ```
 
-For key generation examples using `OsRng`, add:
-
-```toml
-rand_core = { version = "0.6", features = ["getrandom"] }
-```
-
-For the prehash examples below, add:
-
-```toml
-sha2 = "0.10"
-```
-
 ## API
 
 ```rust
-use secp256r1::{Signature, SigningKey, VerifyingKey};
+use secp256r1::{
+    group::{AffinePoint, ProjectivePoint},
+    scalar::Scalar,
+};
 ```
 
-### Generate a key and sign
+### Scalar Multiplication
 
 ```rust
-use rand_core::OsRng;
-use secp256r1::SigningKey;
+use secp256r1::group::{AffinePoint, ProjectivePoint};
 
-let mut rng = OsRng;
-let signing_key = SigningKey::random(&mut rng);
-let verifying_key = signing_key.verifying_key();
+let scalar = [7u8; 32];
 
-let message = b"message";
-let signature = signing_key.sign(message);
+let fixed_base = ProjectivePoint::mul_generator_vartime(scalar);
+let arbitrary_base = ProjectivePoint::mul_affine_scalar_vartime(
+    AffinePoint::generator(),
+    scalar,
+);
 
-verifying_key.verify(message, &signature).unwrap();
+assert_eq!(fixed_base.to_affine(), arbitrary_base.to_affine());
 ```
 
-### Load a signing key from bytes
+### Multiscalar Multiplication
 
 ```rust
-use secp256r1::SigningKey;
+use secp256r1::group::{AffinePoint, ProjectivePoint};
 
-let secret = [7u8; 32];
-let signing_key = SigningKey::from_slice(&secret).unwrap();
-let signature = signing_key.sign(b"message");
+let points = [AffinePoint::generator(), ProjectivePoint::generator().double().to_affine()];
+let scalars = [[7u8; 32], [11u8; 32]];
 
-assert!(signing_key.verifying_key().verify(b"message", &signature).is_ok());
+let msm = ProjectivePoint::multi_scalar_mul_vartime(&points, &scalars).unwrap();
+let separate = ProjectivePoint::mul_affine_scalar_vartime(points[0], scalars[0])
+    + ProjectivePoint::mul_affine_scalar_vartime(points[1], scalars[1]);
+
+assert_eq!(msm.to_affine(), separate.to_affine());
 ```
 
-### SEC1 public keys
+### SEC1 Points
 
 ```rust
-use secp256r1::{SigningKey, VerifyingKey};
+use secp256r1::group::{AffinePoint, ProjectivePoint};
 
-let signing_key = SigningKey::from_slice(&[7u8; 32]).unwrap();
-let public_key_sec1: Vec<u8> = signing_key
-    .verifying_key()
-    .to_encoded_point(false)
-    .as_bytes()
-    .to_vec();
+let uncompressed = ProjectivePoint::generator().to_sec1_uncompressed().unwrap();
+let parsed = AffinePoint::from_sec1_uncompressed(uncompressed).unwrap();
 
-let verifying_key = VerifyingKey::from_sec1_bytes(&public_key_sec1).unwrap();
+assert_eq!(parsed, AffinePoint::generator());
 ```
-
-`from_sec1_bytes` accepts compressed and uncompressed SEC1 public keys. Use
-`to_encoded_point(true)` to emit compressed SEC1 public keys.
-
-### Fixed-width and DER signatures
-
-```rust
-use secp256r1::{Signature, SigningKey};
-
-let signing_key = SigningKey::from_slice(&[7u8; 32]).unwrap();
-let signature = signing_key.sign(b"message");
-
-let fixed = signature.to_bytes();        // 64 bytes: r || s
-let reparsed = Signature::from_slice(&fixed).unwrap();
-
-let der = signature.to_der();
-let reparsed_der = Signature::from_der(der.as_bytes()).unwrap();
-
-assert_eq!(signature, reparsed);
-assert_eq!(signature, reparsed_der);
-```
-
-### Prehashed signing and verification
-
-```rust
-use secp256r1::SigningKey;
-use sha2::{Digest as _, Sha256};
-
-let signing_key = SigningKey::from_slice(&[7u8; 32]).unwrap();
-let digest = Sha256::digest(b"message");
-
-let signature = signing_key.sign_prehash(&digest).unwrap();
-signing_key
-    .verifying_key()
-    .verify_prehash(&digest, &signature)
-    .unwrap();
-```
-
-Prehash APIs require exactly 32 bytes.
 
 ## Benchmarks
 
-Run all benchmarks:
+Run all secp256r1 benchmarks:
 
 ```sh
-cargo bench
+cargo bench -p secp256r1
 ```
 
 Focused benchmark groups:
 
 ```sh
-cargo bench -p secp256r1 --bench verify
-cargo bench -p secp256r1 --bench sign
 cargo bench -p secp256r1 --bench field
 cargo bench -p secp256r1 --bench scalar
 cargo bench -p secp256r1 --bench group
 ```
 
 Representative local results from this workspace:
-
-### Verify
-
-| Benchmark | rust | p256 | OpenSSL |
-|---|---:|---:|---:|
-| prehashed, parsed sig | 35.842 us | 154.61 us | 30.896 us |
-| prehashed, DER sig | 36.149 us | 153.55 us | 31.326 us |
-| message SHA-256, parsed sig | 36.450 us | 154.69 us | 31.344 us |
-| message SHA-256, DER sig | 36.622 us | 155.57 us | 31.842 us |
-
-### Sign
-
-| Benchmark | rust | p256 | OpenSSL |
-|---|---:|---:|---:|
-| keygen | 8.423 us | 78.101 us | 4.762 us |
-| sign prehashed | 12.674 us | 94.367 us | 10.476 us |
-| sign message SHA-256 | 12.869 us | 94.662 us | 10.753 us |
 
 ### Group Ops
 
@@ -186,17 +112,6 @@ Representative local results from this workspace:
 
 Benchmark numbers are machine- and compiler-dependent. Re-run locally before
 making performance decisions.
-
-## Design Notes
-
-- `SigningKey::sign` hashes messages with SHA-256.
-- `SigningKey::sign_prehash` signs a caller-provided 32-byte digest.
-- `VerifyingKey::verify` hashes messages with SHA-256.
-- `VerifyingKey::verify_prehash` verifies a caller-provided 32-byte digest.
-- `Signature::from_der` enforces strict/minimal DER encodings.
-- `field`, `scalar`, and `group` are exposed for low-level benchmarking and
-  experimentation. The stable public surface should be considered the ECDSA key
-  and signature API.
 
 ## Safety
 

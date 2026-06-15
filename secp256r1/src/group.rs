@@ -15,7 +15,6 @@ use core::ops::{Add, Neg, Sub};
 use std::sync::OnceLock;
 
 use crate::field::FieldElement;
-use zeroize::Zeroize;
 
 const BASE_WINDOWS: usize = 32;
 const BASE_WINDOW_POINTS: usize = 256;
@@ -315,24 +314,20 @@ impl ProjectivePoint {
     }
 
     #[inline]
-    pub fn mul_generator_vartime(mut scalar: [u8; 32]) -> Self {
-        let out = mul_window8_vartime(generator_window8_table(), &scalar);
-        scalar.zeroize();
-        out
+    pub fn mul_generator_vartime(scalar: [u8; 32]) -> Self {
+        mul_window8_vartime(generator_window8_table(), &scalar)
     }
 
     #[inline]
-    pub fn mul_affine_scalar_vartime(base: AffinePoint, mut scalar: [u8; 32]) -> Self {
-        let out = mul_window4_vartime(&window4_table(base), &scalar);
-        scalar.zeroize();
-        out
+    pub fn mul_affine_scalar_vartime(base: AffinePoint, scalar: [u8; 32]) -> Self {
+        mul_window4_vartime(&window4_table(base), &scalar)
     }
 
     #[inline]
     pub fn double_scalar_mul_shamir_vartime(
-        mut generator_scalar: [u8; 32],
+        generator_scalar: [u8; 32],
         point: AffinePoint,
-        mut point_scalar: [u8; 32],
+        point_scalar: [u8; 32],
     ) -> Self {
         let generator_table = generator_window4_table();
         let point_table = window4_table(point);
@@ -347,16 +342,14 @@ impl ProjectivePoint {
                 .add_mixed(point_table[(point_byte & 0x0f) as usize]);
         }
 
-        generator_scalar.zeroize();
-        point_scalar.zeroize();
         out
     }
 
     #[inline]
     pub fn double_scalar_mul_shamir_window8_vartime(
-        mut generator_scalar: [u8; 32],
+        generator_scalar: [u8; 32],
         point: AffinePoint,
-        mut point_scalar: [u8; 32],
+        point_scalar: [u8; 32],
     ) -> Self {
         let generator_table = generator_shamir_window8_table();
         let point_table = projective_window8_table(ProjectivePoint::from_affine(point));
@@ -368,13 +361,11 @@ impl ProjectivePoint {
                 .add_mixed(point_table[point_byte as usize]);
         }
 
-        generator_scalar.zeroize();
-        point_scalar.zeroize();
         out
     }
 
     #[inline]
-    pub fn mul_scalar_vartime(self, mut scalar: [u8; 32]) -> Self {
+    pub fn mul_scalar_vartime(self, scalar: [u8; 32]) -> Self {
         let mut table = [Self::IDENTITY; 16];
         table[1] = self;
 
@@ -391,22 +382,47 @@ impl ProjectivePoint {
             out = out + table[(byte & 0x0f) as usize];
         }
 
-        scalar.zeroize();
         out
     }
 
     #[inline]
-    pub fn mul_scalar_wnaf5_vartime(self, mut scalar: [u8; 32]) -> Self {
-        let out = mul_wnaf_projective_vartime::<8>(self, &scalar, 5);
-        scalar.zeroize();
-        out
+    pub fn mul_scalar_wnaf5_vartime(self, scalar: [u8; 32]) -> Self {
+        mul_wnaf_projective_vartime::<8>(self, &scalar, 5)
     }
 
     #[inline]
-    pub fn mul_scalar_wnaf6_vartime(self, mut scalar: [u8; 32]) -> Self {
-        let out = mul_wnaf_projective_vartime::<16>(self, &scalar, 6);
-        scalar.zeroize();
-        out
+    pub fn mul_scalar_wnaf6_vartime(self, scalar: [u8; 32]) -> Self {
+        mul_wnaf_projective_vartime::<16>(self, &scalar, 6)
+    }
+
+    /// Computes `sum(scalars[i] * points[i])` using variable-time table
+    /// lookups.
+    ///
+    /// Returns `None` when `points` and `scalars` have different lengths.
+    /// This routine is intended for public inputs, such as syscall MSM
+    /// plumbing; do not use it with secret scalars.
+    #[inline]
+    pub fn multi_scalar_mul_vartime(points: &[AffinePoint], scalars: &[[u8; 32]]) -> Option<Self> {
+        if points.len() != scalars.len() {
+            return None;
+        }
+
+        let tables: Vec<_> = points.iter().copied().map(window4_table).collect();
+        let mut out = Self::IDENTITY;
+
+        for byte_index in 0..32 {
+            out = double_n(out, 4);
+            for (table, scalar) in tables.iter().zip(scalars) {
+                out = out.add_mixed(table[(scalar[byte_index] >> 4) as usize]);
+            }
+
+            out = double_n(out, 4);
+            for (table, scalar) in tables.iter().zip(scalars) {
+                out = out.add_mixed(table[(scalar[byte_index] & 0x0f) as usize]);
+            }
+        }
+
+        Some(out)
     }
 }
 
@@ -570,7 +586,7 @@ fn mul_wnaf_projective_vartime<const TABLE_POINTS: usize>(
     width: usize,
 ) -> ProjectivePoint {
     let table = odd_projective_table::<TABLE_POINTS>(base);
-    let (mut digits, len) = wnaf_digits(scalar, width);
+    let (digits, len) = wnaf_digits(scalar, width);
     let mut out = ProjectivePoint::IDENTITY;
 
     for i in (0..len).rev() {
@@ -584,7 +600,6 @@ fn mul_wnaf_projective_vartime<const TABLE_POINTS: usize>(
         }
     }
 
-    digits.zeroize();
     out
 }
 
@@ -636,7 +651,6 @@ fn wnaf_digits(scalar: &[u8; 32], width: usize) -> ([i8; WNAF_DIGITS], usize) {
         len = i + 1;
     }
 
-    k.zeroize();
     (digits, len)
 }
 
@@ -767,6 +781,10 @@ mod tests {
         0x88, 0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
         0x77, 0x88,
     ];
+    const SMALL_SCALAR: [u8; 32] = [
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 5,
+    ];
 
     fn assert_matches_p256(rust: ProjectivePoint, p256: P256ProjectivePoint) {
         let rust_bytes = rust.to_sec1_uncompressed().unwrap();
@@ -859,6 +877,30 @@ mod tests {
         assert_matches_p256(
             ProjectivePoint::double_scalar_mul_shamir_vartime(SCALAR, point, SCALAR),
             (P256ProjectivePoint::generator() * scalar) + (p256_point * scalar),
+        );
+    }
+
+    #[test]
+    fn multi_scalar_mul_matches_p256() {
+        let scalar = Option::<Scalar>::from(Scalar::from_repr(SCALAR.into())).unwrap();
+        let small_scalar = Option::<Scalar>::from(Scalar::from_repr(SMALL_SCALAR.into())).unwrap();
+        let point = ProjectivePoint::generator().double().to_affine();
+        let p256_point = P256ProjectivePoint::generator().double();
+
+        assert_matches_p256(
+            ProjectivePoint::multi_scalar_mul_vartime(
+                &[AffinePoint::generator(), point],
+                &[SCALAR, SMALL_SCALAR],
+            )
+            .unwrap(),
+            (P256ProjectivePoint::generator() * scalar) + (p256_point * small_scalar),
+        );
+    }
+
+    #[test]
+    fn multi_scalar_mul_rejects_length_mismatch() {
+        assert!(
+            ProjectivePoint::multi_scalar_mul_vartime(&[AffinePoint::generator()], &[]).is_none()
         );
     }
 }
