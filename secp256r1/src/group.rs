@@ -19,7 +19,6 @@ use crate::field::FieldElement;
 const BASE_WINDOWS: usize = 32;
 const BASE_WINDOW_POINTS: usize = 256;
 const SHAMIR_WINDOW_POINTS: usize = 16;
-const WNAF_DIGITS: usize = 257;
 
 const CURVE_B: FieldElement = FieldElement::from_montgomery_limbs([
     0xd89c_df62_29c4_bddf,
@@ -314,57 +313,6 @@ impl ProjectivePoint {
     }
 
     #[inline]
-    pub fn mul_generator_vartime(scalar: [u8; 32]) -> Self {
-        mul_window8_vartime(generator_window8_table(), &scalar)
-    }
-
-    #[inline]
-    pub fn mul_affine_scalar_vartime(base: AffinePoint, scalar: [u8; 32]) -> Self {
-        mul_window4_vartime(&window4_table(base), &scalar)
-    }
-
-    #[inline]
-    pub fn double_scalar_mul_shamir_vartime(
-        generator_scalar: [u8; 32],
-        point: AffinePoint,
-        point_scalar: [u8; 32],
-    ) -> Self {
-        let generator_table = generator_window4_table();
-        let point_table = window4_table(point);
-        let mut out = Self::IDENTITY;
-
-        for (&generator_byte, &point_byte) in generator_scalar.iter().zip(point_scalar.iter()) {
-            out = double_n(out, 4)
-                .add_mixed(generator_table[(generator_byte >> 4) as usize])
-                .add_mixed(point_table[(point_byte >> 4) as usize]);
-            out = double_n(out, 4)
-                .add_mixed(generator_table[(generator_byte & 0x0f) as usize])
-                .add_mixed(point_table[(point_byte & 0x0f) as usize]);
-        }
-
-        out
-    }
-
-    #[inline]
-    pub fn double_scalar_mul_shamir_window8_vartime(
-        generator_scalar: [u8; 32],
-        point: AffinePoint,
-        point_scalar: [u8; 32],
-    ) -> Self {
-        let generator_table = generator_shamir_window8_table();
-        let point_table = projective_window8_table(ProjectivePoint::from_affine(point));
-        let mut out = Self::IDENTITY;
-
-        for (&generator_byte, &point_byte) in generator_scalar.iter().zip(point_scalar.iter()) {
-            out = double_n(out, 8)
-                .add_mixed(generator_table[generator_byte as usize])
-                .add_mixed(point_table[point_byte as usize]);
-        }
-
-        out
-    }
-
-    #[inline]
     pub fn mul_scalar_vartime(self, scalar: [u8; 32]) -> Self {
         let mut table = [Self::IDENTITY; 16];
         table[1] = self;
@@ -386,13 +334,30 @@ impl ProjectivePoint {
     }
 
     #[inline]
-    pub fn mul_scalar_wnaf5_vartime(self, scalar: [u8; 32]) -> Self {
-        mul_wnaf_projective_vartime::<8>(self, &scalar, 5)
+    pub fn fixed_base_scalar_mul_vartime(scalar: [u8; 32]) -> Self {
+        mul_window8_vartime(generator_window8_table(), &scalar)
     }
 
     #[inline]
-    pub fn mul_scalar_wnaf6_vartime(self, scalar: [u8; 32]) -> Self {
-        mul_wnaf_projective_vartime::<16>(self, &scalar, 6)
+    pub fn double_scalar_mul_vartime(
+        generator_scalar: [u8; 32],
+        point: AffinePoint,
+        point_scalar: [u8; 32],
+    ) -> Self {
+        let generator_table = generator_window4_table();
+        let point_table = window4_table(point);
+        let mut out = Self::IDENTITY;
+
+        for (&generator_byte, &point_byte) in generator_scalar.iter().zip(point_scalar.iter()) {
+            out = double_n(out, 4)
+                .add_mixed(generator_table[(generator_byte >> 4) as usize])
+                .add_mixed(point_table[(point_byte >> 4) as usize]);
+            out = double_n(out, 4)
+                .add_mixed(generator_table[(generator_byte & 0x0f) as usize])
+                .add_mixed(point_table[(point_byte & 0x0f) as usize]);
+        }
+
+        out
     }
 
     /// Computes `sum(scalars[i] * points[i])` using variable-time table
@@ -513,12 +478,6 @@ fn generator_window4_table() -> &'static [AffinePoint; SHAMIR_WINDOW_POINTS] {
     TABLE.get_or_init(|| window4_table(AffinePoint::GENERATOR))
 }
 
-fn generator_shamir_window8_table() -> &'static [AffinePoint; BASE_WINDOW_POINTS] {
-    static TABLE: OnceLock<[AffinePoint; BASE_WINDOW_POINTS]> = OnceLock::new();
-
-    TABLE.get_or_init(|| projective_window8_table(ProjectivePoint::GENERATOR))
-}
-
 fn window4_table(base: AffinePoint) -> [AffinePoint; SHAMIR_WINDOW_POINTS] {
     let mut projective = [ProjectivePoint::IDENTITY; SHAMIR_WINDOW_POINTS];
 
@@ -562,157 +521,6 @@ fn batch_normalize<const N: usize>(points: [ProjectivePoint; N]) -> [AffinePoint
     }
 
     out
-}
-
-#[inline]
-fn mul_window4_vartime(
-    table: &[AffinePoint; SHAMIR_WINDOW_POINTS],
-    scalar: &[u8; 32],
-) -> ProjectivePoint {
-    let mut out = ProjectivePoint::IDENTITY;
-
-    for &byte in scalar {
-        out = double_n(out, 4).add_mixed(table[(byte >> 4) as usize]);
-        out = double_n(out, 4).add_mixed(table[(byte & 0x0f) as usize]);
-    }
-
-    out
-}
-
-#[inline]
-fn mul_wnaf_projective_vartime<const TABLE_POINTS: usize>(
-    base: ProjectivePoint,
-    scalar: &[u8; 32],
-    width: usize,
-) -> ProjectivePoint {
-    let table = odd_projective_table::<TABLE_POINTS>(base);
-    let (digits, len) = wnaf_digits(scalar, width);
-    let mut out = ProjectivePoint::IDENTITY;
-
-    for i in (0..len).rev() {
-        out = out.double();
-
-        let digit = digits[i];
-        if digit > 0 {
-            out = out + table[(digit as usize) >> 1];
-        } else if digit < 0 {
-            out = out - table[((-digit) as usize) >> 1];
-        }
-    }
-
-    out
-}
-
-#[inline]
-fn odd_projective_table<const TABLE_POINTS: usize>(
-    base: ProjectivePoint,
-) -> [ProjectivePoint; TABLE_POINTS] {
-    let mut table = [ProjectivePoint::IDENTITY; TABLE_POINTS];
-    table[0] = base;
-
-    let two_base = base.double();
-    for i in 1..TABLE_POINTS {
-        table[i] = table[i - 1] + two_base;
-    }
-
-    table
-}
-
-fn wnaf_digits(scalar: &[u8; 32], width: usize) -> ([i8; WNAF_DIGITS], usize) {
-    let mut k = scalar_limbs(scalar);
-    let mut digits = [0i8; WNAF_DIGITS];
-    let mask = (1u64 << width) - 1;
-    let cutoff = 1i64 << (width - 1);
-    let radix = 1i64 << width;
-    let mut len = 0;
-
-    for (i, digit) in digits.iter_mut().enumerate() {
-        if scalar_limbs_are_zero(k) {
-            break;
-        }
-
-        if k[0] & 1 == 1 {
-            let residue = (k[0] & mask) as i64;
-            let signed_digit = if residue >= cutoff {
-                residue - radix
-            } else {
-                residue
-            };
-
-            *digit = signed_digit as i8;
-            if signed_digit > 0 {
-                sub_small(&mut k, signed_digit as u64);
-            } else {
-                add_small(&mut k, (-signed_digit) as u64);
-            }
-        }
-
-        shift_right_one(&mut k);
-        len = i + 1;
-    }
-
-    (digits, len)
-}
-
-#[inline]
-fn scalar_limbs(scalar: &[u8; 32]) -> [u64; 5] {
-    let mut limbs = [0u64; 5];
-
-    for (i, chunk) in scalar.chunks_exact(8).rev().enumerate() {
-        limbs[i] = u64::from_be_bytes(chunk.try_into().expect("chunk length is 8"));
-    }
-
-    limbs
-}
-
-#[inline]
-fn scalar_limbs_are_zero(limbs: [u64; 5]) -> bool {
-    limbs.into_iter().all(|limb| limb == 0)
-}
-
-#[inline]
-fn add_small(limbs: &mut [u64; 5], value: u64) {
-    let (sum, carry) = limbs[0].overflowing_add(value);
-    limbs[0] = sum;
-
-    let mut carry = u64::from(carry);
-    for limb in limbs.iter_mut().skip(1) {
-        if carry == 0 {
-            break;
-        }
-
-        let (sum, next_carry) = limb.overflowing_add(carry);
-        *limb = sum;
-        carry = u64::from(next_carry);
-    }
-}
-
-#[inline]
-fn sub_small(limbs: &mut [u64; 5], value: u64) {
-    let (difference, borrow) = limbs[0].overflowing_sub(value);
-    limbs[0] = difference;
-
-    let mut borrow = u64::from(borrow);
-    for limb in limbs.iter_mut().skip(1) {
-        if borrow == 0 {
-            break;
-        }
-
-        let (difference, next_borrow) = limb.overflowing_sub(borrow);
-        *limb = difference;
-        borrow = u64::from(next_borrow);
-    }
-}
-
-#[inline]
-fn shift_right_one(limbs: &mut [u64; 5]) {
-    let mut carry = 0;
-
-    for limb in limbs.iter_mut().rev() {
-        let next_carry = *limb << 63;
-        *limb = (*limb >> 1) | carry;
-        carry = next_carry;
-    }
 }
 
 #[inline]
@@ -845,37 +653,25 @@ mod tests {
             ProjectivePoint::generator().mul_scalar_vartime(SCALAR),
             P256ProjectivePoint::generator() * scalar,
         );
-        assert_matches_p256(
-            ProjectivePoint::generator().mul_scalar_wnaf5_vartime(SCALAR),
-            P256ProjectivePoint::generator() * scalar,
-        );
-        assert_matches_p256(
-            ProjectivePoint::generator().mul_scalar_wnaf6_vartime(SCALAR),
-            P256ProjectivePoint::generator() * scalar,
-        );
-        assert_matches_p256(
-            ProjectivePoint::mul_affine_scalar_vartime(AffinePoint::generator(), SCALAR),
-            P256ProjectivePoint::generator() * scalar,
-        );
     }
 
     #[test]
-    fn base_scalar_mul_matches_p256() {
+    fn fixed_base_scalar_mul_matches_p256() {
         let scalar = Option::<Scalar>::from(Scalar::from_repr(SCALAR.into())).unwrap();
         assert_matches_p256(
-            ProjectivePoint::mul_generator_vartime(SCALAR),
+            ProjectivePoint::fixed_base_scalar_mul_vartime(SCALAR),
             P256ProjectivePoint::generator() * scalar,
         );
     }
 
     #[test]
-    fn shamir_double_scalar_mul_matches_p256() {
+    fn double_scalar_mul_matches_p256() {
         let scalar = Option::<Scalar>::from(Scalar::from_repr(SCALAR.into())).unwrap();
         let point = ProjectivePoint::generator().double().to_affine();
         let p256_point = P256ProjectivePoint::generator().double();
 
         assert_matches_p256(
-            ProjectivePoint::double_scalar_mul_shamir_vartime(SCALAR, point, SCALAR),
+            ProjectivePoint::double_scalar_mul_vartime(SCALAR, point, SCALAR),
             (P256ProjectivePoint::generator() * scalar) + (p256_point * scalar),
         );
     }

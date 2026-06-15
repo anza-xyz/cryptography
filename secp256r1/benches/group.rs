@@ -137,23 +137,14 @@ fn bench_group_base_scalar_mul(c: &mut Criterion) {
     let (openssl_group, mut openssl_context, _, _) = openssl_fixture();
     let openssl_scalar = BigNum::from_slice(&SCALAR).unwrap();
     let mut openssl_out = EcPoint::new(&openssl_group).unwrap();
-    black_box(ProjectivePoint::mul_generator_vartime(SCALAR));
     let mut group = c.benchmark_group("secp256r1_group_base_scalar_mul");
 
-    group.bench_function("rust_vartime_window4", |b| {
+    group.bench_function("rust_variable_base", |b| {
         b.iter(|| black_box(fixture.rust_g).mul_scalar_vartime(black_box(SCALAR)));
     });
 
-    group.bench_function("rust_wnaf5_projective", |b| {
-        b.iter(|| black_box(fixture.rust_g).mul_scalar_wnaf5_vartime(black_box(SCALAR)));
-    });
-
-    group.bench_function("rust_wnaf6_projective", |b| {
-        b.iter(|| black_box(fixture.rust_g).mul_scalar_wnaf6_vartime(black_box(SCALAR)));
-    });
-
-    group.bench_function("rust_fixed_base_window8", |b| {
-        b.iter(|| ProjectivePoint::mul_generator_vartime(black_box(SCALAR)));
+    group.bench_function("rust_fixed_base", |b| {
+        b.iter(|| ProjectivePoint::fixed_base_scalar_mul_vartime(black_box(SCALAR)));
     });
 
     group.bench_function("p256", |b| {
@@ -188,32 +179,9 @@ fn bench_group_double_scalar_mul(c: &mut Criterion) {
 
     group.bench_function("rust_separate_projective_q", |b| {
         b.iter(|| {
-            ProjectivePoint::mul_generator_vartime(black_box(SCALAR))
+            ProjectivePoint::fixed_base_scalar_mul_vartime(black_box(SCALAR))
                 + ProjectivePoint::from_affine(black_box(rust_q))
                     .mul_scalar_vartime(black_box(SCALAR))
-        });
-    });
-
-    group.bench_function("rust_separate_wnaf5_q", |b| {
-        b.iter(|| {
-            ProjectivePoint::mul_generator_vartime(black_box(SCALAR))
-                + ProjectivePoint::from_affine(black_box(rust_q))
-                    .mul_scalar_wnaf5_vartime(black_box(SCALAR))
-        });
-    });
-
-    group.bench_function("rust_separate_wnaf6_q", |b| {
-        b.iter(|| {
-            ProjectivePoint::mul_generator_vartime(black_box(SCALAR))
-                + ProjectivePoint::from_affine(black_box(rust_q))
-                    .mul_scalar_wnaf6_vartime(black_box(SCALAR))
-        });
-    });
-
-    group.bench_function("rust_separate_mixed_q", |b| {
-        b.iter(|| {
-            ProjectivePoint::mul_generator_vartime(black_box(SCALAR))
-                + ProjectivePoint::mul_affine_scalar_vartime(black_box(rust_q), black_box(SCALAR))
         });
     });
 
@@ -227,9 +195,9 @@ fn bench_group_double_scalar_mul(c: &mut Criterion) {
         });
     });
 
-    group.bench_function("rust_shamir_window4", |b| {
+    group.bench_function("rust_double_scalar", |b| {
         b.iter(|| {
-            ProjectivePoint::double_scalar_mul_shamir_vartime(
+            ProjectivePoint::double_scalar_mul_vartime(
                 black_box(SCALAR),
                 black_box(rust_q),
                 black_box(SCALAR),

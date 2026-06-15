@@ -20,7 +20,7 @@ Current scope:
 - Affine and Jacobian projective point operations
 - Compressed and uncompressed SEC1 point input
 - Uncompressed SEC1 point output
-- Fixed-base, arbitrary-base, double-scalar, and multiscalar multiplication
+- Single-scalar, fixed-base scalar, double-scalar, and multiscalar multiplication
 
 OpenSSL and `p256` are used only as dev/benchmark comparison dependencies.
 
@@ -47,13 +47,11 @@ use secp256r1::group::{AffinePoint, ProjectivePoint};
 
 let scalar = [7u8; 32];
 
-let fixed_base = ProjectivePoint::mul_generator_vartime(scalar);
-let arbitrary_base = ProjectivePoint::mul_affine_scalar_vartime(
-    AffinePoint::generator(),
-    scalar,
-);
+let fixed_base = ProjectivePoint::fixed_base_scalar_mul_vartime(scalar);
+let variable_base = ProjectivePoint::from_affine(AffinePoint::generator())
+    .mul_scalar_vartime(scalar);
 
-assert_eq!(fixed_base.to_affine(), arbitrary_base.to_affine());
+assert_eq!(fixed_base.to_affine(), variable_base.to_affine());
 ```
 
 ### Multiscalar Multiplication
@@ -65,8 +63,8 @@ let points = [AffinePoint::generator(), ProjectivePoint::generator().double().to
 let scalars = [[7u8; 32], [11u8; 32]];
 
 let msm = ProjectivePoint::multi_scalar_mul_vartime(&points, &scalars).unwrap();
-let separate = ProjectivePoint::mul_affine_scalar_vartime(points[0], scalars[0])
-    + ProjectivePoint::mul_affine_scalar_vartime(points[1], scalars[1]);
+let separate = ProjectivePoint::from_affine(points[0]).mul_scalar_vartime(scalars[0])
+    + ProjectivePoint::from_affine(points[1]).mul_scalar_vartime(scalars[1]);
 
 assert_eq!(msm.to_affine(), separate.to_affine());
 ```
@@ -107,7 +105,7 @@ Representative local results from this workspace:
 | point double | 81.611 ns | 195.83 ns | 213.29 ns public EC |
 | point add | 133.17 ns | 213.19 ns | 210.09 ns public EC |
 | mixed add | 97.422 ns | 193.13 ns | n/a |
-| base scalar mul | 3.033 us fixed-base window8 | 71.555 us | 3.415 us |
+| base scalar mul | 3.033 us | 71.555 us | 3.415 us |
 | double scalar mul | 31.197 us separate wNAF6 | 143.96 us | 24.258 us |
 
 Benchmark numbers are machine- and compiler-dependent. Re-run locally before
