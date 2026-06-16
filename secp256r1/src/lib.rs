@@ -11,7 +11,7 @@
 //!
 //! - [`field`] for arithmetic modulo the P-256 base field.
 //! - [`scalar`] for arithmetic modulo the P-256 group order.
-//! - [`group`] for affine/projective points, SEC1 point parsing, scalar
+//! - [`group`] for affine/projective points, fixed-length point parsing, scalar
 //!   multiplication, double-scalar multiplication, and variable-time
 //!   multiscalar multiplication.
 //!

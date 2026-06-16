@@ -28,10 +28,6 @@ const R2: [u64; 4] = [
     0x0000_0004_ffff_fffd,
 ];
 
-const P_MINUS_TWO: [u8; 32] = [
-    0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfd,
-];
 const P_PLUS_ONE_DIV_4: [u8; 32] = [
     0x3f, 0xff, 0xff, 0xff, 0xc0, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -81,7 +77,9 @@ impl FieldElement {
             return None;
         }
 
-        Some(self.pow(P_MINUS_TWO))
+        Some(Self {
+            limbs: montgomery_mul(invert_canonical(from_montgomery(self.limbs)), R2),
+        })
     }
 
     #[inline]
@@ -222,6 +220,81 @@ fn reduce_sum(sum: [u64; 4], carry: u64) -> [u64; 4] {
 #[inline(always)]
 fn ge_limbs(a: [u64; 4], b: [u64; 4]) -> bool {
     sub_limbs(a, b).1 == 0
+}
+
+#[inline(always)]
+fn is_one_limbs(a: [u64; 4]) -> bool {
+    a == [1, 0, 0, 0]
+}
+
+#[inline(always)]
+fn is_even_limbs(a: [u64; 4]) -> bool {
+    (a[0] & 1) == 0
+}
+
+#[inline(always)]
+fn shr1_limbs(a: [u64; 4]) -> [u64; 4] {
+    shr1_limbs_with_carry(a, 0)
+}
+
+#[inline(always)]
+fn shr1_limbs_with_carry(a: [u64; 4], carry: u64) -> [u64; 4] {
+    [
+        (a[0] >> 1) | (a[1] << 63),
+        (a[1] >> 1) | (a[2] << 63),
+        (a[2] >> 1) | (a[3] << 63),
+        (a[3] >> 1) | (carry << 63),
+    ]
+}
+
+#[inline(always)]
+fn half_mod(a: [u64; 4]) -> [u64; 4] {
+    if is_even_limbs(a) {
+        shr1_limbs(a)
+    } else {
+        let (sum, carry) = add_limbs(a, MODULUS);
+        shr1_limbs_with_carry(sum, carry)
+    }
+}
+
+#[inline(always)]
+fn sub_mod(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
+    let (difference, borrow) = sub_limbs(a, b);
+
+    if borrow == 0 {
+        difference
+    } else {
+        add_limbs(difference, MODULUS).0
+    }
+}
+
+fn invert_canonical(value: [u64; 4]) -> [u64; 4] {
+    let mut u = value;
+    let mut v = MODULUS;
+    let mut x1 = [1, 0, 0, 0];
+    let mut x2 = [0; 4];
+
+    while !is_one_limbs(u) && !is_one_limbs(v) {
+        while is_even_limbs(u) {
+            u = shr1_limbs(u);
+            x1 = half_mod(x1);
+        }
+
+        while is_even_limbs(v) {
+            v = shr1_limbs(v);
+            x2 = half_mod(x2);
+        }
+
+        if ge_limbs(u, v) {
+            u = sub_limbs(u, v).0;
+            x1 = sub_mod(x1, x2);
+        } else {
+            v = sub_limbs(v, u).0;
+            x2 = sub_mod(x2, x1);
+        }
+    }
+
+    if is_one_limbs(u) { x1 } else { x2 }
 }
 
 #[inline(always)]
@@ -387,11 +460,7 @@ fn reduce_wide(value: [u64; 5]) -> [u64; 4] {
     if borrow == 0 {
         [w0, w1, w2, w3]
     } else {
-        let (w0, carry) = adc(w0, MODULUS[0], 0);
-        let (w1, carry) = adc(w1, MODULUS[1], carry);
-        let (w2, carry) = adc(w2, MODULUS[2], carry);
-        let (w3, _) = adc(w3, MODULUS[3], carry);
-        [w0, w1, w2, w3]
+        [value[0], value[1], value[2], value[3]]
     }
 }
 
@@ -536,6 +605,26 @@ mod tests {
     }
 
     #[test]
+    fn invert_matches_p256() {
+        assert!(FieldElement::ZERO.invert().is_none());
+
+        for bytes in [A, B, P_MINUS_ONE] {
+            let rust = FieldElement::from_be_bytes(bytes).unwrap();
+            let p256 = p256_field(bytes);
+
+            assert_matches_p256(
+                rust.invert().unwrap(),
+                Option::from(p256.invert()).unwrap(),
+                "invert",
+            );
+            assert_eq!(
+                (rust * rust.invert().unwrap()).to_be_bytes(),
+                FieldElement::ONE.to_be_bytes()
+            );
+        }
+    }
+
+    #[test]
     fn edge_values_match_p256() {
         let rust = FieldElement::from_be_bytes(P_MINUS_ONE).unwrap();
         let p256 = p256_field(P_MINUS_ONE);
@@ -564,6 +653,13 @@ mod tests {
             assert_matches_p256(rust_a - rust_b, p256_a - p256_b, "sub");
             assert_matches_p256(rust_a * rust_b, p256_a * p256_b, "mul");
             assert_matches_p256(rust_a.square(), p256_a.square(), "square");
+            if !rust_a.is_zero() {
+                assert_matches_p256(
+                    rust_a.invert().unwrap(),
+                    Option::from(p256_a.invert()).unwrap(),
+                    "invert",
+                );
+            }
         }
     }
 }

@@ -83,7 +83,7 @@ impl AffinePoint {
     }
 
     #[inline]
-    pub fn from_sec1_uncompressed(bytes: [u8; 65]) -> Option<Self> {
+    pub fn from_uncompressed(bytes: [u8; 65]) -> Option<Self> {
         if bytes[0] != 0x04 {
             return None;
         }
@@ -100,7 +100,7 @@ impl AffinePoint {
     }
 
     #[inline]
-    pub fn from_sec1_compressed(bytes: [u8; 33]) -> Option<Self> {
+    pub fn from_compressed(bytes: [u8; 33]) -> Option<Self> {
         if bytes[0] != 0x02 && bytes[0] != 0x03 {
             return None;
         }
@@ -136,7 +136,7 @@ impl AffinePoint {
     }
 
     #[inline]
-    pub fn to_sec1_uncompressed(self) -> Option<[u8; 65]> {
+    pub fn to_uncompressed(self) -> Option<[u8; 65]> {
         if self.infinity {
             return None;
         }
@@ -245,8 +245,8 @@ impl ProjectivePoint {
     }
 
     #[inline]
-    pub fn to_sec1_uncompressed(self) -> Option<[u8; 65]> {
-        self.to_affine().to_sec1_uncompressed()
+    pub fn to_uncompressed(self) -> Option<[u8; 65]> {
+        self.to_affine().to_uncompressed()
     }
 
     #[inline]
@@ -320,14 +320,15 @@ impl ProjectivePoint {
         for i in 2..16 {
             table[i] = table[i - 1] + self;
         }
+        let affine_table = batch_normalize(table);
 
         let mut out = Self::IDENTITY;
 
         for &byte in scalar.iter() {
             out = out.double().double().double().double();
-            out = out + table[(byte >> 4) as usize];
+            out = out.add_mixed(affine_table[(byte >> 4) as usize]);
             out = out.double().double().double().double();
-            out = out + table[(byte & 0x0f) as usize];
+            out = out.add_mixed(affine_table[(byte & 0x0f) as usize]);
         }
 
         out
@@ -595,7 +596,7 @@ mod tests {
     ];
 
     fn assert_matches_p256(rust: ProjectivePoint, p256: P256ProjectivePoint) {
-        let rust_bytes = rust.to_sec1_uncompressed().unwrap();
+        let rust_bytes = rust.to_uncompressed().unwrap();
         let p256_bytes = p256.to_affine().to_encoded_point(false);
         assert_eq!(rust_bytes.as_slice(), p256_bytes.as_bytes());
     }
@@ -610,9 +611,9 @@ mod tests {
 
     #[test]
     fn parses_and_serializes_generator() {
-        let bytes = ProjectivePoint::generator().to_sec1_uncompressed().unwrap();
+        let bytes = ProjectivePoint::generator().to_uncompressed().unwrap();
         assert_eq!(
-            AffinePoint::from_sec1_uncompressed(bytes).unwrap(),
+            AffinePoint::from_uncompressed(bytes).unwrap(),
             AffinePoint::generator()
         );
     }

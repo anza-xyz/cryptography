@@ -18,8 +18,8 @@ Current scope:
 - Base-field arithmetic modulo the P-256 field modulus
 - Scalar-field arithmetic modulo the P-256 group order
 - Affine and Jacobian projective point operations
-- Compressed and uncompressed SEC1 point input
-- Uncompressed SEC1 point output
+- Compressed and uncompressed fixed-length point input
+- Uncompressed fixed-length point output
 - Single-scalar, fixed-base scalar, double-scalar, and multiscalar multiplication
 
 OpenSSL and `p256` are used only as dev/benchmark comparison dependencies.
@@ -69,13 +69,13 @@ let separate = ProjectivePoint::from_affine(points[0]).mul_scalar_vartime(scalar
 assert_eq!(msm.to_affine(), separate.to_affine());
 ```
 
-### SEC1 Points
+### Encoded Points
 
 ```rust
 use secp256r1::group::{AffinePoint, ProjectivePoint};
 
-let uncompressed = ProjectivePoint::generator().to_sec1_uncompressed().unwrap();
-let parsed = AffinePoint::from_sec1_uncompressed(uncompressed).unwrap();
+let uncompressed = ProjectivePoint::generator().to_uncompressed().unwrap();
+let parsed = AffinePoint::from_uncompressed(uncompressed).unwrap();
 
 assert_eq!(parsed, AffinePoint::generator());
 ```
@@ -102,11 +102,19 @@ Representative local results from this workspace:
 
 | Benchmark | rust | p256 | OpenSSL |
 |---|---:|---:|---:|
-| point double | 81.611 ns | 195.83 ns | 213.29 ns public EC |
-| point add | 133.17 ns | 213.19 ns | 210.09 ns public EC |
-| mixed add | 97.422 ns | 193.13 ns | n/a |
-| base scalar mul | 3.033 us | 71.555 us | 3.415 us |
-| double scalar mul | 31.197 us separate wNAF6 | 143.96 us | 24.258 us |
+| point double | 81.184 ns | 198.83 ns | 222.82 ns public EC |
+| point add | 131.49 ns | 222.38 ns | 216.44 ns public EC |
+| mixed add | 95.753 ns | 195.68 ns | n/a |
+| variable-base scalar mul | 30.579 us | 75.541 us | n/a |
+| fixed-base scalar mul | 3.087 us | n/a | 3.539 us |
+| double scalar mul | 36.716 us | 150.58 us separate | 25.352 us |
+
+### Multiscalar Multiplication
+
+| Benchmark | rust MSM | rust separate | p256 separate |
+|---|---:|---:|---:|
+| 8-point MSM | 96.571 us | 244.41 us | 601.21 us |
+| 32-point MSM | 322.63 us | 1.300 ms | 2.410 ms |
 
 Benchmark numbers are machine- and compiler-dependent. Re-run locally before
 making performance decisions.
