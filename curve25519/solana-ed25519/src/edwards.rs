@@ -1075,7 +1075,8 @@ impl EdwardsPoint {
 
     /// Compute \\(a_1 A_1 + a_2 A_2 + b B\\) in variable time, where \\(B\\) is the Ed25519 basepoint.
     ///
-    /// This function is optimized for the case where \\(a_1\\) and \\(a_2\\) are less than \\(2^{128}\\).
+    /// This function is optimized for the case where \\(a_1\\) and \\(a_2\\) are less than \\(2^{128}\\),
+    /// and falls back to general scalar multiplication for full-width scalars.
     ///
     /// # Example
     ///
@@ -2418,6 +2419,28 @@ mod test {
             let result =
                 EdwardsPoint::vartime_double_scalar_mul_basepoint(&A_SCALAR, &A, &B_SCALAR);
             assert_eq!(result.compress(), DOUBLE_SCALAR_MULT_RESULT);
+        }
+
+        #[test]
+        fn triple_scalar_mul_basepoint_accepts_full_width_scalars() {
+            let mut a1_bytes = [0u8; 32];
+            a1_bytes[0] = 7;
+            a1_bytes[16] = 1;
+            let a1 = Scalar::from_canonical_bytes(a1_bytes).unwrap();
+
+            let mut a2_bytes = [0u8; 32];
+            a2_bytes[0] = 11;
+            a2_bytes[24] = 1;
+            let a2 = Scalar::from_canonical_bytes(a2_bytes).unwrap();
+
+            let b = B_SCALAR;
+            let A1 = constants::ED25519_BASEPOINT_POINT * Scalar::from(17u64);
+            let A2 = constants::ED25519_BASEPOINT_POINT * Scalar::from(19u64);
+
+            let result = EdwardsPoint::vartime_triple_scalar_mul_basepoint(&a1, &A1, &a2, &A2, &b);
+            let expected = (a1 * A1) + (a2 * A2) + EdwardsPoint::mul_base(&b);
+
+            assert_eq!(result, expected);
         }
 
         #[test]
