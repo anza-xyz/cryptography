@@ -80,7 +80,7 @@ fn p256_msm_fixture(count: usize) -> (Vec<P256ProjectivePoint>, Vec<Scalar>) {
         points.push(point);
         scalars
             .push(Option::<Scalar>::from(Scalar::from_repr(scalar_for_index(i).into())).unwrap());
-        point = point + generator;
+        point += generator;
     }
 
     (points, scalars)
@@ -308,7 +308,7 @@ fn bench_group_multi_scalar_mul(c: &mut Criterion) {
                 let mut out = P256ProjectivePoint::IDENTITY;
 
                 for (point, scalar) in p256_points.iter().zip(p256_scalars.iter()) {
-                    out = out + (black_box(*point) * black_box(*scalar));
+                    out += black_box(*point) * black_box(*scalar);
                 }
 
                 out
