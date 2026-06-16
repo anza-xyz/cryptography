@@ -33,6 +33,9 @@ use subtle::ConstantTimeEq;
 use crate::backend;
 use crate::constants;
 
+#[cfg(feature = "zeroize")]
+use zeroize::Zeroize;
+
 #[cfg(feature = "digest")]
 use digest::{
     Digest, FixedOutput, HashMarker,
@@ -87,18 +90,25 @@ impl FieldElement {
 
         // Interpret both sides as field elements
         let mut fe_f = Self::from_bytes(&fl);
-        let fe_g = Self::from_bytes(&gl);
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+        let mut fe_g = Self::from_bytes(&gl);
 
         // The full field elem is now fe_f + 2²⁵⁵ fl_top_bit + 2²⁵⁶ fe_g + 2⁵¹¹ gl_top_bit
 
         // Add the masked off bits back to fe_f. fl_top_bit, if set, is 2^255 ≡ 19 (mod q).
         // gl_top_bit, if set, is 2^511 ≡ 722 (mod q)
-        let top_bits_sum = {
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+        let mut top_bits_sum = {
             // This only need to be a u16 because the max value is 741
             let addend: u16 = fl_top_bit * 19 + gl_top_bit * 722;
             let mut addend_bytes = [0u8; 32];
             addend_bytes[..2].copy_from_slice(&addend.to_le_bytes());
-            Self::from_bytes(&addend_bytes)
+            let top_bits_sum = Self::from_bytes(&addend_bytes);
+
+            #[cfg(feature = "zeroize")]
+            addend_bytes.zeroize();
+
+            top_bits_sum
         };
         fe_f += &top_bits_sum;
 
@@ -108,6 +118,14 @@ impl FieldElement {
             0, 0, 0,
         ]);
         fe_f += &(&THIRTY_EIGHT * &fe_g);
+
+        #[cfg(feature = "zeroize")]
+        {
+            fl.zeroize();
+            gl.zeroize();
+            fe_g.zeroize();
+            top_bits_sum.zeroize();
+        }
 
         fe_f
     }
@@ -184,6 +202,13 @@ impl FieldElement {
         let mut scratch = vec![FieldElement::ONE; n];
 
         Self::internal_invert_batch(inputs, &mut scratch);
+
+        #[cfg(feature = "zeroize")]
+        {
+            for item in scratch.iter_mut() {
+                item.zeroize();
+            }
+        }
     }
 
     /// Given a slice of pub(crate)lic `FieldElements`, replace each with its inverse. `scratch` can
@@ -208,7 +233,12 @@ impl FieldElement {
         for (input, scratch) in inputs.iter().zip(scratch.iter_mut()) {
             *scratch = acc;
             // acc <- acc * input, but skipping zeros (constant-time)
-            acc.conditional_assign(&(&acc * input), !input.is_zero());
+            #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+            let mut product = &acc * input;
+            acc.conditional_assign(&product, !input.is_zero());
+
+            #[cfg(feature = "zeroize")]
+            product.zeroize();
         }
 
         // acc is nonzero because we skipped zeros in inputs
@@ -220,12 +250,29 @@ impl FieldElement {
         // Pass through the vector backwards to compute the inverses
         // in place
         for (input, scratch) in inputs.iter_mut().rev().zip(scratch.iter_mut().rev()) {
-            let tmp = &acc * input;
+            #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+            let mut tmp = &acc * input;
+            #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+            let mut inverse = &acc * scratch;
             // input <- acc * scratch, then acc <- tmp
             // Again, we skip zeros in a constant-time way
             let nz = !input.is_zero();
-            input.conditional_assign(&(&acc * scratch), nz);
+            input.conditional_assign(&inverse, nz);
             acc.conditional_assign(&tmp, nz);
+
+            #[cfg(feature = "zeroize")]
+            {
+                tmp.zeroize();
+                inverse.zeroize();
+            }
+        }
+
+        #[cfg(feature = "zeroize")]
+        {
+            acc.zeroize();
+            for item in scratch.iter_mut() {
+                item.zeroize();
+            }
         }
     }
 

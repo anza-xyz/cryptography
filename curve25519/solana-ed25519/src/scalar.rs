@@ -216,7 +216,14 @@ impl Scalar {
     /// Construct a `Scalar` by reducing a 512-bit little-endian integer
     /// modulo the group order \\( \ell \\).
     pub fn from_bytes_mod_order_wide(input: &[u8; 64]) -> Scalar {
-        UnpackedScalar::from_bytes_wide(input).pack()
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+        let mut unpacked = UnpackedScalar::from_bytes_wide(input);
+        let scalar = unpacked.pack();
+
+        #[cfg(feature = "zeroize")]
+        unpacked.zeroize();
+
+        scalar
     }
 
     /// Attempt to construct a `Scalar` from a canonical byte representation.
@@ -257,7 +264,7 @@ impl Scalar {
 
 impl Debug for Scalar {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "Scalar{{\n\tbytes: {:?},\n}}", &self.bytes)
+        f.write_str("Scalar{..}")
     }
 }
 
@@ -344,9 +351,22 @@ impl Neg for &Scalar {
     type Output = Scalar;
     #[allow(non_snake_case)]
     fn neg(self) -> Scalar {
-        let self_R = UnpackedScalar::mul_internal(&self.unpack(), &constants::R);
-        let self_mod_l = UnpackedScalar::montgomery_reduce(&self_R);
-        UnpackedScalar::sub(&UnpackedScalar::ZERO, &self_mod_l).pack()
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+        let mut self_unpacked = self.unpack();
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+        let mut self_R = UnpackedScalar::mul_internal(&self_unpacked, &constants::R);
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+        let mut self_mod_l = UnpackedScalar::montgomery_reduce(&self_R);
+        let negated = UnpackedScalar::sub(&UnpackedScalar::ZERO, &self_mod_l).pack();
+
+        #[cfg(feature = "zeroize")]
+        {
+            self_unpacked.zeroize();
+            self_R.zeroize();
+            self_mod_l.zeroize();
+        }
+
+        negated
     }
 }
 
@@ -419,8 +439,13 @@ impl<'de> Deserialize<'de> for Scalar {
                         .next_element()?
                         .ok_or_else(|| serde::de::Error::invalid_length(i, &"expected 32 bytes"))?;
                 }
-                Option::from(Scalar::from_canonical_bytes(bytes))
-                    .ok_or_else(|| serde::de::Error::custom("scalar was not canonically encoded"))
+                let scalar = Option::from(Scalar::from_canonical_bytes(bytes))
+                    .ok_or_else(|| serde::de::Error::custom("scalar was not canonically encoded"));
+
+                #[cfg(feature = "zeroize")]
+                bytes.zeroize();
+
+                scalar
             }
         }
 
@@ -604,9 +629,15 @@ impl Scalar {
     /// # }
     #[cfg(feature = "rand_core")]
     pub fn random<R: CryptoRng + RngCore + ?Sized>(rng: &mut R) -> Self {
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
         let mut scalar_bytes = [0u8; 64];
         rng.fill_bytes(&mut scalar_bytes);
-        Scalar::from_bytes_mod_order_wide(&scalar_bytes)
+        let scalar = Scalar::from_bytes_mod_order_wide(&scalar_bytes);
+
+        #[cfg(feature = "zeroize")]
+        scalar_bytes.zeroize();
+
+        scalar
     }
 
     #[cfg(feature = "digest")]
@@ -681,9 +712,20 @@ impl Scalar {
     where
         D: Digest<OutputSize = U64>,
     {
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+        let mut digest = hash.finalize();
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
         let mut output = [0u8; 64];
-        output.copy_from_slice(hash.finalize().as_slice());
-        Scalar::from_bytes_mod_order_wide(&output)
+        output.copy_from_slice(digest.as_slice());
+        let scalar = Scalar::from_bytes_mod_order_wide(&output);
+
+        #[cfg(feature = "zeroize")]
+        {
+            digest.zeroize();
+            output.zeroize();
+        }
+
+        scalar
     }
 
     /// Convert this `Scalar` to its underlying sequence of bytes.
@@ -754,7 +796,19 @@ impl Scalar {
     /// assert!(should_be_one == Scalar::ONE);
     /// ```
     pub fn invert(&self) -> Scalar {
-        self.unpack().invert().pack()
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+        let mut unpacked = self.unpack();
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+        let mut inverse = unpacked.invert();
+        let scalar = inverse.pack();
+
+        #[cfg(feature = "zeroize")]
+        {
+            unpacked.zeroize();
+            inverse.zeroize();
+        }
+
+        scalar
     }
 
     /// Given a slice of nonzero (possibly secret) `Scalar`s,
@@ -866,7 +920,11 @@ impl Scalar {
         }
 
         #[cfg(feature = "zeroize")]
-        Zeroize::zeroize(&mut scratch.iter_mut());
+        {
+            for item in scratch.iter_mut() {
+                item.zeroize();
+            }
+        }
 
         ret
     }
@@ -1183,10 +1241,22 @@ impl Scalar {
     /// Reduce this `Scalar` modulo \\(\ell\\).
     #[allow(non_snake_case)]
     fn reduce(&self) -> Scalar {
-        let x = self.unpack();
-        let xR = UnpackedScalar::mul_internal(&x, &constants::R);
-        let x_mod_l = UnpackedScalar::montgomery_reduce(&xR);
-        x_mod_l.pack()
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+        let mut x = self.unpack();
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+        let mut xR = UnpackedScalar::mul_internal(&x, &constants::R);
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+        let mut x_mod_l = UnpackedScalar::montgomery_reduce(&xR);
+        let scalar = x_mod_l.pack();
+
+        #[cfg(feature = "zeroize")]
+        {
+            x.zeroize();
+            xR.zeroize();
+            x_mod_l.zeroize();
+        }
+
+        scalar
     }
 
     /// Check whether this `Scalar` is the canonical representative mod \\(\ell\\). This is not
@@ -1206,19 +1276,20 @@ impl UnpackedScalar {
 
     /// Inverts an UnpackedScalar in Montgomery form.
     #[rustfmt::skip] // keep alignment of addition chain and squarings
+    #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
     #[allow(clippy::just_underscores_and_digits)]
     pub fn montgomery_invert(&self) -> UnpackedScalar {
         // Uses the addition chain from
         // https://briansmith.org/ecc-inversion-addition-chains-01#curve25519_scalar_inversion
-        let    _1 = *self;
-        let   _10 = _1.montgomery_square();
-        let  _100 = _10.montgomery_square();
-        let   _11 = UnpackedScalar::montgomery_mul(&_10,     &_1);
-        let  _101 = UnpackedScalar::montgomery_mul(&_10,    &_11);
-        let  _111 = UnpackedScalar::montgomery_mul(&_10,   &_101);
-        let _1001 = UnpackedScalar::montgomery_mul(&_10,   &_111);
-        let _1011 = UnpackedScalar::montgomery_mul(&_10,  &_1001);
-        let _1111 = UnpackedScalar::montgomery_mul(&_100, &_1011);
+        let mut    _1 = *self;
+        let mut   _10 = _1.montgomery_square();
+        let mut  _100 = _10.montgomery_square();
+        let mut   _11 = UnpackedScalar::montgomery_mul(&_10,     &_1);
+        let mut  _101 = UnpackedScalar::montgomery_mul(&_10,    &_11);
+        let mut  _111 = UnpackedScalar::montgomery_mul(&_10,   &_101);
+        let mut _1001 = UnpackedScalar::montgomery_mul(&_10,   &_111);
+        let mut _1011 = UnpackedScalar::montgomery_mul(&_10,  &_1001);
+        let mut _1111 = UnpackedScalar::montgomery_mul(&_100, &_1011);
 
         // _10000
         let mut y = UnpackedScalar::montgomery_mul(&_1111, &_1);
@@ -1259,12 +1330,40 @@ impl UnpackedScalar {
         square_multiply(&mut y,       3, &_101);
         square_multiply(&mut y,   1 + 2, &_11);
 
-        y
+        let inverse = y;
+
+        #[cfg(feature = "zeroize")]
+        {
+            _1.zeroize();
+            _10.zeroize();
+            _100.zeroize();
+            _11.zeroize();
+            _101.zeroize();
+            _111.zeroize();
+            _1001.zeroize();
+            _1011.zeroize();
+            _1111.zeroize();
+            y.zeroize();
+        }
+
+        inverse
     }
 
     /// Inverts an UnpackedScalar not in Montgomery form.
     pub fn invert(&self) -> UnpackedScalar {
-        self.as_montgomery().montgomery_invert().from_montgomery()
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+        let mut montgomery = self.as_montgomery();
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+        let mut inverse = montgomery.montgomery_invert();
+        let result = inverse.from_montgomery();
+
+        #[cfg(feature = "zeroize")]
+        {
+            montgomery.zeroize();
+            inverse.zeroize();
+        }
+
+        result
     }
 }
 
@@ -1277,7 +1376,12 @@ impl Field for Scalar {
         // NOTE: this is duplicated due to different `rng` bounds
         let mut scalar_bytes = [0u8; 64];
         rng.fill_bytes(&mut scalar_bytes);
-        Self::from_bytes_mod_order_wide(&scalar_bytes)
+        let scalar = Self::from_bytes_mod_order_wide(&scalar_bytes);
+
+        #[cfg(feature = "zeroize")]
+        scalar_bytes.zeroize();
+
+        scalar
     }
 
     fn square(&self) -> Self {

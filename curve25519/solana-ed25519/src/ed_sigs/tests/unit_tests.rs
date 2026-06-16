@@ -11,7 +11,7 @@ fn parsing() {
     let pkb = VerificationKeyBytes::from(&sk);
     let sig = sk.sign(b"test");
 
-    let sk_array: [u8; 32] = sk.into();
+    let sk_array: [u8; 32] = sk.to_secret_key_bytes();
     let pk_array: [u8; 32] = pk.into();
     let pkb_array: [u8; 32] = pkb.into();
     let sig_array: [u8; 64] = sig.into();
@@ -26,7 +26,7 @@ fn parsing() {
     assert_eq!(pkb, pkb2);
     assert_eq!(sig, sig2);
 
-    let sk3: SigningKey = bincode::deserialize(sk.as_ref()).unwrap();
+    let sk3: SigningKey = bincode::deserialize(sk.as_secret_key_bytes()).unwrap();
     let pk3: VerificationKey = bincode::deserialize(pk.as_ref()).unwrap();
     let pkb3: VerificationKeyBytes = bincode::deserialize(pkb.as_ref()).unwrap();
 

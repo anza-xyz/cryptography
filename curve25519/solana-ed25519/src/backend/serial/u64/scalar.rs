@@ -27,7 +27,7 @@ pub struct Scalar52(pub [u64; 5]);
 
 impl Debug for Scalar52 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "Scalar52: {:?}", &self.0[..])
+        f.write_str("Scalar52{..}")
     }
 }
 
@@ -81,6 +81,9 @@ impl Scalar52 {
         s[3] = ((words[2] >> 28) | (words[3] << 36)) & mask;
         s[4] =  (words[3] >> 16)                     & top_mask;
 
+        #[cfg(feature = "zeroize")]
+        words.zeroize();
+
         s
     }
 
@@ -112,7 +115,16 @@ impl Scalar52 {
         lo = Scalar52::montgomery_mul(&lo, &constants::R);  // (lo * R) / R = lo
         hi = Scalar52::montgomery_mul(&hi, &constants::RR); // (hi * R^2) / R = hi * R
 
-        Scalar52::add(&hi, &lo)
+        let reduced = Scalar52::add(&hi, &lo);
+
+        #[cfg(feature = "zeroize")]
+        {
+            words.zeroize();
+            lo.zeroize();
+            hi.zeroize();
+        }
+
+        reduced
     }
 
     /// Pack the limbs of this `Scalar52` into 32 bytes
@@ -299,29 +311,67 @@ impl Scalar52 {
 
     /// Compute `a * b` (mod l)
     #[inline(never)]
+    #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
     pub fn mul(a: &Scalar52, b: &Scalar52) -> Scalar52 {
-        let ab = Scalar52::montgomery_reduce(&Scalar52::mul_internal(a, b));
-        Scalar52::montgomery_reduce(&Scalar52::mul_internal(&ab, &constants::RR))
+        let mut ab_limbs = Scalar52::mul_internal(a, b);
+        let mut ab = Scalar52::montgomery_reduce(&ab_limbs);
+        let mut rr_limbs = Scalar52::mul_internal(&ab, &constants::RR);
+        let product = Scalar52::montgomery_reduce(&rr_limbs);
+
+        #[cfg(feature = "zeroize")]
+        {
+            ab_limbs.zeroize();
+            ab.zeroize();
+            rr_limbs.zeroize();
+        }
+
+        product
     }
 
     /// Compute `a^2` (mod l)
     #[inline(never)]
+    #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
     #[allow(dead_code)] // XXX we don't expose square() via the Scalar API
     pub fn square(&self) -> Scalar52 {
-        let aa = Scalar52::montgomery_reduce(&Scalar52::square_internal(self));
-        Scalar52::montgomery_reduce(&Scalar52::mul_internal(&aa, &constants::RR))
+        let mut aa_limbs = Scalar52::square_internal(self);
+        let mut aa = Scalar52::montgomery_reduce(&aa_limbs);
+        let mut rr_limbs = Scalar52::mul_internal(&aa, &constants::RR);
+        let square = Scalar52::montgomery_reduce(&rr_limbs);
+
+        #[cfg(feature = "zeroize")]
+        {
+            aa_limbs.zeroize();
+            aa.zeroize();
+            rr_limbs.zeroize();
+        }
+
+        square
     }
 
     /// Compute `(a * b) / R` (mod l), where R is the Montgomery modulus 2^260
     #[inline(never)]
+    #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
     pub fn montgomery_mul(a: &Scalar52, b: &Scalar52) -> Scalar52 {
-        Scalar52::montgomery_reduce(&Scalar52::mul_internal(a, b))
+        let mut limbs = Scalar52::mul_internal(a, b);
+        let product = Scalar52::montgomery_reduce(&limbs);
+
+        #[cfg(feature = "zeroize")]
+        limbs.zeroize();
+
+        product
     }
 
     /// Compute `(a^2) / R` (mod l) in Montgomery form, where R is the Montgomery modulus 2^260
     #[inline(never)]
+    #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
     pub fn montgomery_square(&self) -> Scalar52 {
-        Scalar52::montgomery_reduce(&Scalar52::square_internal(self))
+        let mut limbs = Scalar52::square_internal(self);
+        let square = Scalar52::montgomery_reduce(&limbs);
+
+        #[cfg(feature = "zeroize")]
+        limbs.zeroize();
+
+        square
     }
 
     /// Puts a Scalar52 in to Montgomery form, i.e. computes `a*R (mod l)`
@@ -338,7 +388,12 @@ impl Scalar52 {
         for i in 0..5 {
             limbs[i] = self[i] as u128;
         }
-        Scalar52::montgomery_reduce(&limbs)
+        let scalar = Scalar52::montgomery_reduce(&limbs);
+
+        #[cfg(feature = "zeroize")]
+        limbs.zeroize();
+
+        scalar
     }
 }
 

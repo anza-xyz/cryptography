@@ -2,6 +2,8 @@
 use crate::ed_sigs::*;
 
 #[cfg(feature = "pkcs8")]
+use pkcs8::der::asn1::BitStringRef;
+#[cfg(feature = "pkcs8")]
 use pkcs8::{DecodePrivateKey, DecodePublicKey};
 
 /// Ed25519 PKCS#8 v1 private key encoded as ASN.1 DER.
@@ -42,12 +44,18 @@ fn decode_der_to_signing_key() {
     // Test against a v1 DER key.
     let sk1 = SigningKey::from_pkcs8_der(PKCS8_V1_DER).unwrap();
     let sk_bytes_string_1 = "D4EE72DBF913584AD5B6D8F1F769F8AD3AFE7C28CBF1D4FBE097A88F44755842";
-    assert_eq!(hex::decode(sk_bytes_string_1).unwrap(), sk1.as_ref());
+    assert_eq!(
+        hex::decode(sk_bytes_string_1).unwrap(),
+        sk1.as_secret_key_bytes()
+    );
 
     // Test against a v2 DER key.
     let sk2 = SigningKey::from_pkcs8_der(PKCS8_V2_DER).unwrap();
     let sk_bytes_string_2 = "D4EE72DBF913584AD5B6D8F1F769F8AD3AFE7C28CBF1D4FBE097A88F44755842";
-    assert_eq!(hex::decode(sk_bytes_string_2).unwrap(), sk2.as_ref());
+    assert_eq!(
+        hex::decode(sk_bytes_string_2).unwrap(),
+        sk2.as_secret_key_bytes()
+    );
 
     // Test against a v2 DER key with a mismatched public key.
     assert!(SigningKey::from_pkcs8_der(PKCS8_V2_DER_BAD).is_err());
@@ -59,12 +67,18 @@ fn decode_doc_to_signing_key() {
     // Test against a v1 PEM key.
     let sk1 = SigningKey::from_pkcs8_pem(PKCS8_V1_PEM).unwrap();
     let sk_bytes_string_1 = "D4EE72DBF913584AD5B6D8F1F769F8AD3AFE7C28CBF1D4FBE097A88F44755842";
-    assert_eq!(hex::decode(sk_bytes_string_1).unwrap(), sk1.as_ref());
+    assert_eq!(
+        hex::decode(sk_bytes_string_1).unwrap(),
+        sk1.as_secret_key_bytes()
+    );
 
     // Test against a valid v2 PEM key.
     let sk2 = SigningKey::from_pkcs8_pem(PKCS8_V2_PEM).unwrap();
     let sk_bytes_string_2 = "D4EE72DBF913584AD5B6D8F1F769F8AD3AFE7C28CBF1D4FBE097A88F44755842";
-    assert_eq!(hex::decode(sk_bytes_string_2).unwrap(), sk2.as_ref());
+    assert_eq!(
+        hex::decode(sk_bytes_string_2).unwrap(),
+        sk2.as_secret_key_bytes()
+    );
 
     // Test against a v2 DER key with a mismatched public key.
     assert!(SigningKey::from_pkcs8_pem(PKCS8_V2_PEM_BAD).is_err());
@@ -88,7 +102,7 @@ fn reject_public_key_der_with_wrong_algorithm_oid() {
             oid,
             parameters: None,
         },
-        subject_public_key: pkcs8::der::asn1::BitStringRef::from_bytes(vk.as_ref()).unwrap(),
+        subject_public_key: BitStringRef::from_bytes(vk.as_ref()).unwrap(),
     };
     let doc = pkcs8::Document::try_from(spki).unwrap();
 
@@ -107,7 +121,7 @@ fn reject_public_key_der_with_malformed_key_bytes() {
             oid,
             parameters: None,
         },
-        subject_public_key: pkcs8::der::asn1::BitStringRef::from_bytes(&[0u8; 31]).unwrap(),
+        subject_public_key: BitStringRef::from_bytes(&[0u8; 31]).unwrap(),
     };
     let doc = pkcs8::Document::try_from(spki).unwrap();
 
