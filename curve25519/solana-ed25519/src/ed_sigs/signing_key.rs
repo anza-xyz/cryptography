@@ -409,19 +409,29 @@ impl SigningKey {
     /// Create a signature on `msg` using this key.
     #[allow(non_snake_case)]
     pub fn sign(&self, msg: &[u8]) -> Signature {
-        let r = scalar_from_sha512(Sha512::default().chain(&self.prefix[..]).chain(msg));
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+        let mut r = scalar_from_sha512(Sha512::default().chain(&self.prefix[..]).chain(msg));
 
         let R_bytes = EdwardsPoint::mul_base(&r).compress().to_bytes();
 
-        let k = scalar_from_sha512(
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+        let mut k = scalar_from_sha512(
             Sha512::default()
                 .chain(&R_bytes[..])
                 .chain(&self.vk.A_bytes.0[..])
                 .chain(msg),
         );
 
-        let s = &r + &(&k * &self.s);
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+        let mut s = r + k * self.s;
         let s_bytes = s.to_bytes();
+
+        #[cfg(feature = "zeroize")]
+        {
+            r.zeroize();
+            k.zeroize();
+            s.zeroize();
+        }
 
         Signature::from_components(R_bytes, s_bytes)
     }
