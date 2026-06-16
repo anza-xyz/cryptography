@@ -104,10 +104,10 @@ impl SwPoint {
     /// Return affine coordinates as little-endian byte arrays.
     ///
     /// The point at infinity is encoded as the reserved all-zero pair.
-    pub fn to_affine_le_bytes(&self) -> Option<([u8; 32], [u8; 32])> {
+    pub fn to_affine_le_bytes(&self) -> ([u8; 32], [u8; 32]) {
         match self {
-            SwPoint::Identity => Some(([0u8; 32], [0u8; 32])),
-            SwPoint::Affine { x, y } => Some((x.to_bytes(), y.to_bytes())),
+            SwPoint::Identity => ([0u8; 32], [0u8; 32]),
+            SwPoint::Affine { x, y } => (x.to_bytes(), y.to_bytes()),
         }
     }
 
@@ -405,9 +405,7 @@ mod tests {
 
     #[test]
     fn sw_identity_affine_bytes_round_trip() {
-        let encoded = SwPoint::Identity
-            .to_affine_le_bytes()
-            .expect("identity should have reserved affine encoding");
+        let encoded = SwPoint::Identity.to_affine_le_bytes();
 
         assert_eq!(encoded, ([0u8; 32], [0u8; 32]));
         assert_eq!(

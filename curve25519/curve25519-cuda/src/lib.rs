@@ -59,15 +59,10 @@ fn le_bytes_to_u64x4(bytes: [u8; 32]) -> [u64; 4] {
 ///
 /// The identity is encoded as (0, 0) to match SPPARK `affine_t` rules.
 pub fn sw_point_to_sppark_affine(point: &SwPoint) -> SpparkAffine {
-    match point.to_affine_le_bytes() {
-        Some((x, y)) => SpparkAffine {
-            x: le_bytes_to_u64x4(x),
-            y: le_bytes_to_u64x4(y),
-        },
-        None => SpparkAffine {
-            x: [0u64; 4],
-            y: [0u64; 4],
-        },
+    let (x, y) = point.to_affine_le_bytes();
+    SpparkAffine {
+        x: le_bytes_to_u64x4(x),
+        y: le_bytes_to_u64x4(y),
     }
 }
 
@@ -81,13 +76,8 @@ pub fn scalar_to_sppark_scalar(scalar: &Scalar) -> SpparkScalar {
 
 /// Convert a short Weierstrass point into byte-serialized affine layout.
 pub fn sw_point_to_sppark_affine_bytes(point: &SwPoint) -> SpparkAffineBytes {
-    match point.to_affine_le_bytes() {
-        Some((x, y)) => SpparkAffineBytes { x, y },
-        None => SpparkAffineBytes {
-            x: [0u8; 32],
-            y: [0u8; 32],
-        },
-    }
+    let (x, y) = point.to_affine_le_bytes();
+    SpparkAffineBytes { x, y }
 }
 
 /// Convert a scalar into byte-serialized layout.
