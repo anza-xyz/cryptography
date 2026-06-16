@@ -183,3 +183,50 @@ pub mod spec {
         Q.into()
     }
 }
+
+#[cfg(all(test, target_arch = "x86_64"))]
+mod test {
+    use super::spec_avx2;
+    use crate::backend::serial;
+    use crate::constants;
+    use crate::scalar::Scalar;
+
+    fn scalar_from_low_128(low: [u8; 16]) -> Scalar {
+        let mut bytes = [0u8; 32];
+        bytes[..16].copy_from_slice(&low);
+        Scalar::from_canonical_bytes(bytes).unwrap()
+    }
+
+    #[test]
+    fn avx2_triple_base_matches_serial_and_naive() {
+        if !std::is_x86_feature_detected!("avx2") {
+            return;
+        }
+
+        let a1 = scalar_from_low_128([
+            0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22,
+            0x11, 0x00,
+        ]);
+        let a2 = scalar_from_low_128([
+            0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe, 0x0f, 0x1e, 0x2d, 0x3c, 0x4b, 0x5a,
+            0x69, 0x78,
+        ]);
+        let b = Scalar::from_bytes_mod_order([
+            0x42, 0x91, 0x0a, 0xbe, 0xef, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99,
+            0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+            0x10, 0x20, 0x30, 0x40,
+        ]);
+
+        let A1 = constants::ED25519_BASEPOINT_POINT * Scalar::from(31u64);
+        let A2 = constants::ED25519_BASEPOINT_POINT * Scalar::from(37u64);
+
+        let avx2 = spec_avx2::mul_128_128_256_prechecked(&a1, &A1, &a2, &A2, &b);
+        let serial = serial::scalar_mul::vartime_triple_base::mul_128_128_256_prechecked(
+            &a1, &A1, &a2, &A2, &b,
+        );
+        let expected = (a1 * A1 + a2 * A2) + b * constants::ED25519_BASEPOINT_POINT;
+
+        assert_eq!(avx2, serial);
+        assert_eq!(avx2, expected);
+    }
+}

@@ -295,6 +295,28 @@ mod test {
         assert_eq!(result, expected);
     }
 
+    #[test]
+    fn test_checked_wrapper_accepts_full_width_scalars() {
+        let mut a1_bytes = [0u8; 32];
+        a1_bytes[0] = 7;
+        a1_bytes[16] = 1;
+        let a1 = Scalar::from_canonical_bytes(a1_bytes).unwrap();
+
+        let mut a2_bytes = [0u8; 32];
+        a2_bytes[0] = 11;
+        a2_bytes[24] = 1;
+        let a2 = Scalar::from_canonical_bytes(a2_bytes).unwrap();
+
+        let b = random_scalar();
+        let A1 = constants::ED25519_BASEPOINT_POINT * Scalar::from(23u64);
+        let A2 = constants::ED25519_BASEPOINT_POINT * Scalar::from(29u64);
+
+        let result = crate::backend::vartime_triple_base_mul_128_128_256(&a1, &A1, &a2, &A2, &b);
+        let expected = (a1 * A1 + a2 * A2) + b * constants::ED25519_BASEPOINT_POINT;
+
+        assert_eq!(result, expected);
+    }
+
     // Proptest for vartime_triple_scalar_mul_basepoint equivalence
     proptest::proptest! {
         #[test]

@@ -1,11 +1,11 @@
-use crate::ed_sigs::SigningKey;
-use crate::ed_sigs::VerificationKey;
+use crate::constants;
 #[cfg(feature = "std")]
 use crate::ed_sigs::tests::small_order::SMALL_ORDER_SIGS;
+use crate::ed_sigs::{Error, Signature, SigningKey, VerificationKey};
+use crate::edwards::CompressedEdwardsY;
+use crate::scalar::Scalar;
 #[cfg(feature = "std")]
 use core::convert::TryFrom;
-#[cfg(feature = "std")]
-use ed25519::Signature;
 
 #[test]
 fn test_verify_zebra_invalid_signature() {
@@ -80,6 +80,67 @@ fn test_default_verification_matches_zebra() {
         verification_key.verify(&signature, msg),
         verification_key.verify_zebra(&signature, msg)
     );
+}
+
+#[test]
+fn test_signature_verifier_trait_impl() {
+    let signing_key = SigningKey::from([3u8; 32]);
+    let verification_key = VerificationKey::from(&signing_key);
+    let msg = b"signature::Verifier trait path";
+    let signature = signing_key.sign(msg);
+
+    assert!(
+        ed25519::signature::Verifier::verify(&verification_key, msg, &signature).is_ok(),
+        "trait-based verification should accept a valid signature"
+    );
+    assert!(
+        ed25519::signature::Verifier::verify(&verification_key, b"wrong message", &signature)
+            .is_err(),
+        "trait-based verification should reject an invalid signature"
+    );
+}
+
+#[test]
+fn test_verify_zebra_prehashed_rejects_noncanonical_s() {
+    let signing_key = SigningKey::from([4u8; 32]);
+    let verification_key = VerificationKey::from(&signing_key);
+    let mut sig_bytes: [u8; 64] = signing_key.sign(b"noncanonical s").into();
+    sig_bytes[32..].copy_from_slice(&constants::BASEPOINT_ORDER.to_bytes());
+    let signature = Signature::from(sig_bytes);
+
+    assert_eq!(
+        verification_key.verify_zebra_prehashed(&signature, Scalar::from(1u64)),
+        Err(Error::InvalidSignature)
+    );
+}
+
+#[test]
+fn test_verify_zebra_prehashed_rejects_undecodable_r() {
+    let signing_key = SigningKey::from([5u8; 32]);
+    let verification_key = VerificationKey::from(&signing_key);
+    let mut sig_bytes: [u8; 64] = signing_key.sign(b"undecodable r").into();
+    let invalid_r = first_undecodable_r();
+    assert!(CompressedEdwardsY(invalid_r).decompress().is_none());
+
+    sig_bytes[..32].copy_from_slice(&invalid_r);
+    let signature = Signature::from(sig_bytes);
+
+    assert_eq!(
+        verification_key.verify_zebra_prehashed(&signature, Scalar::from(1u64)),
+        Err(Error::InvalidSignature)
+    );
+}
+
+fn first_undecodable_r() -> [u8; 32] {
+    for candidate in 0u16..=u16::MAX {
+        let mut bytes = [0u8; 32];
+        bytes[..2].copy_from_slice(&candidate.to_le_bytes());
+        if CompressedEdwardsY(bytes).decompress().is_none() {
+            return bytes;
+        }
+    }
+
+    panic!("failed to find an undecodable compressed Edwards-Y encoding");
 }
 
 #[cfg(feature = "std")]
