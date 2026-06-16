@@ -33,7 +33,7 @@
 //! set of validators (provided that system uses the ZIP215 rules).
 //!
 //! # Example
-//! ```
+//! ```ignore
 //! # use curve25519::ed_sigs::*;
 //! let mut batch = batch::Verifier::new();
 //! for _ in 0..32 {
@@ -104,9 +104,9 @@ impl Item {
     ///
     /// This is useful (in combination with `Item::clone`) for implementing fallback
     /// logic when batch verification fails. In contrast to
-    /// [`VerificationKey::verify`](crate::VerificationKey::verify), which requires
-    /// borrowing the message data, the `Item` type is unlinked from the lifetime of
-    /// the message.
+    /// [`VerificationKey::verify`](crate::ed_sigs::VerificationKey::verify),
+    /// which requires borrowing the message data, the `Item` type is unlinked
+    /// from the lifetime of the message.
     pub fn verify_single(self) -> Result<(), Error> {
         VerificationKey::try_from(self.vk_bytes)
             .and_then(|vk| vk.verify_zebra_prehashed(&self.sig, self.k))

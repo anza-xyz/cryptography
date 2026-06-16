@@ -17,7 +17,10 @@
 //! This module implements Algorithm 4 (hEEA_approx_q) from the paper, which generates
 //! half-size scalars for faster EdDSA verification.
 //!
-//! For verification sB = R + hA, we find rho, tau such that rho = tau*h (mod ell)
+//! For verification `sB = R + hA`, this module finds signed values `rho` and
+//! `tau` such that `rho == tau * h (mod ell)`. The public
+//! `HEEADecomposition` implementation converts them to non-negative scalars and
+//! reports whether the sign of `h` must be flipped in the transformed equation.
 use core::ops::Neg;
 
 use crate::constants;
@@ -34,9 +37,11 @@ pub(crate) struct I256 {
 
 pub(crate) const HEEA_MAX_INDEX: usize = 129;
 
-/// Implement curve25519_hEEA_vartime algorithm
-/// Returns (rho, tau) such that rho ≡ tau * v (mod L)
-/// where L is the Ed25519 group order (2^252 + 27742317777372353535851937790883648493)
+/// Implement the curve25519 hEEA variable-time algorithm.
+///
+/// Returns signed `(rho, tau)` such that `rho == tau * v (mod L)`, where `L` is
+/// the Ed25519 group order
+/// `2^252 + 27742317777372353535851937790883648493`.
 pub(crate) fn curve25519_heea_vartime(v: I256) -> (I256, I256) {
     // Get L from the existing BASEPOINT_ORDER constant
     let mut r0: I256 = (&constants::BASEPOINT_ORDER).into();
@@ -427,7 +432,7 @@ mod tests {
 
     #[test]
     #[cfg(all(feature = "rand_core", feature = "digest"))]
-    fn test_generate_half_size_scalars() {
+    fn test_heea_decompose_half_size_scalars() {
         use rand::thread_rng;
         use sha2::{Digest, Sha512};
 
@@ -453,10 +458,13 @@ mod tests {
             // Now convert to Scalars and verify the equation
             let (rho, tau, flip) = h.heea_decompose();
 
-            // Verify that rho = tau * h (mod ell)
+            // Verify the non-negative scalar relation reported by flip.
             let computed_rho = tau * h;
             let computed_rho = if flip { -computed_rho } else { computed_rho };
-            assert_eq!(rho, computed_rho, "rho should equal tau * h");
+            assert_eq!(
+                rho, computed_rho,
+                "rho should equal tau * h with flip applied"
+            );
 
             // Check that they are non-zero
             assert_ne!(rho, Scalar::ZERO, "rho should be non-zero");

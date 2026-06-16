@@ -16,7 +16,7 @@ const PKCS8_V1_PEM: &str = include_str!("../../../examples/pkcs8-v1.pem");
 #[cfg(feature = "pkcs8")]
 const PKCS8_V2_DER: &[u8] = include_bytes!("../../../examples/pkcs8-v2.der");
 
-/// Ed25519 PKCS#8 v1 private key encoded as PEM.
+/// Ed25519 PKCS#8 v2 private key + public key encoded as PEM.
 #[cfg(feature = "pem")]
 const PKCS8_V2_PEM: &str = include_str!("../../../examples/pkcs8-v2.pem");
 
@@ -76,6 +76,45 @@ fn decode_der_to_verification_key() {
     let vk = VerificationKey::from_public_key_der(PUBLIC_KEY_DER).unwrap();
     let vk_bytes_string = "19bf44096984cdfe8541bac167dc3b96c85086aa30b6b6cb0c5c38ad703166e1";
     assert_eq!(hex::decode(vk_bytes_string).unwrap(), vk.as_ref());
+}
+
+#[test]
+#[cfg(feature = "pkcs8")]
+fn reject_public_key_der_with_wrong_algorithm_oid() {
+    let vk = VerificationKey::from_public_key_der(PUBLIC_KEY_DER).unwrap();
+    let oid = pkcs8::ObjectIdentifier::new_unwrap("1.3.101.110"); // X25519
+    let spki = pkcs8::spki::SubjectPublicKeyInfoRef {
+        algorithm: pkcs8::spki::AlgorithmIdentifierRef {
+            oid,
+            parameters: None,
+        },
+        subject_public_key: pkcs8::der::asn1::BitStringRef::from_bytes(vk.as_ref()).unwrap(),
+    };
+    let doc = pkcs8::Document::try_from(spki).unwrap();
+
+    assert_eq!(
+        VerificationKey::from_public_key_der(doc.as_bytes()).unwrap_err(),
+        pkcs8::spki::Error::OidUnknown { oid }
+    );
+}
+
+#[test]
+#[cfg(feature = "pkcs8")]
+fn reject_public_key_der_with_malformed_key_bytes() {
+    let oid = pkcs8::ObjectIdentifier::new_unwrap("1.3.101.112"); // Ed25519
+    let spki = pkcs8::spki::SubjectPublicKeyInfoRef {
+        algorithm: pkcs8::spki::AlgorithmIdentifierRef {
+            oid,
+            parameters: None,
+        },
+        subject_public_key: pkcs8::der::asn1::BitStringRef::from_bytes(&[0u8; 31]).unwrap(),
+    };
+    let doc = pkcs8::Document::try_from(spki).unwrap();
+
+    assert_eq!(
+        VerificationKey::from_public_key_der(doc.as_bytes()).unwrap_err(),
+        pkcs8::spki::Error::KeyMalformed
+    );
 }
 
 #[test]

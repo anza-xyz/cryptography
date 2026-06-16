@@ -46,8 +46,13 @@ use crate::window::NafLookupTable5;
 /// # Implementation
 ///
 /// - For \\(A_1\\) and \\(A_2\\): NAF with window width 5 (8 precomputed points each)
-/// - For \\(B\\): NAF with window width 8 when precomputed tables are available (64 points)
-/// - For \\(B'\\): NAF with window width 5 (could be optimized with precomputed table)
+/// - For \\(B\\): NAF with window width 5. When precomputed tables are enabled,
+///   these width-5 digits are selected from the larger width-8 basepoint table.
+/// - For \\(B'\\): NAF with window width 5.
+///
+/// The vector backend uses width 8 for \\(b_{lo}\\) when precomputed tables are
+/// enabled. This serial backend keeps width 5 for \\(b_{lo}\\) as a
+/// backend-specific performance tradeoff.
 ///
 /// The algorithm shares doublings across all four scalar multiplications, processing
 /// only 128 bits instead of 256, providing approximately 2x speedup over the naive approach.
@@ -72,7 +77,11 @@ pub(crate) fn mul_128_128_256_prechecked(
     let b_lo = Scalar::from_canonical_bytes(b_lo_bytes).unwrap();
     let b_hi = Scalar::from_canonical_bytes(b_hi_bytes).unwrap();
 
-    // Compute NAF representations (all scalars are now ~128 bits)
+    // Compute NAF representations (all scalars are now ~128 bits).
+    //
+    // The serial backend keeps b_lo at width 5 even when table_B is the larger
+    // precomputed width-8 basepoint table. The vector backend uses width 8 in
+    // that configuration.
     let a1_naf = a1.non_adjacent_form(5);
     let a2_naf = a2.non_adjacent_form(5);
     let b_lo_naf = b_lo.non_adjacent_form(5);
