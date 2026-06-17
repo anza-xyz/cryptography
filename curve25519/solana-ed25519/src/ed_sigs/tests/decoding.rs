@@ -2,6 +2,8 @@
 use crate::ed_sigs::*;
 
 #[cfg(feature = "pkcs8")]
+use pkcs8::der::asn1::BitStringRef;
+#[cfg(feature = "pkcs8")]
 use pkcs8::{DecodePrivateKey, DecodePublicKey};
 
 /// Ed25519 PKCS#8 v1 private key encoded as ASN.1 DER.
@@ -54,6 +56,12 @@ fn decode_der_to_signing_key() {
 }
 
 #[test]
+#[cfg(feature = "pkcs8")]
+fn reject_malformed_private_key_der_without_panicking() {
+    assert!(SigningKey::from_pkcs8_der(b"not a pkcs8 key").is_err());
+}
+
+#[test]
 #[cfg(feature = "pem")]
 fn decode_doc_to_signing_key() {
     // Test against a v1 PEM key.
@@ -88,7 +96,7 @@ fn reject_public_key_der_with_wrong_algorithm_oid() {
             oid,
             parameters: None,
         },
-        subject_public_key: pkcs8::der::asn1::BitStringRef::from_bytes(vk.as_ref()).unwrap(),
+        subject_public_key: BitStringRef::from_bytes(vk.as_ref()).unwrap(),
     };
     let doc = pkcs8::Document::try_from(spki).unwrap();
 
@@ -107,7 +115,7 @@ fn reject_public_key_der_with_malformed_key_bytes() {
             oid,
             parameters: None,
         },
-        subject_public_key: pkcs8::der::asn1::BitStringRef::from_bytes(&[0u8; 31]).unwrap(),
+        subject_public_key: BitStringRef::from_bytes(&[0u8; 31]).unwrap(),
     };
     let doc = pkcs8::Document::try_from(spki).unwrap();
 

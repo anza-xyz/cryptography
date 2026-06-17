@@ -218,7 +218,7 @@ impl TryFrom<&KeypairBytes> for SigningKey {
     type Error = pkcs8::Error;
 
     fn try_from(pkcs8_key: &KeypairBytes) -> pkcs8::Result<Self> {
-        let signing_key = SigningKey::from_der(&pkcs8_key.secret_key);
+        let signing_key = SigningKey::from_der(&pkcs8_key.secret_key)?;
 
         // Validate the public key in the PKCS#8 document if present
         if let Some(public_bytes) = &pkcs8_key.public_key {
@@ -226,13 +226,12 @@ impl TryFrom<&KeypairBytes> for SigningKey {
                 VerificationKey::from_public_key_der(public_bytes.as_ref())
                     .map_err(|_| pkcs8::Error::KeyMalformed)?;
 
-            if VerificationKey::from(&signing_key.unwrap()).A_bytes != expected_verifying_key.into()
-            {
+            if VerificationKey::from(&signing_key).A_bytes != expected_verifying_key.into() {
                 return Err(pkcs8::Error::KeyMalformed);
             }
         }
 
-        signing_key
+        Ok(signing_key)
     }
 }
 
@@ -279,7 +278,7 @@ impl DecodePrivateKey for SigningKey {
     /// fail if the public key doesn't match the private key's true accompanying public
     /// key.
     fn from_pkcs8_der(bytes: &[u8]) -> pkcs8::Result<Self> {
-        let keypair = KeypairBytes::from_pkcs8_der(bytes).unwrap();
+        let keypair = KeypairBytes::from_pkcs8_der(bytes)?;
         let sk = SigningKey::from(keypair.secret_key);
         match keypair.public_key {
             Some(vk2) => {
