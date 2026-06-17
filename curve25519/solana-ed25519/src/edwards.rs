@@ -118,7 +118,7 @@ use {
 };
 
 #[cfg(feature = "rand_core")]
-use rand_core::RngCore;
+use rand_core::{CryptoRng, RngCore};
 
 use subtle::Choice;
 use subtle::ConditionallyNegatable;
@@ -741,7 +741,7 @@ impl EdwardsPoint {
     ///
     /// # Inputs
     ///
-    /// * `rng`: any RNG which implements `RngCore`
+    /// * `rng`: any RNG which implements `CryptoRng` and `RngCore`
     ///
     /// # Returns
     ///
@@ -752,7 +752,7 @@ impl EdwardsPoint {
     /// Uses rejection sampling, generating a random `CompressedEdwardsY` and then attempting point
     /// decompression, rejecting invalid points.
     #[cfg(feature = "rand_core")]
-    pub fn random<R: RngCore + ?Sized>(rng: &mut R) -> Self {
+    pub fn random<R: CryptoRng + RngCore + ?Sized>(rng: &mut R) -> Self {
         let mut repr = CompressedEdwardsY([0u8; 32]);
         loop {
             rng.fill_bytes(&mut repr.0);
