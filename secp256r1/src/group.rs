@@ -194,12 +194,36 @@ impl Neg for AffinePoint {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug)]
 pub struct ProjectivePoint {
     x: FieldElement,
     y: FieldElement,
     z: FieldElement,
 }
+
+impl PartialEq for ProjectivePoint {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        let self_is_identity = self.z.is_zero();
+        let other_is_identity = other.z.is_zero();
+
+        if self_is_identity || other_is_identity {
+            return self_is_identity && other_is_identity;
+        }
+
+        let self_z2 = self.z.square();
+        let other_z2 = other.z.square();
+        let self_z3 = self_z2 * self.z;
+        let other_z3 = other_z2 * other.z;
+
+        // x1 * z2^2 == x2 * z1^2
+        // y1 * z2^3 == y2 * z1^3
+
+        self.x * other_z2 == other.x * self_z2 && self.y * other_z3 == other.y * self_z3
+    }
+}
+
+impl Eq for ProjectivePoint {}
 
 impl ProjectivePoint {
     pub const IDENTITY: Self = Self {
@@ -580,6 +604,7 @@ fn mul_window8_vartime(
 #[cfg(test)]
 mod tests {
     use super::{AffinePoint, ProjectivePoint};
+    use crate::field::FieldElement;
     use p256::{
         ProjectivePoint as P256ProjectivePoint, Scalar,
         elliptic_curve::{ff::PrimeField, group::Group, sec1::ToEncodedPoint},
@@ -616,6 +641,24 @@ mod tests {
             AffinePoint::from_uncompressed(bytes).unwrap(),
             AffinePoint::generator()
         );
+    }
+
+    #[test]
+    fn projective_equality_ignores_jacobian_scale() {
+        let point = ProjectivePoint::generator().double();
+        let normalized = ProjectivePoint::from_affine(point.to_affine());
+        assert_eq!(point, normalized);
+
+        let z = FieldElement::from_u64(7);
+        let z2 = z.square();
+        let scaled = ProjectivePoint {
+            x: point.x * z2,
+            y: point.y * z2 * z,
+            z: point.z * z,
+        };
+
+        assert_eq!(point, scaled);
+        assert_ne!(point, -point);
     }
 
     #[test]
