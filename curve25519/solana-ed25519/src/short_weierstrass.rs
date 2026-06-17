@@ -284,10 +284,13 @@ mod tests {
         let q = SwPoint::from_edwards(&(constants::ED25519_BASEPOINT_POINT * Scalar::from(7u64)));
         let expected = p.add(&q);
 
-        assert_eq!(&p + &q, expected);
-        assert_eq!(p + &q, expected);
-        assert_eq!(&p + q, expected);
-        assert_eq!(p + q, expected);
+        assert_eq!(
+            <&SwPoint as core::ops::Add<&SwPoint>>::add(&p, &q),
+            expected
+        );
+        assert_eq!(<SwPoint as core::ops::Add<&SwPoint>>::add(p, &q), expected);
+        assert_eq!(<&SwPoint as core::ops::Add<SwPoint>>::add(&p, q), expected);
+        assert_eq!(<SwPoint as core::ops::Add<SwPoint>>::add(p, q), expected);
     }
 
     #[test]
