@@ -241,6 +241,7 @@ mod tests {
     use crate::edwards::EdwardsPoint;
     use crate::field::FieldElement;
     use crate::scalar::Scalar;
+    use crate::traits::Identity;
     use rand::Rng;
 
     fn sw_scalar_mul(point: &SwPoint, scalar: &Scalar) -> SwPoint {
@@ -411,6 +412,43 @@ mod tests {
         assert_eq!(
             SwPoint::from_affine_le_bytes(encoded.0, encoded.1),
             Some(SwPoint::Identity)
+        );
+    }
+
+    #[test]
+    fn sw_affine_bytes_round_trip_valid_points() {
+        let mut rng = rand::thread_rng();
+
+        for _ in 0..32 {
+            let scalar = random_scalar(&mut rng);
+            let point = constants::ED25519_BASEPOINT_POINT * scalar;
+            let sw = SwPoint::from_edwards(&point);
+            let encoded = sw.to_affine_le_bytes();
+
+            assert_eq!(
+                SwPoint::from_affine_le_bytes(encoded.0, encoded.1),
+                Some(sw)
+            );
+        }
+    }
+
+    #[test]
+    fn sw_affine_bytes_reject_off_curve_input() {
+        let x = FieldElement::ZERO.to_bytes();
+        let y = FieldElement::ONE.to_bytes();
+
+        assert!(SwPoint::from_affine_le_bytes(x, y).is_none());
+    }
+
+    #[test]
+    fn sw_identity_is_additive_neutral_element() {
+        let base = SwPoint::from_edwards(&constants::ED25519_BASEPOINT_POINT);
+
+        assert_eq!(SwPoint::identity().add(&base), base);
+        assert_eq!(base.add(&SwPoint::identity()), base);
+        assert_eq!(
+            SwPoint::identity().to_edwards(),
+            Some(EdwardsPoint::identity())
         );
     }
 }
