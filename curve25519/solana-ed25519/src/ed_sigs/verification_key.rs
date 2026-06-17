@@ -1,16 +1,16 @@
 // -*- mode: rust; -*-
 //
-// This file is part of ed25519-heea, a fork of ed25519-zebra.
+// This file is part of solana-ed25519's ed_sigs module, forked from ed25519-zebra.
 // Original ed25519-zebra code: Copyright (c) Zcash Foundation contributors
 // Modifications for HEEA: Copyright (c) 2025 curve25519-sol contributors
 // See LICENSE-APACHE and LICENSE-MIT for licensing information.
 //
 // Modifications from ed25519-zebra:
-// - Added `verify_heea`, an accelerated verification path using the HEEA
+// - Added `verify_zebra`, an accelerated verification path using the HEEA
 //   scalar decomposition from curve25519-sol's `HEEADecomposition` trait.
 //   See "Accelerating EdDSA Signature Verification with Faster Scalar Size
 //   Halving" (TCHES 2025) for the algorithm.
-// - `verify` and all ZIP-215 consensus logic are unchanged from ed25519-zebra.
+// - `verify` dispatches to `verify_zebra`, preserving ZIP-215 semantics.
 
 use crate::{
     edwards::{CompressedEdwardsY, EdwardsPoint},
@@ -28,7 +28,8 @@ use ed25519::{Signature, signature::Verifier};
 use pkcs8::der::asn1::BitStringRef;
 #[cfg(feature = "pkcs8")]
 use pkcs8::spki::{
-    AlgorithmIdentifierRef, DecodePublicKey, EncodePublicKey, SubjectPublicKeyInfoRef,
+    AlgorithmIdentifierRef, DecodePublicKey, EncodePublicKey, Error as SpkiError,
+    SubjectPublicKeyInfoRef,
 };
 #[cfg(feature = "pkcs8")]
 use pkcs8::{Document, ObjectIdentifier};
@@ -37,6 +38,14 @@ use super::{Error, scalar_from_sha512};
 
 /// The length of an ed25519 `VerificationKey`, in bytes.
 pub const VERIFICATION_KEY_LENGTH: usize = 32;
+
+#[cfg(feature = "pkcs8")]
+const OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.101.112"); // RFC 8410
+#[cfg(feature = "pkcs8")]
+const ALGORITHM_ID: AlgorithmIdentifierRef<'_> = AlgorithmIdentifierRef {
+    oid: OID,
+    parameters: None,
+};
 
 const LEGACY_EXCLUDED_R_ENCODINGS: [[u8; 32]; 11] = [
     [
@@ -96,12 +105,12 @@ const LEGACY_EXCLUDED_R_ENCODINGS: [[u8; 32]; 11] = [
     ],
 ];
 
-/// A refinement type for `[u8; 32]` indicating that the bytes represent an
-/// encoding of an Ed25519 verification key.
+/// A container for the 32-byte encoded form of an Ed25519 verification key.
 ///
-/// This is useful for representing an encoded verification key, while the
-/// [`VerificationKey`] type in this library caches other decoded state used in
-/// signature verification.
+/// This type only checks or carries the byte length. It does not prove that the
+/// bytes decompress to a valid Ed25519 verification key. Convert it to
+/// [`VerificationKey`] to validate the encoded point and cache decoded state
+/// used in signature verification.
 ///
 /// A `VerificationKeyBytes` can be used to verify a single signature using the
 /// following idiom:
@@ -163,8 +172,30 @@ impl<'a> TryFrom<SubjectPublicKeyInfoRef<'a>> for VerificationKeyBytes {
     type Error = Error;
 
     fn try_from(spki: SubjectPublicKeyInfoRef<'a>) -> Result<VerificationKeyBytes, Error> {
-        Ok(VerificationKeyBytes::try_from(spki.subject_public_key.as_bytes().unwrap()).unwrap())
+        verification_key_bytes_from_spki(spki).map_err(|_| Error::MalformedPublicKey)
     }
+}
+
+#[cfg(feature = "pkcs8")]
+fn verification_key_bytes_from_spki(
+    spki: SubjectPublicKeyInfoRef<'_>,
+) -> Result<VerificationKeyBytes, SpkiError> {
+    if spki.algorithm.oid != OID {
+        return Err(SpkiError::OidUnknown {
+            oid: spki.algorithm.oid,
+        });
+    }
+
+    if spki.algorithm != ALGORITHM_ID {
+        return Err(SpkiError::KeyMalformed);
+    }
+
+    let bytes = spki
+        .subject_public_key
+        .as_bytes()
+        .ok_or(SpkiError::KeyMalformed)?;
+
+    VerificationKeyBytes::try_from(bytes).map_err(|_| SpkiError::KeyMalformed)
 }
 
 /// A valid Ed25519 verification key.
@@ -173,7 +204,7 @@ impl<'a> TryFrom<SubjectPublicKeyInfoRef<'a>> for VerificationKeyBytes {
 ///
 /// This type holds decompressed state used in signature verification; if the
 /// verification key may not be used immediately, it is probably better to use
-/// [`VerificationKeyBytes`], which is a refinement type for `[u8; 32]`.
+/// [`VerificationKeyBytes`], which stores only the length-checked encoded bytes.
 ///
 /// ## Zcash-specific consensus properties
 ///
@@ -262,12 +293,8 @@ impl TryFrom<[u8; 32]> for VerificationKey {
 impl EncodePublicKey for VerificationKey {
     /// Serialize [`VerificationKey`] to an ASN.1 DER-encoded document.
     fn to_public_key_der(&self) -> pkcs8::spki::Result<Document> {
-        let alg_info = AlgorithmIdentifierRef {
-            oid: ObjectIdentifier::new_unwrap("1.3.101.112"), // RFC 8410
-            parameters: None,
-        };
         SubjectPublicKeyInfoRef {
-            algorithm: alg_info,
+            algorithm: ALGORITHM_ID,
             subject_public_key: BitStringRef::from_bytes(&self.A_bytes.0[..])?,
         }
         .try_into()
@@ -278,9 +305,9 @@ impl EncodePublicKey for VerificationKey {
 impl DecodePublicKey for VerificationKey {
     /// Deserialize [`VerificationKey`] from ASN.1 DER bytes (32 bytes).
     fn from_public_key_der(bytes: &[u8]) -> Result<Self, pkcs8::spki::Error> {
-        let spki = SubjectPublicKeyInfoRef::try_from(bytes).unwrap();
-        let pk_bytes = spki.subject_public_key.as_bytes().unwrap();
-        Ok(Self::try_from(pk_bytes).unwrap())
+        let spki = SubjectPublicKeyInfoRef::try_from(bytes)?;
+        let pk_bytes = verification_key_bytes_from_spki(spki)?;
+        Self::try_from(pk_bytes).map_err(|_| SpkiError::KeyMalformed)
     }
 }
 
@@ -339,17 +366,17 @@ impl VerificationKey {
     /// This implements the algorithm from "Accelerating EdDSA Signature Verification
     /// with Faster Scalar Size Halving" (TCHES 2025).
     ///
-    /// The standard verification equation sB = R + hA is transformed to:
-    /// τsB = τR + ρA where ρ ≡ τh (mod ℓ)
+    /// The decomposition returns ρ and τ such that either ρ ≡ τh (mod ℓ) or
+    /// ρ ≡ -τh (mod ℓ). The standard verification equation sB = R + hA is
+    /// multiplied by τ and the sign of A is selected according to `flip_h`.
     ///
     /// Both ρ and τ are approximately half the size of h.
     ///
     /// We then decompose τs into two 128-bit scalars:
     /// τs = τs_hi * 2^128 + τs_lo
     ///
-    /// The verification equation becomes:
-    /// τs_lo B + τs_hi (2^128 B) = τR + ρA
-    /// which can be done via 4-variable MSM with half-size scalars.
+    /// The resulting equation can be checked with a 4-variable MSM with
+    /// half-size scalars.
     #[allow(non_snake_case)]
     pub fn verify_zebra(&self, signature: &Signature, msg: &[u8]) -> Result<(), Error> {
         self.verify_zebra_prehashed(signature, self.challenge_scalar(signature, msg))
@@ -361,12 +388,9 @@ impl VerificationKey {
         signature: &Signature,
         h: Scalar,
     ) -> Result<(), Error> {
-        // Generate half-size scalars ρ and τ such that ρ ≡ τh (mod ℓ)
-        // in order to have rho and tau approximately half the size of h
-        // it is possible that we compute ρ ≡ -τh (mod ℓ)
-        // this is indicated by `flip_h` flag being true,
-        // in which case we will need to negate A later
-        // let (rho, tau, flip_h) = crate::heea::generate_half_size_scalars(&h);
+        // Generate half-size scalars ρ and τ. If flip_h is false, then
+        // ρ ≡ τh (mod ℓ). If flip_h is true, then ρ ≡ -τh (mod ℓ), so the
+        // sign of A is flipped below.
         let (rho, tau, flip_h) = h.heea_decompose();
 
         // Extract s from the signature
@@ -378,17 +402,20 @@ impl VerificationKey {
             .decompress()
             .ok_or(Error::InvalidSignature)?;
 
-        // Standard verification checks: sB = R + hA
-        // Transformed verification: -τsB + τR + ρA == 0
+        // Standard verification checks: sB = R + hA.
         //
         // We verify:
-        //  [8] τs B + [8] τ (-R) + [8] ρ (-A) == 0
+        //   [8] τs B + [8] τ (-R) + [8] ρ A_term == 0
+        // where A_term is -A when ρ ≡ τh and A when ρ ≡ -τh.
 
         // Compute τs
         let ts = tau * s;
         let A = if flip_h { -self.minus_A } else { self.minus_A };
-        // Compute the multi-scalar multiplication
-        let result = EdwardsPoint::vartime_triple_scalar_mul_basepoint(&tau, &neg_R, &rho, &A, &ts);
+        // HEEA decomposition guarantees tau and rho fit the optimized
+        // 128/128/256-bit multiplication path.
+        let result = crate::backend::vartime_triple_base_mul_128_128_256_prechecked(
+            &tau, &neg_R, &rho, &A, &ts,
+        );
 
         if result.mul_by_cofactor().is_identity() {
             Ok(())
@@ -397,12 +424,18 @@ impl VerificationKey {
         }
     }
 
-    /// Verify a signature with exact `ed25519-dalek`-style byte-level behavior.
+    /// Verify a signature with dalek-style canonical-`R` byte comparison.
     ///
     /// This recomputes the expected canonical `R` encoding and compares it to the
-    /// signature's `R` bytes, matching dalek's ordinary verification behavior.
+    /// signature's `R` bytes.
     ///
-    /// Note that exact dalek-compatible behavior is incompatible with the HEEA
+    /// This helper also preserves this crate's legacy compatibility filters: it
+    /// rejects an all-zero encoded public key and the known legacy-excluded `R`
+    /// encodings before running the canonical-`R` comparison. Because of those
+    /// extra checks, this is not a byte-for-byte clone of every `ed25519-dalek`
+    /// release.
+    ///
+    /// Note that dalek-style canonical-`R` comparison is incompatible with the HEEA
     /// transformed equation because the transformed check does not preserve the
     /// original `R` encoding needed for the byte comparison.
     #[allow(non_snake_case)]

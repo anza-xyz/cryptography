@@ -5,8 +5,8 @@ accelerated Ed25519 signature verification via the **HEEA** (Half-Extended Eucli
 method and a reduced set of well-tested backends.
 
 > Original library READMEs: [README_dalek.md](README_dalek.md) (workspace) ·
-> [curve25519/README_dalek.md](curve25519/README_dalek.md) ·
-> [ed25519-heea/README_zebra.md](ed25519-heea/README_zebra.md)
+> [solana-ed25519/README_dalek.md](solana-ed25519/README_dalek.md) ·
+> [solana-ed25519/README_zebra.md](solana-ed25519/README_zebra.md)
 
 ---
 
@@ -14,10 +14,9 @@ method and a reduced set of well-tested backends.
 
 | Crate | Description |
 |---|---|
-| [`curve25519`](./curve25519) | Fork of `curve25519-dalek`. Core elliptic-curve arithmetic over Curve25519, Edwards, Ristretto, and Short-Weierstrass forms, with HEEA scalar decomposition and a narrowed backend set (removed `u32` and constraint device supports). |
-| [`ed25519-heea`](./ed25519-heea) | Fork of `ed25519-zebra`. ZIP-215-compliant Ed25519 with an added `verify_heea` fast-path that uses HEEA half-size scalars. |
+| [`solana-ed25519`](./solana-ed25519) | Fork of `curve25519-dalek` with ZIP-215-compliant Ed25519 from `ed25519-zebra`, HEEA-accelerated `verify` / `verify_zebra`, and a narrowed backend set (removed `u32` and constraint device supports). |
 | [`curve25519-cuda`](./curve25519-cuda) | GPU-accelerated multi-scalar multiplication (MSM) via CUDA/SPPARK. Falls back to CPU when CUDA is unavailable. |
-| [`curve25519-derive`](./curve25519-derive) | Helper proc-macro crate (`#[unsafe_target_feature]`) inherited from upstream; required to write clean SIMD code. Identical to the one in dalek 0.5.0 |
+| [`curve25519-derive`](../curve25519-derive) | Helper proc-macro crate (`#[unsafe_target_feature]`) inherited from upstream; required to write clean SIMD code. Identical to the one in dalek 0.5.0 |
 
 ---
 
@@ -30,7 +29,8 @@ HEEA (from the TCHES 2025 paper _"Accelerating EdDSA Signature Verification with
 Size Halving"_) transforms this into a 4-point MSM with ~128-bit scalars:
 
 ```
-τs_lo · B + τs_hi · (2¹²⁸·B) = τ·R + ρ·A
+flip_h = false:  τs_lo · B + τs_hi · (2¹²⁸·B) = τ·R + ρ·A
+flip_h = true:   τs_lo · B + τs_hi · (2¹²⁸·B) = τ·R - ρ·A
 ```
 
 where `ρ` and `τ` are half-size (~127-bit) values derived from `h` via a half-extended
@@ -39,10 +39,10 @@ two of the bases (`B` and `2¹²⁸B`) use precomputed tables.  In practice this
 **~15% faster** verification compared to the standard double-scalar-multiplication path.
 
 The algorithm is implemented in:
-- [`curve25519/src/scalar/heea.rs`](curve25519/src/scalar/heea.rs) – `curve25519_heea_vartime`
-- [`curve25519/src/traits.rs`](curve25519/src/traits.rs) – `HEEADecomposition` trait
-- [`curve25519/src/backend/serial/scalar_mul/vartime_triple_base.rs`](curve25519/src/backend/serial/scalar_mul/vartime_triple_base.rs) – optimised 128+128+256 MSM
-- [`ed25519-heea/src/verification_key.rs`](ed25519-heea/src/verification_key.rs) – `VerificationKey::verify_heea`
+- [`solana-ed25519/src/scalar/heea.rs`](solana-ed25519/src/scalar/heea.rs) – `curve25519_heea_vartime`
+- [`solana-ed25519/src/traits.rs`](solana-ed25519/src/traits.rs) – `HEEADecomposition` trait
+- [`solana-ed25519/src/backend/serial/scalar_mul/vartime_triple_base.rs`](solana-ed25519/src/backend/serial/scalar_mul/vartime_triple_base.rs) – optimised 128+128+256 MSM
+- [`solana-ed25519/src/ed_sigs/verification_key.rs`](solana-ed25519/src/ed_sigs/verification_key.rs) – `VerificationKey::verify` / `VerificationKey::verify_zebra`
 
 ### Reduced Backend Set
 
@@ -65,17 +65,13 @@ maintenance surface. If you need them, use upstream `curve25519-dalek` directly.
 Add the relevant crate to `Cargo.toml`:
 
 ```toml
-# Core curve arithmetic with HEEA
-curve25519-sol = { git = "https://github.com/zz-sol/ed25519-sol" }
-
-# Ed25519 signatures with fast HEEA verification
-ed25519-heea = { git = "https://github.com/zz-sol/ed25519-sol" }
+curve25519 = { package = "solana-ed25519", git = "https://github.com/anza-xyz/cryptography" }
 ```
 
 ### Standard Ed25519 verification
 
 ```rust
-use ed25519_heea::{SigningKey, VerificationKey};
+use curve25519::ed_sigs::{SigningKey, VerificationKey};
 use rand::thread_rng;
 
 let msg = b"hello world";
@@ -87,11 +83,11 @@ let vk = VerificationKey::from(&sk);
 vk.verify(&sig, msg).expect("valid signature");
 ```
 
-### HEEA-accelerated verification
+### Explicit HEEA-accelerated verification
 
 ```rust
-// Fast path: ~15% faster via half-size scalars (same result)
-vk.verify_heea(&sig, msg).expect("valid signature");
+// Same ZIP-215 result as verify(), using the HEEA path explicitly.
+vk.verify_zebra(&sig, msg).expect("valid signature");
 ```
 
 ---
@@ -106,8 +102,8 @@ cargo build --release
 RUSTFLAGS='-C target-feature=+avx2' cargo build --release
 
 # Run benchmarks
-cargo bench --features "rand_core" -p curve25519
-cargo bench -p ed25519-heea
+cargo bench --features "rand_core" -p solana-ed25519
+cargo bench -p curve25519-cuda
 ```
 
 ---

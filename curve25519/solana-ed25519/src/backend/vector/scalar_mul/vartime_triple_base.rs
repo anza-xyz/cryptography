@@ -35,6 +35,12 @@ pub mod spec {
     /// This function is optimized for the case where \\(a_1\\) and \\(a_2\\) are known to be less than
     /// \\(2^{128}\\), while \\(b\\) is a full 256-bit scalar.
     ///
+    /// # Precondition
+    ///
+    /// Callers must ensure \\(a_1\\) and \\(a_2\\) are less than \\(2^{128}\\). Use
+    /// `vartime_triple_base_mul_128_128_256` for a checked wrapper that falls back
+    /// to general scalar multiplication for full-width scalars.
+    ///
     /// # Optimization Strategy
     ///
     /// The function decomposes the 256-bit scalar \\(b\\) as \\(b = b_{lo} + b_{hi} \cdot 2^{128}\\),
@@ -54,22 +60,22 @@ pub mod spec {
     /// - For \\(B\\): NAF with window width 8 when precomputed tables available (64 points), otherwise width 5
     /// - For \\(B'\\): NAF with window width 5
     ///
+    /// The serial backend keeps \\(b_{lo}\\) at width 5 even when precomputed
+    /// tables are enabled. This vector backend uses width 8 in that
+    /// configuration as a backend-specific performance tradeoff.
+    ///
     /// The algorithm shares doublings across all four scalar multiplications, processing
     /// only 128 bits instead of 256, providing approximately 2x speedup over the naive approach.
     ///
     /// This SIMD implementation uses vectorized point operations (AVX2 or AVX512-IFMA) for
     /// improved performance over the serial backend.
-    pub fn mul_128_128_256(
+    pub(crate) fn mul_128_128_256_prechecked(
         a1: &Scalar,
         A1: &EdwardsPoint,
         a2: &Scalar,
         A2: &EdwardsPoint,
         b: &Scalar,
     ) -> EdwardsPoint {
-        // assert that a1 and a2 are less than 2^128
-        debug_assert!(a1.as_bytes()[16..32].iter().all(|&b| b == 0));
-        debug_assert!(a2.as_bytes()[16..32].iter().all(|&b| b == 0));
-
         // Decompose b into b_lo (lower 128 bits) and b_hi (upper 128 bits)
         // b = b_lo + b_hi * 2^128
         let b_bytes = b.as_bytes();
@@ -88,6 +94,8 @@ pub mod spec {
         let a1_naf = a1.non_adjacent_form(5);
         let a2_naf = a2.non_adjacent_form(5);
 
+        // With precomputed tables, the vector backend uses the larger width-8
+        // basepoint table for b_lo. The serial backend keeps b_lo at width 5.
         #[cfg(feature = "precomputed-tables")]
         let b_lo_naf = b_lo.non_adjacent_form(8);
         #[cfg(not(feature = "precomputed-tables"))]
