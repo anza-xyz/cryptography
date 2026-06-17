@@ -24,6 +24,12 @@ use crate::window::NafLookupTable5;
 /// This function is optimized for the case where \\(a_1\\) and \\(a_2\\) are known to be less than
 /// \\(2^{128}\\), while \\(b\\) is a full 256-bit scalar.
 ///
+/// # Precondition
+///
+/// Callers must ensure \\(a_1\\) and \\(a_2\\) are less than \\(2^{128}\\). Use
+/// `vartime_triple_base_mul_128_128_256` for a checked wrapper that falls back
+/// to general scalar multiplication for full-width scalars.
+///
 /// # Optimization Strategy
 ///
 /// The function decomposes the 256-bit scalar \\(b\\) as \\(b = b_{lo} + b_{hi} \cdot 2^{128}\\),
@@ -50,17 +56,13 @@ use crate::window::NafLookupTable5;
 ///
 /// The algorithm shares doublings across all four scalar multiplications, processing
 /// only 128 bits instead of 256, providing approximately 2x speedup over the naive approach.
-pub fn mul_128_128_256(
+pub(crate) fn mul_128_128_256_prechecked(
     a1: &Scalar,
     A1: &EdwardsPoint,
     a2: &Scalar,
     A2: &EdwardsPoint,
     b: &Scalar,
 ) -> EdwardsPoint {
-    // assert that a1 and a2 are less than 2^128
-    debug_assert!(a1.as_bytes()[16..32].iter().all(|&b| b == 0));
-    debug_assert!(a2.as_bytes()[16..32].iter().all(|&b| b == 0));
-
     // Decompose b into b_lo (lower 128 bits) and b_hi (upper 128 bits)
     // b = b_lo + b_hi * 2^128
     let b_bytes = b.as_bytes();
@@ -183,7 +185,7 @@ mod test {
         let A2 = constants::ED25519_BASEPOINT_POINT * Scalar::from(3u64);
 
         // Compute using the optimized triple-base function
-        let result = mul_128_128_256(&a1, &A1, &a2, &A2, &b);
+        let result = mul_128_128_256_prechecked(&a1, &A1, &a2, &A2, &b);
 
         // Compute using naive addition
         let expected = (a1 * A1 + a2 * A2) + b * constants::ED25519_BASEPOINT_POINT;
@@ -217,7 +219,7 @@ mod test {
         let A2 = constants::ED25519_BASEPOINT_POINT * Scalar::from(7u64);
 
         // Test the optimized 128-bit version
-        let result_128 = mul_128_128_256(&a1, &A1, &a2, &A2, &b);
+        let result_128 = mul_128_128_256_prechecked(&a1, &A1, &a2, &A2, &b);
 
         // Compute expected result
         let expected = (a1 * A1 + a2 * A2) + b * constants::ED25519_BASEPOINT_POINT;
@@ -234,7 +236,7 @@ mod test {
         let A1 = constants::ED25519_BASEPOINT_POINT * Scalar::from(2u64);
         let A2 = constants::ED25519_BASEPOINT_POINT * Scalar::from(3u64);
 
-        let result = mul_128_128_256(&a1, &A1, &a2, &A2, &b);
+        let result = mul_128_128_256_prechecked(&a1, &A1, &a2, &A2, &b);
         let expected = a2 * A2 + b * constants::ED25519_BASEPOINT_POINT;
 
         assert_eq!(result, expected);
@@ -249,7 +251,7 @@ mod test {
         let A1 = EdwardsPoint::identity();
         let A2 = constants::ED25519_BASEPOINT_POINT * Scalar::from(3u64);
 
-        let result = mul_128_128_256(&a1, &A1, &a2, &A2, &b);
+        let result = mul_128_128_256_prechecked(&a1, &A1, &a2, &A2, &b);
         let expected = a2 * A2 + b * constants::ED25519_BASEPOINT_POINT;
 
         assert_eq!(result, expected);
@@ -265,7 +267,7 @@ mod test {
         let A1 = constants::ED25519_BASEPOINT_POINT * Scalar::from(11u64);
         let A2 = constants::ED25519_BASEPOINT_POINT * Scalar::from(13u64);
 
-        let result_optimized = mul_128_128_256(&a1, &A1, &a2, &A2, &b);
+        let result_optimized = mul_128_128_256_prechecked(&a1, &A1, &a2, &A2, &b);
         let result_general = (a1 * A1 + a2 * A2) + b * constants::ED25519_BASEPOINT_POINT;
 
         assert_eq!(result_optimized, result_general);
@@ -287,7 +289,7 @@ mod test {
         let A1 = constants::ED25519_BASEPOINT_POINT * Scalar::from(17u64);
         let A2 = constants::ED25519_BASEPOINT_POINT * Scalar::from(19u64);
 
-        let result = mul_128_128_256(&a1, &A1, &a2, &A2, &b);
+        let result = mul_128_128_256_prechecked(&a1, &A1, &a2, &A2, &b);
         let expected = (a1 * A1 + a2 * A2) + b * constants::ED25519_BASEPOINT_POINT;
 
         assert_eq!(result, expected);
@@ -322,7 +324,7 @@ mod test {
             let A2 = constants::ED25519_BASEPOINT_POINT * A2_scalar;
 
             // Compute using the optimized triple-base function
-            let result_optimized = mul_128_128_256(&a1, &A1, &a2, &A2, &b);
+            let result_optimized = mul_128_128_256_prechecked(&a1, &A1, &a2, &A2, &b);
 
             // Compute using raw operations: a1*A1 + a2*A2 + b*B
             let expected = (a1 * A1 + a2 * A2) + b * constants::ED25519_BASEPOINT_POINT;
