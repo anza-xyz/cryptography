@@ -182,7 +182,7 @@ impl Verifier {
         for (vk_bytes, sigs) in self.signatures.iter() {
             let A = CompressedEdwardsY(vk_bytes.0)
                 .decompress()
-                .ok_or(Error::InvalidSignature)?;
+                .ok_or(Error::MalformedPublicKey)?;
 
             let mut A_coeff = Scalar::ZERO;
 
