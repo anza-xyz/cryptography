@@ -26,7 +26,10 @@ pub mod spec {
     use crate::scalar::Scalar;
     use crate::traits::Identity;
     use crate::traits::VartimePrecomputedMultiscalarMul;
-    use crate::window::{NafLookupTable5, NafLookupTable8};
+    use crate::window::{
+        NafLookupTable5, NafLookupTable8, build_lookup_tables,
+        build_lookup_tables_for_optional_points,
+    };
 
     pub struct VartimePrecomputedStraus {
         static_lookup_tables: Vec<NafLookupTable8<CachedPoint>>,
@@ -41,10 +44,7 @@ pub mod spec {
             I::Item: Borrow<EdwardsPoint>,
         {
             Self {
-                static_lookup_tables: static_points
-                    .into_iter()
-                    .map(|P| NafLookupTable8::<CachedPoint>::from(P.borrow()))
-                    .collect(),
+                static_lookup_tables: build_lookup_tables(static_points),
             }
         }
 
@@ -78,10 +78,8 @@ pub mod spec {
                 .map(|c| c.borrow().non_adjacent_form(5))
                 .collect::<Vec<_>>();
 
-            let dynamic_lookup_tables = dynamic_points
-                .into_iter()
-                .map(|P_opt| P_opt.map(|P| NafLookupTable5::<CachedPoint>::from(&P)))
-                .collect::<Option<Vec<_>>>()?;
+            let dynamic_lookup_tables: Vec<NafLookupTable5<CachedPoint>> =
+                build_lookup_tables_for_optional_points(dynamic_points)?;
 
             let sp = self.static_lookup_tables.len();
             let dp = dynamic_lookup_tables.len();

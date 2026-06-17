@@ -23,7 +23,9 @@ use crate::edwards::EdwardsPoint;
 use crate::scalar::Scalar;
 use crate::traits::Identity;
 use crate::traits::VartimePrecomputedMultiscalarMul;
-use crate::window::{NafLookupTable5, NafLookupTable8};
+use crate::window::{
+    NafLookupTable5, NafLookupTable8, build_lookup_tables, build_lookup_tables_for_optional_points,
+};
 
 #[allow(missing_docs)]
 pub struct VartimePrecomputedStraus {
@@ -39,10 +41,7 @@ impl VartimePrecomputedMultiscalarMul for VartimePrecomputedStraus {
         I::Item: Borrow<Self::Point>,
     {
         Self {
-            static_lookup_tables: static_points
-                .into_iter()
-                .map(|P| NafLookupTable8::<AffineNielsPoint>::from(P.borrow()))
-                .collect(),
+            static_lookup_tables: build_lookup_tables(static_points),
         }
     }
 
@@ -76,10 +75,8 @@ impl VartimePrecomputedMultiscalarMul for VartimePrecomputedStraus {
             .map(|c| c.borrow().non_adjacent_form(5))
             .collect::<Vec<_>>();
 
-        let dynamic_lookup_tables = dynamic_points
-            .into_iter()
-            .map(|P_opt| P_opt.map(|P| NafLookupTable5::<ProjectiveNielsPoint>::from(&P)))
-            .collect::<Option<Vec<_>>>()?;
+        let dynamic_lookup_tables: Vec<NafLookupTable5<ProjectiveNielsPoint>> =
+            build_lookup_tables_for_optional_points(dynamic_points)?;
 
         let sp = self.static_lookup_tables.len();
         let dp = dynamic_lookup_tables.len();

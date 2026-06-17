@@ -15,7 +15,11 @@
 
 use core::fmt::Debug;
 
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
 use cfg_if::cfg_if;
+#[cfg(feature = "alloc")]
+use core::borrow::Borrow;
 
 use subtle::Choice;
 use subtle::ConditionallyNegatable;
@@ -27,6 +31,32 @@ use crate::traits::Identity;
 use crate::backend::serial::curve_models::AffineNielsPoint;
 use crate::backend::serial::curve_models::ProjectiveNielsPoint;
 use crate::edwards::EdwardsPoint;
+
+#[cfg(feature = "alloc")]
+pub(crate) fn build_lookup_tables<T, I>(points: I) -> Vec<T>
+where
+    T: for<'a> From<&'a EdwardsPoint>,
+    I: IntoIterator,
+    I::Item: Borrow<EdwardsPoint>,
+{
+    points
+        .into_iter()
+        .map(|point| T::from(point.borrow()))
+        .collect()
+}
+
+#[cfg(feature = "alloc")]
+pub(crate) fn build_lookup_tables_for_optional_points<T, I, P>(points: I) -> Option<Vec<T>>
+where
+    T: for<'a> From<&'a EdwardsPoint>,
+    I: IntoIterator<Item = Option<P>>,
+    P: Borrow<EdwardsPoint>,
+{
+    points
+        .into_iter()
+        .map(|point| point.map(|point| T::from(point.borrow())))
+        .collect()
+}
 
 #[cfg(feature = "zeroize")]
 use zeroize::Zeroize;

@@ -109,12 +109,9 @@ impl MultiscalarMul for Straus {
     {
         use crate::backend::serial::curve_models::ProjectiveNielsPoint;
         use crate::traits::Identity;
-        use crate::window::LookupTable;
+        use crate::window::{LookupTable, build_lookup_tables};
 
-        let lookup_tables: Vec<_> = points
-            .into_iter()
-            .map(|point| LookupTable::<ProjectiveNielsPoint>::from(point.borrow()))
-            .collect();
+        let lookup_tables: Vec<LookupTable<ProjectiveNielsPoint>> = build_lookup_tables(points);
 
         // This puts the scalar digits into a heap-allocated Vec.
         // To ensure that these are erased, pass ownership of the Vec into a
@@ -166,17 +163,15 @@ impl VartimeMultiscalarMul for Straus {
             CompletedPoint, ProjectiveNielsPoint, ProjectivePoint,
         };
         use crate::traits::Identity;
-        use crate::window::NafLookupTable5;
+        use crate::window::{NafLookupTable5, build_lookup_tables_for_optional_points};
 
         let nafs: Vec<_> = scalars
             .into_iter()
             .map(|c| c.borrow().non_adjacent_form(5))
             .collect();
 
-        let lookup_tables = points
-            .into_iter()
-            .map(|P_opt| P_opt.map(|P| NafLookupTable5::<ProjectiveNielsPoint>::from(&P)))
-            .collect::<Option<Vec<_>>>()?;
+        let lookup_tables: Vec<NafLookupTable5<ProjectiveNielsPoint>> =
+            build_lookup_tables_for_optional_points(points)?;
 
         let mut r = ProjectivePoint::identity();
 
