@@ -1,0 +1,27 @@
+[package]
+name = "secp256r1"
+description = "Pure-Rust secp256r1/P-256 field, scalar, and group operations"
+version = "0.1.0"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = "2024"
+readme = "README.md"
+
+[dev-dependencies]
+criterion.workspace = true
+openssl.workspace = true
+p256.workspace = true
+
+[[bench]]
+name = "field"
+harness = false
+
+[[bench]]
+name = "group"
+harness = false
+
+[[bench]]
+name = "scalar"
+harness = false
