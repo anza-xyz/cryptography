@@ -30,6 +30,17 @@ pub mod spec {
     use crate::traits::Identity;
     use crate::window::NafLookupTable5;
 
+    const DYNAMIC_NAF_WINDOW: usize = 5;
+
+    // This intentionally differs from the serial backend when precomputed
+    // tables are enabled. The AVX2 basepoint table is width 8, and this vector
+    // path uses the larger b_lo NAF window in that configuration as a
+    // backend-specific performance tradeoff.
+    #[cfg(feature = "precomputed-tables")]
+    const B_LO_NAF_WINDOW: usize = 8;
+    #[cfg(not(feature = "precomputed-tables"))]
+    const B_LO_NAF_WINDOW: usize = DYNAMIC_NAF_WINDOW;
+
     /// Compute \\(a_1 A_1 + a_2 A_2 + b B\\) in variable time, where \\(B\\) is the Ed25519 basepoint.
     ///
     /// This function is optimized for the case where \\(a_1\\) and \\(a_2\\) are known to be less than
@@ -91,17 +102,10 @@ pub mod spec {
         let b_hi = Scalar::from_canonical_bytes_unchecked(b_hi_bytes);
 
         // Compute NAF representations (all scalars are now ~128 bits)
-        let a1_naf = a1.non_adjacent_form(5);
-        let a2_naf = a2.non_adjacent_form(5);
-
-        // With precomputed tables, the vector backend uses the larger width-8
-        // basepoint table for b_lo. The serial backend keeps b_lo at width 5.
-        #[cfg(feature = "precomputed-tables")]
-        let b_lo_naf = b_lo.non_adjacent_form(8);
-        #[cfg(not(feature = "precomputed-tables"))]
-        let b_lo_naf = b_lo.non_adjacent_form(5);
-
-        let b_hi_naf = b_hi.non_adjacent_form(5);
+        let a1_naf = a1.non_adjacent_form(DYNAMIC_NAF_WINDOW);
+        let a2_naf = a2.non_adjacent_form(DYNAMIC_NAF_WINDOW);
+        let b_lo_naf = b_lo.non_adjacent_form(B_LO_NAF_WINDOW);
+        let b_hi_naf = b_hi.non_adjacent_form(DYNAMIC_NAF_WINDOW);
 
         // Find starting index - check all NAFs up to bit 127
         // (with potential carry to bit 128 or 129)

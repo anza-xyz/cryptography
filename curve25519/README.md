@@ -16,7 +16,9 @@ method and a reduced set of well-tested backends.
 |---|---|
 | [`solana-ed25519`](./solana-ed25519) | Fork of `curve25519-dalek` with ZIP-215-compliant Ed25519 from `ed25519-zebra`, HEEA-accelerated `verify` / `verify_zebra`, and a narrowed backend set (removed `u32` and constraint device supports). |
 | [`curve25519-cuda`](./curve25519-cuda) | GPU-accelerated multi-scalar multiplication (MSM) via CUDA/SPPARK. Falls back to CPU when CUDA is unavailable. |
-| [`curve25519-derive`](../curve25519-derive) | Helper proc-macro crate (`#[unsafe_target_feature]`) inherited from upstream; required to write clean SIMD code. Identical to the one in dalek 0.5.0 |
+
+SIMD helper macros come from the workspace dependency `curve25519-dalek-derive = "0.1.1"`;
+there is no local `curve25519-derive` crate in this workspace.
 
 ---
 

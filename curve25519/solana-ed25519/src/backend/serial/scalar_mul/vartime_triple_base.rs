@@ -19,6 +19,15 @@ use crate::scalar::{HEEA_MAX_INDEX, Scalar};
 use crate::traits::Identity;
 use crate::window::NafLookupTable5;
 
+const DYNAMIC_NAF_WINDOW: usize = 5;
+
+// This intentionally differs from the vector backend when precomputed tables
+// are enabled. The serial backend can select width-5 b_lo digits from the
+// larger width-8 basepoint table, but keeps the smaller NAF window here as a
+// backend-specific performance tradeoff. Revisit this only with comparative
+// serial/vector benchmarks.
+const B_LO_NAF_WINDOW: usize = DYNAMIC_NAF_WINDOW;
+
 /// Compute \\(a_1 A_1 + a_2 A_2 + b B\\) in variable time, where \\(B\\) is the Ed25519 basepoint.
 ///
 /// This function is optimized for the case where \\(a_1\\) and \\(a_2\\) are known to be less than
@@ -82,10 +91,10 @@ pub(crate) fn mul_128_128_256_prechecked(
     // The serial backend keeps b_lo at width 5 even when table_B is the larger
     // precomputed width-8 basepoint table. The vector backend uses width 8 in
     // that configuration.
-    let a1_naf = a1.non_adjacent_form(5);
-    let a2_naf = a2.non_adjacent_form(5);
-    let b_lo_naf = b_lo.non_adjacent_form(5);
-    let b_hi_naf = b_hi.non_adjacent_form(5);
+    let a1_naf = a1.non_adjacent_form(DYNAMIC_NAF_WINDOW);
+    let a2_naf = a2.non_adjacent_form(DYNAMIC_NAF_WINDOW);
+    let b_lo_naf = b_lo.non_adjacent_form(B_LO_NAF_WINDOW);
+    let b_hi_naf = b_hi.non_adjacent_form(DYNAMIC_NAF_WINDOW);
 
     // Find starting index - check all NAFs up to bit 127
     // (with potential carry to bit 128 or 129)
