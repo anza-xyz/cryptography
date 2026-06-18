@@ -3,6 +3,8 @@
 //! This module provides a lightweight affine representation and conversion
 //! utilities for moving between the Edwards and short Weierstrass models.
 
+use core::ops::Add;
+
 use crate::edwards::EdwardsPoint;
 use crate::field::FieldElement;
 use crate::traits::{Identity, IsIdentity};
@@ -164,6 +166,16 @@ impl SwPoint {
     }
 }
 
+impl<'a> Add<&'a SwPoint> for &SwPoint {
+    type Output = SwPoint;
+
+    fn add(self, other: &'a SwPoint) -> SwPoint {
+        SwPoint::add(self, other)
+    }
+}
+
+define_add_variants!(LHS = SwPoint, RHS = SwPoint, Output = SwPoint);
+
 fn affine_coordinates_on_curve(x: &FieldElement, y: &FieldElement) -> bool {
     let y2 = y.square();
     let x2 = x.square();
@@ -264,6 +276,21 @@ mod tests {
         let mut wide = [0u8; 64];
         rng.fill(&mut wide);
         Scalar::from_bytes_mod_order_wide(&wide)
+    }
+
+    #[test]
+    fn sw_add_operator_matches_inherent_add() {
+        let p = SwPoint::from_edwards(&constants::ED25519_BASEPOINT_POINT);
+        let q = SwPoint::from_edwards(&(constants::ED25519_BASEPOINT_POINT * Scalar::from(7u64)));
+        let expected = p.add(&q);
+
+        assert_eq!(
+            <&SwPoint as core::ops::Add<&SwPoint>>::add(&p, &q),
+            expected
+        );
+        assert_eq!(<SwPoint as core::ops::Add<&SwPoint>>::add(p, &q), expected);
+        assert_eq!(<&SwPoint as core::ops::Add<SwPoint>>::add(&p, q), expected);
+        assert_eq!(<SwPoint as core::ops::Add<SwPoint>>::add(p, q), expected);
     }
 
     #[test]
