@@ -109,14 +109,7 @@ impl<'a> From<&'a SigningKey> for VerificationKeyBytes {
 
 impl From<SigningKey> for SecretKey {
     fn from(sk: SigningKey) -> SecretKey {
-        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
-        let mut sk = sk;
-        let seed = sk.seed;
-
-        #[cfg(feature = "zeroize")]
-        sk.zeroize();
-
-        seed
+        sk.seed
     }
 }
 
@@ -339,14 +332,7 @@ impl Drop for SerdeHelper {
 
 impl From<SerdeHelper> for SigningKey {
     fn from(helper: SerdeHelper) -> SigningKey {
-        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
-        let mut helper = helper;
-        let signing_key = helper.0.into();
-
-        #[cfg(feature = "zeroize")]
-        helper.zeroize();
-
-        signing_key
+        helper.0.into()
     }
 }
 

@@ -920,11 +920,7 @@ impl Scalar {
         }
 
         #[cfg(feature = "zeroize")]
-        {
-            for item in scratch.iter_mut() {
-                item.zeroize();
-            }
-        }
+        scratch.zeroize();
 
         ret
     }

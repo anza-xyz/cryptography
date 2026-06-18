@@ -16,13 +16,13 @@ use core::ops::{Index, IndexMut};
 use subtle::{Choice, ConditionallySelectable};
 
 #[cfg(feature = "zeroize")]
-use zeroize::Zeroize;
+use zeroize::{DefaultIsZeroes, Zeroize};
 
 use crate::constants;
 
 /// The `Scalar52` struct represents an element in
 /// \\(\mathbb Z / \ell \mathbb Z\\) as 5 \\(52\\)-bit limbs.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 pub struct Scalar52(pub [u64; 5]);
 
 impl Debug for Scalar52 {
@@ -32,11 +32,7 @@ impl Debug for Scalar52 {
 }
 
 #[cfg(feature = "zeroize")]
-impl Zeroize for Scalar52 {
-    fn zeroize(&mut self) {
-        self.0.zeroize();
-    }
-}
+impl DefaultIsZeroes for Scalar52 {}
 
 impl Index<usize> for Scalar52 {
     type Output = u64;

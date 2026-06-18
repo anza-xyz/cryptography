@@ -204,11 +204,7 @@ impl FieldElement {
         Self::internal_invert_batch(inputs, &mut scratch);
 
         #[cfg(feature = "zeroize")]
-        {
-            for item in scratch.iter_mut() {
-                item.zeroize();
-            }
-        }
+        scratch.zeroize();
     }
 
     /// Given a slice of pub(crate)lic `FieldElements`, replace each with its inverse. `scratch` can
@@ -270,9 +266,7 @@ impl FieldElement {
         #[cfg(feature = "zeroize")]
         {
             acc.zeroize();
-            for item in scratch.iter_mut() {
-                item.zeroize();
-            }
+            scratch.zeroize();
         }
     }
 
