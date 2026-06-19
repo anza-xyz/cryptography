@@ -17,7 +17,7 @@ license = "Apache-2.0"
 rust-version = "1.89.0"                                 # solana platform-tools rust version
 
 [workspace.dependencies]
-ark-bn254 = "0.5.0"
+ark-bn254 = "0.6.0"
 ark-ec = "0.5.0"
 ark-ff = "0.5.0"
 ark-serialize = "0.5.0"
