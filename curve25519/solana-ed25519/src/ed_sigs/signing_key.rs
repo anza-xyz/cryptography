@@ -36,7 +36,7 @@ use pkcs8::{
     DecodePrivateKey, DecodePublicKey, Document, EncodePrivateKey, EncodePublicKey,
     ObjectIdentifier, PrivateKeyInfo, spki::AlgorithmIdentifierRef,
 };
-#[cfg(all(feature = "pem", feature = "pkcs8"))]
+#[cfg(all(feature = "pkcs8", feature = "zeroize"))]
 use zeroize::Zeroizing;
 
 #[cfg(all(feature = "pem", feature = "pkcs8"))]
@@ -59,7 +59,7 @@ pub type SecretKey = [u8; SECRET_KEY_LENGTH];
 /// An Ed25519 signing key.
 ///
 /// This is also called a secret key by other implementations.
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(from = "SerdeHelper"))]
 #[cfg_attr(feature = "serde", serde(into = "SerdeHelper"))]
@@ -80,6 +80,13 @@ impl Zeroize for SigningKey {
     }
 }
 
+#[cfg(feature = "zeroize")]
+impl Drop for SigningKey {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
 impl core::fmt::Debug for SigningKey {
     fn fmt(&self, fmt: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         fmt.debug_struct("SigningKey")
@@ -97,12 +104,6 @@ impl<'a> From<&'a SigningKey> for VerificationKey {
 impl<'a> From<&'a SigningKey> for VerificationKeyBytes {
     fn from(sk: &'a SigningKey) -> VerificationKeyBytes {
         sk.vk.into()
-    }
-}
-
-impl AsRef<[u8]> for SigningKey {
-    fn as_ref(&self) -> &[u8] {
-        &self.seed[..]
     }
 }
 
@@ -128,8 +129,12 @@ impl TryFrom<&[u8]> for SigningKey {
 impl From<SecretKey> for SigningKey {
     #[allow(non_snake_case)]
     fn from(seed: [u8; 32]) -> SigningKey {
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+        let mut seed = seed;
+
         // Expand the seed to a 64-byte array with SHA512.
-        let h = Sha512::digest(&seed[..]);
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+        let mut h = Sha512::digest(&seed[..]);
 
         // Convert the low half to a scalar with Ed25519 "clamping"
         let s = {
@@ -138,20 +143,22 @@ impl From<SecretKey> for SigningKey {
             scalar_bytes[0] &= 248;
             scalar_bytes[31] &= 127;
             scalar_bytes[31] |= 64;
-            Scalar::from_bytes_mod_order(scalar_bytes)
+            let s = Scalar::from_bytes_mod_order(scalar_bytes);
+
+            #[cfg(feature = "zeroize")]
+            scalar_bytes.zeroize();
+
+            s
         };
 
         // Extract and cache the high half.
-        let prefix = {
-            let mut prefix = [0u8; 32];
-            prefix[..].copy_from_slice(&h[32..64]);
-            prefix
-        };
+        let mut prefix = [0u8; 32];
+        prefix[..].copy_from_slice(&h[32..64]);
 
         // Compute the public key as A = [s]B.
         let A = EdwardsPoint::mul_base(&s);
 
-        SigningKey {
+        let signing_key = SigningKey {
             seed,
             s,
             prefix,
@@ -159,7 +166,16 @@ impl From<SecretKey> for SigningKey {
                 minus_A: -A,
                 A_bytes: VerificationKeyBytes(A.compress().to_bytes()),
             },
+        };
+
+        #[cfg(feature = "zeroize")]
+        {
+            h.zeroize();
+            prefix.zeroize();
+            seed.zeroize();
         }
+
+        signing_key
     }
 }
 
@@ -218,7 +234,7 @@ impl TryFrom<&KeypairBytes> for SigningKey {
     type Error = pkcs8::Error;
 
     fn try_from(pkcs8_key: &KeypairBytes) -> pkcs8::Result<Self> {
-        let signing_key = SigningKey::from_der(&pkcs8_key.secret_key);
+        let signing_key = SigningKey::from_der(&pkcs8_key.secret_key)?;
 
         // Validate the public key in the PKCS#8 document if present
         if let Some(public_bytes) = &pkcs8_key.public_key {
@@ -226,13 +242,12 @@ impl TryFrom<&KeypairBytes> for SigningKey {
                 VerificationKey::from_public_key_der(public_bytes.as_ref())
                     .map_err(|_| pkcs8::Error::KeyMalformed)?;
 
-            if VerificationKey::from(&signing_key.unwrap()).A_bytes != expected_verifying_key.into()
-            {
+            if VerificationKey::from(&signing_key).A_bytes != expected_verifying_key.into() {
                 return Err(pkcs8::Error::KeyMalformed);
             }
         }
 
-        signing_key
+        Ok(signing_key)
     }
 }
 
@@ -261,12 +276,16 @@ impl EncodePrivateKey for SigningKey {
         // In RFC 8410, the octet string containing the private key is encapsulated by
         // another octet string. Just add octet string bytes to the key when building
         // the document.
+        #[cfg(feature = "zeroize")]
+        let mut final_key = Zeroizing::new([0u8; 34]);
+        #[cfg(not(feature = "zeroize"))]
         let mut final_key = [0u8; 34];
+
         final_key[..2].copy_from_slice(&[0x04, 0x20]);
         final_key[2..].copy_from_slice(&self.seed);
         SecretDocument::try_from(PrivateKeyInfo {
             algorithm: ALGORITHM_ID,
-            private_key: &final_key,
+            private_key: &final_key[..],
             public_key: Some(self.vk.A_bytes.0.as_slice()),
         })
     }
@@ -279,7 +298,7 @@ impl DecodePrivateKey for SigningKey {
     /// fail if the public key doesn't match the private key's true accompanying public
     /// key.
     fn from_pkcs8_der(bytes: &[u8]) -> pkcs8::Result<Self> {
-        let keypair = KeypairBytes::from_pkcs8_der(bytes).unwrap();
+        let keypair = KeypairBytes::from_pkcs8_der(bytes)?;
         let sk = SigningKey::from(keypair.secret_key);
         match keypair.public_key {
             Some(vk2) => {
@@ -296,6 +315,20 @@ impl DecodePrivateKey for SigningKey {
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct SerdeHelper([u8; 32]);
+
+#[cfg(feature = "zeroize")]
+impl Zeroize for SerdeHelper {
+    fn zeroize(&mut self) {
+        self.0.zeroize();
+    }
+}
+
+#[cfg(feature = "zeroize")]
+impl Drop for SerdeHelper {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
 
 impl From<SerdeHelper> for SigningKey {
     fn from(helper: SerdeHelper) -> SigningKey {
@@ -320,12 +353,24 @@ impl SigningKey {
     /// Convert this [`SigningKey`] into a `SecretKey`
     #[inline]
     pub fn to_bytes(&self) -> SecretKey {
-        (*self).into()
+        self.to_secret_key_bytes()
     }
 
     /// Convert this [`SigningKey`] into a `SecretKey` reference
     #[inline]
     pub fn as_bytes(&self) -> &SecretKey {
+        self.as_secret_key_bytes()
+    }
+
+    /// Copy this [`SigningKey`]'s RFC8032 seed bytes.
+    #[inline]
+    pub fn to_secret_key_bytes(&self) -> SecretKey {
+        self.seed
+    }
+
+    /// Borrow this [`SigningKey`]'s RFC8032 seed bytes.
+    #[inline]
+    pub fn as_secret_key_bytes(&self) -> &SecretKey {
         &self.seed
     }
 
@@ -334,7 +379,12 @@ impl SigningKey {
     pub fn new<R: RngCore + CryptoRng>(mut rng: R) -> SigningKey {
         let mut bytes = [0u8; 32];
         rng.fill_bytes(&mut bytes[..]);
-        bytes.into()
+        let signing_key = bytes.into();
+
+        #[cfg(feature = "zeroize")]
+        bytes.zeroize();
+
+        signing_key
     }
 
     /// Get the [`VerificationKey`] for this [`SigningKey`].
@@ -345,18 +395,29 @@ impl SigningKey {
     /// Create a signature on `msg` using this key.
     #[allow(non_snake_case)]
     pub fn sign(&self, msg: &[u8]) -> Signature {
-        let r = scalar_from_sha512(Sha512::default().chain(&self.prefix[..]).chain(msg));
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+        let mut r = scalar_from_sha512(Sha512::default().chain(&self.prefix[..]).chain(msg));
 
         let R_bytes = EdwardsPoint::mul_base(&r).compress().to_bytes();
 
-        let k = scalar_from_sha512(
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+        let mut k = scalar_from_sha512(
             Sha512::default()
                 .chain(&R_bytes[..])
                 .chain(&self.vk.A_bytes.0[..])
                 .chain(msg),
         );
 
-        let s_bytes = (r + k * self.s).to_bytes();
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+        let mut s = r + k * self.s;
+        let s_bytes = s.to_bytes();
+
+        #[cfg(feature = "zeroize")]
+        {
+            r.zeroize();
+            k.zeroize();
+            s.zeroize();
+        }
 
         Signature::from_components(R_bytes, s_bytes)
     }
@@ -376,10 +437,14 @@ impl SigningKey {
         // In RFC 8410, the octet string containing the private key is encapsulated by
         // another octet string. Just add octet string bytes to the key when building
         // the document.
+        #[cfg(feature = "zeroize")]
+        let mut final_key = Zeroizing::new([0u8; 34]);
+        #[cfg(not(feature = "zeroize"))]
         let mut final_key = [0u8; 34];
+
         final_key[..2].copy_from_slice(&[0x04, 0x20]);
         final_key[2..].copy_from_slice(&self.seed);
-        SecretDocument::try_from(PrivateKeyInfo::new(ALGORITHM_ID, &final_key))
+        SecretDocument::try_from(PrivateKeyInfo::new(ALGORITHM_ID, &final_key[..]))
     }
 
     /// Serialize [`SigningKey`] as a PEM-encoded PKCS#8 string. Note that this

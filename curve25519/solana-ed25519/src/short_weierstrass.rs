@@ -3,6 +3,8 @@
 //! This module provides a lightweight affine representation and conversion
 //! utilities for moving between the Edwards and short Weierstrass models.
 
+use core::ops::Add;
+
 use crate::edwards::EdwardsPoint;
 use crate::field::FieldElement;
 use crate::traits::{Identity, IsIdentity};
@@ -31,6 +33,12 @@ impl SwPoint {
     }
 
     /// Convert an Edwards point into the short Weierstrass model.
+    ///
+    /// The Edwards and short-Weierstrass models are related by a birational
+    /// map, so there are exceptional points that do not round-trip through
+    /// both directions. In particular, the non-identity Edwards point
+    /// `(0, -1)` maps to a short-Weierstrass affine point with `y == 0`;
+    /// [`Self::to_edwards`] rejects that exceptional affine point.
     pub fn from_edwards(point: &EdwardsPoint) -> Self {
         if point.is_identity() {
             return SwPoint::Identity;
@@ -54,10 +62,17 @@ impl SwPoint {
     }
 
     /// Convert this point into an Edwards point, if defined.
+    ///
+    /// Returns `None` for affine coordinates that are not on the short-Weierstrass
+    /// curve and for exceptional affine points where the birational map is
+    /// undefined.
     pub fn to_edwards(&self) -> Option<EdwardsPoint> {
         match self {
             SwPoint::Identity => Some(EdwardsPoint::identity()),
             SwPoint::Affine { x, y } => {
+                if !affine_coordinates_on_curve(x, y) {
+                    return None;
+                }
                 if *y == FieldElement::ZERO {
                     return None;
                 }
@@ -89,14 +104,18 @@ impl SwPoint {
     }
 
     /// Return affine coordinates as little-endian byte arrays.
-    pub fn to_affine_le_bytes(&self) -> Option<([u8; 32], [u8; 32])> {
+    ///
+    /// The point at infinity is encoded as the reserved all-zero pair.
+    pub fn to_affine_le_bytes(&self) -> ([u8; 32], [u8; 32]) {
         match self {
-            SwPoint::Identity => None,
-            SwPoint::Affine { x, y } => Some((x.to_bytes(), y.to_bytes())),
+            SwPoint::Identity => ([0u8; 32], [0u8; 32]),
+            SwPoint::Affine { x, y } => (x.to_bytes(), y.to_bytes()),
         }
     }
 
     /// Build a point from affine little-endian byte arrays.
+    ///
+    /// The all-zero pair is reserved as the point-at-infinity encoding.
     pub fn from_affine_le_bytes(x: [u8; 32], y: [u8; 32]) -> Option<Self> {
         if x == [0u8; 32] && y == [0u8; 32] {
             return Some(SwPoint::Identity);
@@ -142,15 +161,27 @@ impl SwPoint {
     pub fn is_on_curve(&self) -> bool {
         match self {
             SwPoint::Identity => true,
-            SwPoint::Affine { x, y } => {
-                let y2 = y.square();
-                let x2 = x.square();
-                let x3 = &x2 * x;
-                let rhs = &x3 + &(&sw_a() * x);
-                y2 == &rhs + &sw_b()
-            }
+            SwPoint::Affine { x, y } => affine_coordinates_on_curve(x, y),
         }
     }
+}
+
+impl<'a> Add<&'a SwPoint> for &SwPoint {
+    type Output = SwPoint;
+
+    fn add(self, other: &'a SwPoint) -> SwPoint {
+        SwPoint::add(self, other)
+    }
+}
+
+define_add_variants!(LHS = SwPoint, RHS = SwPoint, Output = SwPoint);
+
+fn affine_coordinates_on_curve(x: &FieldElement, y: &FieldElement) -> bool {
+    let y2 = y.square();
+    let x2 = x.square();
+    let x3 = &x2 * x;
+    let rhs = &x3 + &(&sw_a() * x);
+    y2 == &rhs + &sw_b()
 }
 
 fn double_affine(x: &FieldElement, y: &FieldElement) -> SwPoint {
@@ -219,7 +250,10 @@ mod tests {
     use super::SwPoint;
     use super::{sw_a, sw_b};
     use crate::constants;
+    use crate::edwards::EdwardsPoint;
+    use crate::field::FieldElement;
     use crate::scalar::Scalar;
+    use crate::traits::Identity;
     use rand::Rng;
 
     fn sw_scalar_mul(point: &SwPoint, scalar: &Scalar) -> SwPoint {
@@ -242,6 +276,21 @@ mod tests {
         let mut wide = [0u8; 64];
         rng.fill(&mut wide);
         Scalar::from_bytes_mod_order_wide(&wide)
+    }
+
+    #[test]
+    fn sw_add_operator_matches_inherent_add() {
+        let p = SwPoint::from_edwards(&constants::ED25519_BASEPOINT_POINT);
+        let q = SwPoint::from_edwards(&(constants::ED25519_BASEPOINT_POINT * Scalar::from(7u64)));
+        let expected = p.add(&q);
+
+        assert_eq!(
+            <&SwPoint as core::ops::Add<&SwPoint>>::add(&p, &q),
+            expected
+        );
+        assert_eq!(<SwPoint as core::ops::Add<&SwPoint>>::add(p, &q), expected);
+        assert_eq!(<&SwPoint as core::ops::Add<SwPoint>>::add(&p, q), expected);
+        assert_eq!(<SwPoint as core::ops::Add<SwPoint>>::add(p, q), expected);
     }
 
     #[test]
@@ -338,12 +387,12 @@ mod tests {
 
     #[test]
     fn sw_constants_match_expected() {
-        let expected_a = crate::field::FieldElement::from_bytes(&[
+        let expected_a = FieldElement::from_bytes(&[
             0x44, 0xa1, 0x14, 0x49, 0x98, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
             0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
             0xaa, 0xaa, 0xaa, 0x2a,
         ]);
-        let expected_b = crate::field::FieldElement::from_bytes(&[
+        let expected_b = FieldElement::from_bytes(&[
             0x64, 0xc8, 0x10, 0x77, 0x9c, 0x5e, 0x0b, 0x26, 0xb4, 0x97, 0xd0, 0x5e, 0x42, 0x7b,
             0x09, 0xed, 0x25, 0xb4, 0x97, 0xd0, 0x5e, 0x42, 0x7b, 0x09, 0xed, 0x25, 0xb4, 0x97,
             0xd0, 0x5e, 0x42, 0x7b,
@@ -351,5 +400,82 @@ mod tests {
 
         assert_eq!(sw_a(), expected_a);
         assert_eq!(sw_b(), expected_b);
+    }
+
+    #[test]
+    fn sw_to_edwards_rejects_off_curve_affine_input() {
+        let malformed = SwPoint::Affine {
+            x: FieldElement::ZERO,
+            y: FieldElement::ONE,
+        };
+
+        assert!(!malformed.is_on_curve());
+        assert!(malformed.to_edwards().is_none());
+    }
+
+    #[test]
+    fn sw_to_edwards_rejects_order_two_exception() {
+        let order_two = EdwardsPoint {
+            X: FieldElement::ZERO,
+            Y: FieldElement::MINUS_ONE,
+            Z: FieldElement::ONE,
+            T: FieldElement::ZERO,
+        };
+        let sw = SwPoint::from_edwards(&order_two);
+
+        assert!(sw.is_on_curve());
+        let SwPoint::Affine { y, .. } = sw else {
+            panic!("order-two point should map to affine");
+        };
+        assert_eq!(y, FieldElement::ZERO);
+        assert!(sw.to_edwards().is_none());
+    }
+
+    #[test]
+    fn sw_identity_affine_bytes_round_trip() {
+        let encoded = SwPoint::Identity.to_affine_le_bytes();
+
+        assert_eq!(encoded, ([0u8; 32], [0u8; 32]));
+        assert_eq!(
+            SwPoint::from_affine_le_bytes(encoded.0, encoded.1),
+            Some(SwPoint::Identity)
+        );
+    }
+
+    #[test]
+    fn sw_affine_bytes_round_trip_valid_points() {
+        let mut rng = rand::thread_rng();
+
+        for _ in 0..32 {
+            let scalar = random_scalar(&mut rng);
+            let point = constants::ED25519_BASEPOINT_POINT * scalar;
+            let sw = SwPoint::from_edwards(&point);
+            let encoded = sw.to_affine_le_bytes();
+
+            assert_eq!(
+                SwPoint::from_affine_le_bytes(encoded.0, encoded.1),
+                Some(sw)
+            );
+        }
+    }
+
+    #[test]
+    fn sw_affine_bytes_reject_off_curve_input() {
+        let x = FieldElement::ZERO.to_bytes();
+        let y = FieldElement::ONE.to_bytes();
+
+        assert!(SwPoint::from_affine_le_bytes(x, y).is_none());
+    }
+
+    #[test]
+    fn sw_identity_is_additive_neutral_element() {
+        let base = SwPoint::from_edwards(&constants::ED25519_BASEPOINT_POINT);
+
+        assert_eq!(SwPoint::identity().add(&base), base);
+        assert_eq!(base.add(&SwPoint::identity()), base);
+        assert_eq!(
+            SwPoint::identity().to_edwards(),
+            Some(EdwardsPoint::identity())
+        );
     }
 }

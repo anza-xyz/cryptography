@@ -422,18 +422,19 @@ pub trait VartimePrecomputedMultiscalarMul: Sized {
 
 /// A trait for decomposing scalars for the HEEA method.
 ///
-/// The HEEA method is a technique for accelerating scalar multiplication
-/// on elliptic curves by decomposing a scalar into two smaller scalars.
-/// The smaller scalars then can be multiplied with multi-scalar multiplication
-/// which is in general faster than single point full multiplication.
+/// The HEEA method is used by EdDSA verification to replace multiplication by
+/// a full-width challenge scalar with multiplications by two shorter scalars.
+/// For a challenge scalar `h`, the decomposition returns non-negative scalars
+/// `rho` and `tau` that satisfy either `rho == tau * h (mod ell)` or
+/// `rho == -tau * h (mod ell)`.
 ///
 /// This trait provides a method for performing this decomposition.
 pub trait HEEADecomposition {
-    /// Decomposes a scalar `k` into two half-size scalars `k1` and `k2`
-    /// such that `k = k1 + k2 * h (mod ell)`, where `h` is a fixed constant.
+    /// Decomposes a scalar `h` into two approximately half-size scalars.
     ///
-    /// Returns the tuple `(k1, k2, flip_h)`, where `flip_h` is a boolean
-    /// indicating whether the sign of `h` was flipped during the decomposition.
+    /// Returns `(rho, tau, flip_h)`. If `flip_h` is false, then
+    /// `rho == tau * h (mod ell)`. If `flip_h` is true, then
+    /// `rho == -tau * h (mod ell)`.
     fn heea_decompose(&self) -> (Scalar, Scalar, bool);
 }
 

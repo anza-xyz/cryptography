@@ -28,7 +28,9 @@ pub mod spec {
     use crate::edwards::EdwardsPoint;
     use crate::scalar::Scalar;
     use crate::traits::{Identity, MultiscalarMul, VartimeMultiscalarMul};
-    use crate::window::{LookupTable, NafLookupTable5};
+    use crate::window::{
+        LookupTable, NafLookupTable5, build_lookup_tables, build_lookup_tables_for_optional_points,
+    };
 
     /// Multiscalar multiplication using interleaved window / Straus'
     /// method.  See the `Straus` struct in the serial backend for more
@@ -52,10 +54,7 @@ pub mod spec {
         {
             // Construct a lookup table of [P,2P,3P,4P,5P,6P,7P,8P]
             // for each input point P
-            let lookup_tables: Vec<_> = points
-                .into_iter()
-                .map(|point| LookupTable::<CachedPoint>::from(point.borrow()))
-                .collect();
+            let lookup_tables: Vec<LookupTable<CachedPoint>> = build_lookup_tables(points);
 
             let scalar_digits_vec: Vec<_> = scalars
                 .into_iter()
@@ -91,10 +90,8 @@ pub mod spec {
                 .into_iter()
                 .map(|c| c.borrow().non_adjacent_form(5))
                 .collect();
-            let lookup_tables: Vec<_> = points
-                .into_iter()
-                .map(|P_opt| P_opt.map(|P| NafLookupTable5::<CachedPoint>::from(&P)))
-                .collect::<Option<Vec<_>>>()?;
+            let lookup_tables: Vec<NafLookupTable5<CachedPoint>> =
+                build_lookup_tables_for_optional_points(points)?;
 
             let mut Q = ExtendedPoint::identity();
 

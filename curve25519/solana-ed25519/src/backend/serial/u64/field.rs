@@ -22,7 +22,7 @@ use subtle::Choice;
 use subtle::ConditionallySelectable;
 
 #[cfg(feature = "zeroize")]
-use zeroize::Zeroize;
+use zeroize::DefaultIsZeroes;
 
 /// A `FieldElement51` represents an element of the field
 /// \\( \mathbb Z / (2\^{255} - 19)\\).
@@ -49,11 +49,7 @@ impl Debug for FieldElement51 {
 }
 
 #[cfg(feature = "zeroize")]
-impl Zeroize for FieldElement51 {
-    fn zeroize(&mut self) {
-        self.0.zeroize();
-    }
-}
+impl DefaultIsZeroes for FieldElement51 {}
 
 impl<'a> AddAssign<&'a FieldElement51> for FieldElement51 {
     fn add_assign(&mut self, _rhs: &'a FieldElement51) {
