@@ -91,10 +91,10 @@ pub(crate) fn mul_128_128_256_prechecked(
     // The serial backend keeps b_lo at width 5 even when table_B is the larger
     // precomputed width-8 basepoint table. The vector backend uses width 8 in
     // that configuration.
-    let a1_naf = a1.non_adjacent_form(DYNAMIC_NAF_WINDOW);
-    let a2_naf = a2.non_adjacent_form(DYNAMIC_NAF_WINDOW);
-    let b_lo_naf = b_lo.non_adjacent_form(B_LO_NAF_WINDOW);
-    let b_hi_naf = b_hi.non_adjacent_form(DYNAMIC_NAF_WINDOW);
+    let a1_naf = a1.non_adjacent_form_128(DYNAMIC_NAF_WINDOW);
+    let a2_naf = a2.non_adjacent_form_128(DYNAMIC_NAF_WINDOW);
+    let b_lo_naf = b_lo.non_adjacent_form_128(B_LO_NAF_WINDOW);
+    let b_hi_naf = b_hi.non_adjacent_form_128(DYNAMIC_NAF_WINDOW);
 
     // Find starting index - check all NAFs up to bit 127
     // (with potential carry to bit 128 or 129)

@@ -102,10 +102,10 @@ pub mod spec {
         let b_hi = Scalar::from_canonical_bytes_unchecked(b_hi_bytes);
 
         // Compute NAF representations (all scalars are now ~128 bits)
-        let a1_naf = a1.non_adjacent_form(DYNAMIC_NAF_WINDOW);
-        let a2_naf = a2.non_adjacent_form(DYNAMIC_NAF_WINDOW);
-        let b_lo_naf = b_lo.non_adjacent_form(B_LO_NAF_WINDOW);
-        let b_hi_naf = b_hi.non_adjacent_form(DYNAMIC_NAF_WINDOW);
+        let a1_naf = a1.non_adjacent_form_128(DYNAMIC_NAF_WINDOW);
+        let a2_naf = a2.non_adjacent_form_128(DYNAMIC_NAF_WINDOW);
+        let b_lo_naf = b_lo.non_adjacent_form_128(B_LO_NAF_WINDOW);
+        let b_hi_naf = b_hi.non_adjacent_form_128(DYNAMIC_NAF_WINDOW);
 
         // Find starting index - check all NAFs up to bit 127
         // (with potential carry to bit 128 or 129)
