@@ -1,22 +1,21 @@
 use {
     crate::{
-        swap_endianness, Endianness, PodG1, PodG2, ALT_BN128_FIELD_SIZE, ALT_BN128_FQ2_SIZE,
-        ALT_BN128_G1_POINT_SIZE, ALT_BN128_G2_POINT_SIZE, G1, G2,
+        serialize_g1, serialize_g2, Endianness, PodG1, PodG2, PodScalar, ALT_BN128_FIELD_SIZE,
+        ALT_BN128_G1_POINT_SIZE, ALT_BN128_G2_POINT_SIZE,
     },
     ark_ec::{self, AffineRepr},
-    ark_ff::BigInteger256,
-    ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress},
 };
 
-/// Input size for the g1 multiplication operation.
+/// Input size for the g1 multiplication operation (96 bytes).
 pub const ALT_BN128_G1_MULTIPLICATION_INPUT_SIZE: usize =
-    ALT_BN128_G1_POINT_SIZE + ALT_BN128_FIELD_SIZE; // 96
+    ALT_BN128_G1_POINT_SIZE + ALT_BN128_FIELD_SIZE;
 
-/// Input size for the g2 multiplication operation.
+/// Input size for the g2 multiplication operation (160 bytes).
 pub const ALT_BN128_G2_MULTIPLICATION_INPUT_SIZE: usize =
-    ALT_BN128_G2_POINT_SIZE + ALT_BN128_FIELD_SIZE; // 160
+    ALT_BN128_G2_POINT_SIZE + ALT_BN128_FIELD_SIZE;
 
 /// The enum is used to version changes to the `alt_bn128_versioned_g1_multiplication` function.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VersionedG1Multiplication {
     V0,
     /// SIMD-0222 - Fix alt-bn128-multiplication Syscall Length Check
@@ -24,6 +23,7 @@ pub enum VersionedG1Multiplication {
 }
 
 /// The enum is used to version changes to the `alt_bn128_versioned_g2_multiplication` function.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VersionedG2Multiplication {
     V0,
 }
@@ -43,62 +43,19 @@ pub enum VersionedG2Multiplication {
 /// guidelines on SIMD approvals and versioning.
 pub fn alt_bn128_versioned_g1_multiplication(
     version: VersionedG1Multiplication,
-    input: &[u8],
+    p: &PodG1,
+    scalar: &PodScalar,
     endianness: Endianness,
-) -> Option<[u8; ALT_BN128_G1_POINT_SIZE]> {
+) -> Option<PodG1> {
     // reject deprecated variants
     if matches!(version, VersionedG1Multiplication::V0) {
         return None;
     }
 
-    let is_valid_len = match endianness {
-        Endianness::BE => input.len() <= ALT_BN128_G1_MULTIPLICATION_INPUT_SIZE,
-        Endianness::LE => input.len() == ALT_BN128_G1_MULTIPLICATION_INPUT_SIZE,
-    };
+    let p = p.deserialize_affine(endianness)?;
+    let scalar = scalar.deserialize_bigint(endianness)?;
 
-    if !is_valid_len {
-        return None;
-    }
-
-    let mut padded_input = [0u8; ALT_BN128_G1_MULTIPLICATION_INPUT_SIZE];
-    padded_input[..input.len()].copy_from_slice(input);
-
-    let (p_bytes, remainder) = padded_input.split_at(ALT_BN128_G1_POINT_SIZE);
-    let (fr_bytes, _) = remainder.split_at(ALT_BN128_FIELD_SIZE);
-
-    let p = match endianness {
-        Endianness::BE => PodG1::from_be_bytes(p_bytes)?.into_affine()?,
-        Endianness::LE => PodG1::from_le_bytes(p_bytes)?.into_affine()?,
-    };
-
-    let fr_bytes_array: [u8; ALT_BN128_FIELD_SIZE] = fr_bytes.try_into().ok()?;
-    let fr_bytes_proper = match endianness {
-        Endianness::BE => {
-            swap_endianness::<ALT_BN128_FIELD_SIZE, ALT_BN128_FIELD_SIZE>(fr_bytes_array)
-        }
-        Endianness::LE => fr_bytes_array,
-    };
-    let fr = BigInteger256::deserialize_uncompressed_unchecked(fr_bytes_proper.as_slice()).ok()?;
-
-    let result_point_affine: G1 = p.mul_bigint(fr).into();
-
-    let mut result_point_data = [0u8; ALT_BN128_G1_POINT_SIZE];
-    result_point_affine
-        .x
-        .serialize_with_mode(&mut result_point_data[..ALT_BN128_FIELD_SIZE], Compress::No)
-        .ok()?;
-    result_point_affine
-        .y
-        .serialize_with_mode(&mut result_point_data[ALT_BN128_FIELD_SIZE..], Compress::No)
-        .ok()?;
-
-    match endianness {
-        Endianness::BE => Some(swap_endianness::<
-            ALT_BN128_FIELD_SIZE,
-            ALT_BN128_G1_POINT_SIZE,
-        >(result_point_data)),
-        Endianness::LE => Some(result_point_data),
-    }
+    serialize_g1(p.mul_bigint(scalar).into(), endianness)
 }
 
 /// The implementation of the `sol_alt_bn128_group_op` syscall G2 multiplication operation
@@ -115,45 +72,12 @@ pub fn alt_bn128_versioned_g1_multiplication(
 /// guidelines on SIMD approvals and versioning.
 pub fn alt_bn128_versioned_g2_multiplication(
     _version: VersionedG2Multiplication,
-    input: &[u8],
+    p: &PodG2,
+    scalar: &PodScalar,
     endianness: Endianness,
-) -> Option<[u8; ALT_BN128_G2_POINT_SIZE]> {
-    if input.len() != ALT_BN128_G2_MULTIPLICATION_INPUT_SIZE {
-        return None;
-    }
+) -> Option<PodG2> {
+    let p = p.deserialize_affine(endianness)?;
+    let scalar = scalar.deserialize_bigint(endianness)?;
 
-    let (p_bytes, fr_bytes) = input.split_at(ALT_BN128_G2_POINT_SIZE);
-
-    let p = match endianness {
-        Endianness::BE => PodG2::from_be_bytes(p_bytes)?.into_affine()?,
-        Endianness::LE => PodG2::from_le_bytes(p_bytes)?.into_affine()?,
-    };
-
-    let fr_bytes_array: [u8; ALT_BN128_FIELD_SIZE] = fr_bytes.try_into().ok()?;
-    let fr_bytes_proper = match endianness {
-        Endianness::BE => {
-            swap_endianness::<ALT_BN128_FIELD_SIZE, ALT_BN128_FIELD_SIZE>(fr_bytes_array)
-        }
-        Endianness::LE => fr_bytes_array,
-    };
-    let fr = BigInteger256::deserialize_uncompressed_unchecked(fr_bytes_proper.as_slice()).ok()?;
-
-    let result_point_affine: G2 = p.mul_bigint(fr).into();
-
-    let mut result_point_data = [0u8; ALT_BN128_G2_POINT_SIZE];
-    result_point_affine
-        .x
-        .serialize_with_mode(&mut result_point_data[..ALT_BN128_FQ2_SIZE], Compress::No)
-        .ok()?;
-    result_point_affine
-        .y
-        .serialize_with_mode(&mut result_point_data[ALT_BN128_FQ2_SIZE..], Compress::No)
-        .ok()?;
-
-    match endianness {
-        Endianness::BE => {
-            Some(swap_endianness::<ALT_BN128_FQ2_SIZE, ALT_BN128_G2_POINT_SIZE>(result_point_data))
-        }
-        Endianness::LE => Some(result_point_data),
-    }
+    serialize_g2(p.mul_bigint(scalar).into(), endianness)
 }
