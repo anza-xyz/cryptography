@@ -10,6 +10,7 @@ mod tests;
 
 #[cfg(feature = "alloc")]
 pub mod batch;
+mod bip32;
 mod error;
 mod signing_key;
 mod verification_key;
@@ -17,6 +18,7 @@ mod verification_key;
 // Allows importing traits used by `Signature`.
 pub use ::ed25519;
 pub use ::ed25519::Signature;
+pub use bip32::{BIP32_HARDENED_INDEX_FLAG, Bip32DerivationError, ExtendedSigningKey};
 pub use error::Error;
 pub use signing_key::SigningKey;
 pub use verification_key::{VerificationKey, VerificationKeyBytes};
