@@ -2,20 +2,61 @@ use {
     crate::{Endianness, PodG1, PodG2, ALT_BN128_G1_POINT_SIZE, ALT_BN128_G2_POINT_SIZE, G1, G2},
     ark_bn254::{self, Config},
     ark_ec::{bn::Bn, pairing::Pairing},
-    ark_ff::{BigInteger, BigInteger256, One},
+    ark_ff::One,
+    bytemuck::{Pod, Zeroable},
 };
 
-/// Pair element size.
-pub const ALT_BN128_PAIRING_ELEMENT_SIZE: usize = ALT_BN128_G1_POINT_SIZE + ALT_BN128_G2_POINT_SIZE; // 192
+/// Pair element size (192 bytes).
+pub const ALT_BN128_PAIRING_ELEMENT_SIZE: usize = ALT_BN128_G1_POINT_SIZE + ALT_BN128_G2_POINT_SIZE;
 
 /// Output size for pairing operation.
 pub const ALT_BN128_PAIRING_OUTPUT_SIZE: usize = 32;
 
 /// The enum is used to version changes to the `alt_bn128_versioned_pairing` function.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VersionedPairing {
     V0,
     /// SIMD-0334 - Fix alt_bn128_pairing Syscall Length Check
     V1,
+}
+
+/// A combined POD struct representing a (G1, G2) pairing element.
+///
+/// The size is exactly 192 bytes (64 bytes for G1 + 128 bytes for G2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
+#[repr(C)]
+pub struct PodPair {
+    pub g1: PodG1,
+    pub g2: PodG2,
+}
+
+/// The output of a BN254 pairing operation as a POD type.
+///
+/// Logically, the result of a pairing check is just a single byte (a boolean
+/// indicating success or failure). However, for historical reasons (Ethereum
+/// EIP-197 compatibility), the output is padded to exactly 32 bytes.
+///
+/// Depending on the requested endianness, a successful pairing sets a `1` byte
+/// at different ends of the array:
+/// - Big-Endian (BE): The `1` is placed at the very end of the array (index 31).
+/// - Little-Endian (LE): The `1` is placed at the very beginning of the array (index 0).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
+#[repr(transparent)]
+pub struct PodPairingOutput(pub [u8; ALT_BN128_PAIRING_OUTPUT_SIZE]);
+
+impl PodPairingOutput {
+    /// Constructs a `PodPairingOutput` from a boolean result and the requested endianness.
+    #[inline]
+    pub(crate) fn from_bool(is_success: bool, endianness: Endianness) -> Self {
+        let mut output = [0u8; ALT_BN128_PAIRING_OUTPUT_SIZE];
+        if is_success {
+            match endianness {
+                Endianness::BE => output[ALT_BN128_PAIRING_OUTPUT_SIZE - 1] = 1,
+                Endianness::LE => output[0] = 1,
+            }
+        }
+        Self(output)
+    }
 }
 
 /// The implementation of the `sol_alt_bn128_group_op` syscall pairing operation
@@ -33,36 +74,19 @@ pub enum VersionedPairing {
 /// guidelines on SIMD approvals and versioning.
 pub fn alt_bn128_versioned_pairing(
     version: VersionedPairing,
-    input: &[u8],
+    pairs: &[PodPair],
     endianness: Endianness,
-) -> Option<[u8; ALT_BN128_PAIRING_OUTPUT_SIZE]> {
+) -> Option<PodPairingOutput> {
     // reject deprecated variants
     if matches!(version, VersionedPairing::V0) {
         return None;
     }
 
-    #[allow(clippy::manual_is_multiple_of)]
-    if input.len() % ALT_BN128_PAIRING_ELEMENT_SIZE != 0 {
-        return None;
-    }
+    let mut vec_pairs: Vec<(G1, G2)> = Vec::with_capacity(pairs.len());
 
-    let chunks = input.chunks_exact(ALT_BN128_PAIRING_ELEMENT_SIZE);
-    let mut vec_pairs: Vec<(G1, G2)> = Vec::with_capacity(chunks.len());
-
-    for chunk in chunks {
-        let (p_bytes, q_bytes) = chunk.split_at(ALT_BN128_G1_POINT_SIZE);
-
-        let (g1, g2) = match endianness {
-            Endianness::BE => (
-                PodG1::from_be_bytes(p_bytes)?.into_affine()?,
-                PodG2::from_be_bytes(q_bytes)?.into_affine()?,
-            ),
-            Endianness::LE => (
-                PodG1::from_le_bytes(p_bytes)?.into_affine()?,
-                PodG2::from_le_bytes(q_bytes)?.into_affine()?,
-            ),
-        };
-
+    for pair in pairs {
+        let g1 = pair.g1.deserialize_affine(endianness)?;
+        let g2 = pair.g2.deserialize_affine(endianness)?;
         vec_pairs.push((g1, g2));
     }
 
@@ -71,16 +95,6 @@ pub fn alt_bn128_versioned_pairing(
         vec_pairs.iter().map(|pair| pair.1),
     );
 
-    let result = if res.0 == ark_bn254::Fq12::one() {
-        BigInteger256::from(1u64)
-    } else {
-        BigInteger256::from(0u64)
-    };
-
-    let output = match endianness {
-        Endianness::BE => result.to_bytes_be().try_into().ok()?,
-        Endianness::LE => result.to_bytes_le().try_into().ok()?,
-    };
-
-    Some(output)
+    let is_success = res.0 == ark_bn254::Fq12::one();
+    Some(PodPairingOutput::from_bool(is_success, endianness))
 }
