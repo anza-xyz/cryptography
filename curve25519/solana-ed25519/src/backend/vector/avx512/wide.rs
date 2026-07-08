@@ -1214,7 +1214,7 @@ pub(crate) mod avx512ifma {
     }
 
     #[cfg(test)]
-    mod simd_torsion_tests {
+    mod avx512_torsion_tests {
         use super::*;
 
         fn strict_square_n(x: &WideFe, n: usize) -> WideFe {

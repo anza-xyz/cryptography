@@ -1,22 +1,13 @@
-use super::batch::R_ENCODING_LEN;
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum VerifyPolicy {
-    /// ZIP-215 cofactored verification; accepts non-canonical point encodings.
-    #[default]
-    Zip215,
-    /// Dalek-style canonical-`R` verification with solana-ed25519 legacy filters.
-    Dalek,
-}
+//! Shared compatibility helpers for legacy Dalek-style verification.
 
 /// solana-ed25519's legacy `R` blacklist, kept byte-for-byte for Dalek policy
 /// compatibility.
-const LEGACY_EXCLUDED_R_ENCODINGS: [[u8; R_ENCODING_LEN]; 11] = [
+const LEGACY_EXCLUDED_R_ENCODINGS: [[u8; 32]; 11] = [
     // Canonical encoding of a y=0 order-4 point.
-    [0x00; R_ENCODING_LEN],
+    [0x00; 32],
     // Canonical identity encoding: y=1, x=0.
     {
-        let mut e = [0x00; R_ENCODING_LEN];
+        let mut e = [0x00; 32];
         e[0] = 0x01;
         e
     },
@@ -77,16 +68,28 @@ const LEGACY_EXCLUDED_R_ENCODINGS: [[u8; R_ENCODING_LEN]; 11] = [
 ];
 
 /// The Ed25519 field modulus `p = 2^255 - 19`, encoded little-endian.
+#[cfg(all(
+    target_arch = "x86_64",
+    target_feature = "avx512f",
+    target_feature = "avx512dq",
+    target_feature = "avx512ifma",
+))]
 const FIELD_P_BYTES: [u8; 32] = [
     0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f,
 ];
 
-pub(crate) fn r_encoding_is_legacy_excluded(r_bytes: &[u8; R_ENCODING_LEN]) -> bool {
+pub(crate) fn r_encoding_is_legacy_excluded(r_bytes: &[u8; 32]) -> bool {
     LEGACY_EXCLUDED_R_ENCODINGS.contains(r_bytes)
 }
 
-pub(crate) fn r_encoding_has_canonical_y(r_bytes: &[u8; R_ENCODING_LEN]) -> bool {
+#[cfg(all(
+    target_arch = "x86_64",
+    target_feature = "avx512f",
+    target_feature = "avx512dq",
+    target_feature = "avx512ifma",
+))]
+pub(crate) fn r_encoding_has_canonical_y(r_bytes: &[u8; 32]) -> bool {
     let mut y = *r_bytes;
     y[31] &= 0x7f;
     let mut i = 32;

@@ -2,7 +2,7 @@ use core::convert::TryFrom;
 
 use crate::ed_sigs::{
     Signature, SigningKey, VerificationKey, VerificationKeyBytes,
-    simd::{Verifier, VerifyInput},
+    avx512::{Verifier, VerifyInput},
 };
 
 #[test]

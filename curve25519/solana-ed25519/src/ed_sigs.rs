@@ -8,13 +8,14 @@ use zeroize::Zeroize;
 #[cfg(test)]
 mod tests;
 
+#[cfg(feature = "avx512")]
+pub mod avx512;
 #[cfg(feature = "alloc")]
 pub mod batch;
 mod bip32;
 mod error;
+pub(crate) mod legacy;
 mod signing_key;
-#[cfg(feature = "simd")]
-pub mod simd;
 mod verification_key;
 
 // Allows importing traits used by `Signature`.

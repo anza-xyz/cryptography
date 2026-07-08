@@ -82,7 +82,7 @@ serde = ["dep:serde", "serde/derive"]
 lizard = ["digest"]
 pkcs8 = ["dep:pkcs8", "pkcs8/alloc", "ed25519/pkcs8", "alloc"]
 pem = ["pkcs8", "dep:der", "ed25519/pem", "zeroize"]
-simd = ["std"]
+avx512 = ["std"]
 
 [lints.rust.unexpected_cfgs]
 level = "warn"
