@@ -45,6 +45,11 @@ rand.workspace = true
 rustc_version.workspace = true
 
 [[bench]]
+name = "bench"
+harness = false
+required-features = ["alloc", "rand_core"]
+
+[[bench]]
 name = "dalek_benchmarks"
 harness = false
 required-features = ["alloc", "digest", "group", "rand_core"]

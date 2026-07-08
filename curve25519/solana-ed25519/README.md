@@ -217,6 +217,10 @@ RUSTFLAGS='-C target-feature=+avx512f,+avx512dq,+avx512ifma' \
 Builds without those target features still compile the public API, but constructing the verifier
 panics with a clear unsupported-build message.
 
+To compare the AVX2 and AVX-512 Ed25519 verification paths on an AVX-512 IFMA-capable host, run
+[`scripts/bench-ed25519-backends.sh`](../../scripts/bench-ed25519-backends.sh) from the workspace
+root.
+
 ### CUDA (opt-in)
 
 See the [`curve25519-cuda`](../curve25519-cuda) crate.  Provides GPU-accelerated
