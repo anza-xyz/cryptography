@@ -14,7 +14,7 @@ use core::convert::TryFrom;
 #[cfg(feature = "pkcs8")]
 use core::convert::TryInto;
 #[cfg(feature = "rand_core")]
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 use sha2::{Digest, Sha512, digest::Update};
 use subtle::ConstantTimeEq;
 #[cfg(feature = "zeroize")]
@@ -376,7 +376,7 @@ impl SigningKey {
 
     /// Generate a new signing key.
     #[cfg(feature = "rand_core")]
-    pub fn new<R: RngCore + CryptoRng>(mut rng: R) -> SigningKey {
+    pub fn new<R: CryptoRng>(mut rng: R) -> SigningKey {
         let mut bytes = [0u8; 32];
         rng.fill_bytes(&mut bytes[..]);
         let signing_key = bytes.into();

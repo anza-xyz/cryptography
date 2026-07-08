@@ -113,12 +113,11 @@ use digest::{
 #[cfg(feature = "group")]
 use {
     group::{GroupEncoding, cofactor::CofactorGroup, prime::PrimeGroup},
-    rand_core::RngCore as GroupRngCore,
     subtle::CtOption,
 };
 
 #[cfg(feature = "rand_core")]
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 
 use subtle::Choice;
 use subtle::ConditionallyNegatable;
@@ -741,7 +740,7 @@ impl EdwardsPoint {
     ///
     /// # Inputs
     ///
-    /// * `rng`: any RNG which implements `CryptoRng` and `RngCore`
+    /// * `rng`: any RNG which implements `CryptoRng`
     ///
     /// # Returns
     ///
@@ -752,7 +751,7 @@ impl EdwardsPoint {
     /// Uses rejection sampling, generating a random `CompressedEdwardsY` and then attempting point
     /// decompression, rejecting invalid points.
     #[cfg(feature = "rand_core")]
-    pub fn random<R: CryptoRng + RngCore + ?Sized>(rng: &mut R) -> Self {
+    pub fn random<R: CryptoRng + ?Sized>(rng: &mut R) -> Self {
         let mut repr = CompressedEdwardsY([0u8; 32]);
         loop {
             rng.fill_bytes(&mut repr.0);
@@ -1482,13 +1481,13 @@ impl Debug for EdwardsPoint {
 impl group::Group for EdwardsPoint {
     type Scalar = Scalar;
 
-    fn random(mut rng: impl GroupRngCore) -> Self {
+    fn try_random<R: rand_core::TryRng + ?Sized>(rng: &mut R) -> Result<Self, R::Error> {
         let mut repr = CompressedEdwardsY([0u8; 32]);
         loop {
-            rng.fill_bytes(&mut repr.0);
+            rng.try_fill_bytes(&mut repr.0)?;
             if let Some(p) = repr.decompress() {
                 if !IsIdentity::is_identity(&p) {
-                    break p;
+                    break Ok(p);
                 }
             }
         }
@@ -1734,20 +1733,20 @@ impl Zeroize for SubgroupPoint {
 impl group::Group for SubgroupPoint {
     type Scalar = Scalar;
 
-    fn random(mut rng: impl GroupRngCore) -> Self {
+    fn try_random<R: rand_core::TryRng + ?Sized>(rng: &mut R) -> Result<Self, R::Error> {
         use group::ff::Field;
 
         // This will almost never loop, but `Group::random` is documented as returning a
         // non-identity element.
         let s = loop {
-            let s: Scalar = Field::random(&mut rng);
+            let s: Scalar = Field::try_random(rng)?;
             if !s.is_zero_vartime() {
                 break s;
             }
         };
 
         // This gives an element of the prime-order subgroup.
-        Self::generator() * s
+        Ok(Self::generator() * s)
     }
 
     fn identity() -> Self {
@@ -2097,13 +2096,13 @@ mod test {
     /// Check that mul_base_clamped and mul_clamped agree
     #[test]
     fn mul_base_clamped() {
-        let mut csprng = rand::thread_rng();
+        let mut csprng = rand::rng();
 
         // Make a random curve point in the curve. Give it torsion to make things interesting.
         #[cfg(feature = "precomputed-tables")]
         let random_point = {
             let mut b = [0u8; 32];
-            csprng.fill(&mut b);
+            csprng.fill_bytes(&mut b);
             EdwardsPoint::mul_base_clamped(b) + constants::EIGHT_TORSION[1]
         };
         // Make a basepoint table from the random point. We'll use this with mul_base_clamped
@@ -2129,7 +2128,7 @@ mod test {
         for _ in 0..100 {
             // This will be reduced mod l with probability l / 2^256 ≈ 6.25%
             let mut a_bytes = [0u8; 32];
-            csprng.fill(&mut a_bytes);
+            csprng.fill_bytes(&mut a_bytes);
 
             assert_eq!(
                 EdwardsPoint::mul_base_clamped(a_bytes),
@@ -2214,7 +2213,7 @@ mod test {
     #[cfg(all(feature = "alloc", feature = "rand_core"))]
     #[test]
     fn compress_batch() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // TODO(tarcieri): proptests?
         // Make some points deterministically then randomly
@@ -2270,7 +2269,7 @@ mod test {
     // A single iteration of a consistency check for MSM.
     #[cfg(all(feature = "alloc", feature = "rand_core"))]
     fn multiscalar_consistency_iter(n: usize) {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // Construct random coefficients x0, ..., x_{n-1},
         // followed by some extra hardcoded ones.
@@ -2333,7 +2332,7 @@ mod test {
     #[test]
     #[cfg(all(feature = "alloc", feature = "rand_core"))]
     fn batch_to_montgomery() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         let scalars = (0..128)
             .map(|_| Scalar::random(&mut rng))
@@ -2358,7 +2357,7 @@ mod test {
     #[test]
     #[cfg(all(feature = "alloc", feature = "rand_core"))]
     fn vartime_precomputed_vs_nonprecomputed_multiscalar() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         let static_scalars = (0..128)
             .map(|_| Scalar::random(&mut rng))

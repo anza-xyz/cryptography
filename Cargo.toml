@@ -37,8 +37,8 @@ der = "0.7.9"
 digest = { version = "0.11.0", default-features = false }
 ed25519 = { version = "2.2.3", default-features = false }
 ed25519-dalek = "2.2.0"
-ff = { version = "0.13.0", default-features = false }
-group = { version = "0.13.0", default-features = false }
+ff = { version = "0.14.0", default-features = false }
+group = { version = "0.14.0", default-features = false }
 hashbrown = "0.15"
 hex = "0.4.2"
 hex-literal = "1.1.0"
@@ -49,8 +49,8 @@ p256 = { version = "0.13", default-features = false, features = ["arithmetic", "
 pkcs8 = { version = "0.10.1" }
 once_cell = "1.21"
 proptest = "=1.6.0"
-rand = "0.8"
-rand_core = { version = "0.6", default-features = false }
+rand = "0.10.2"
+rand_core = { version = "0.10.1", default-features = false }
 rayon = "1.10"
 rustc_version = "0.4.0"
 serde = { version = "1.0", default-features = false }
