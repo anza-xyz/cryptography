@@ -400,7 +400,7 @@ impl Serialize for Scalar {
     where
         S: Serializer,
     {
-        crate::serde_utils::serialize_bytes_32(self.as_bytes(), serializer)
+        crate::util::serialize_bytes_32(self.as_bytes(), serializer)
     }
 }
 
@@ -411,7 +411,7 @@ impl<'de> Deserialize<'de> for Scalar {
     where
         D: Deserializer<'de>,
     {
-        let mut bytes = crate::serde_utils::deserialize_bytes_32(
+        let mut bytes = crate::util::deserialize_bytes_32(
             deserializer,
             "a sequence of 32 bytes whose little-endian interpretation is less than the \
             basepoint order ℓ",

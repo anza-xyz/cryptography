@@ -54,7 +54,7 @@ pub use digest;
 pub(crate) mod macros;
 
 #[cfg(feature = "serde")]
-mod serde_utils;
+mod util;
 
 //------------------------------------------------------------------------
 // curve25519 public modules

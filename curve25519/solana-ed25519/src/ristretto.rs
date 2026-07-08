@@ -378,7 +378,7 @@ impl Serialize for RistrettoPoint {
     where
         S: Serializer,
     {
-        crate::serde_utils::serialize_bytes_32(self.compress().as_bytes(), serializer)
+        crate::util::serialize_bytes_32(self.compress().as_bytes(), serializer)
     }
 }
 
@@ -388,7 +388,7 @@ impl Serialize for CompressedRistretto {
     where
         S: Serializer,
     {
-        crate::serde_utils::serialize_bytes_32(self.as_bytes(), serializer)
+        crate::util::serialize_bytes_32(self.as_bytes(), serializer)
     }
 }
 
@@ -398,10 +398,8 @@ impl<'de> Deserialize<'de> for RistrettoPoint {
     where
         D: Deserializer<'de>,
     {
-        let bytes = crate::serde_utils::deserialize_bytes_32(
-            deserializer,
-            "a valid point in Ristretto format",
-        )?;
+        let bytes =
+            crate::util::deserialize_bytes_32(deserializer, "a valid point in Ristretto format")?;
         CompressedRistretto(bytes)
             .decompress()
             .ok_or_else(|| serde::de::Error::custom("decompression failed"))
@@ -414,8 +412,7 @@ impl<'de> Deserialize<'de> for CompressedRistretto {
     where
         D: Deserializer<'de>,
     {
-        crate::serde_utils::deserialize_bytes_32(deserializer, "32 bytes of data")
-            .map(CompressedRistretto)
+        crate::util::deserialize_bytes_32(deserializer, "32 bytes of data").map(CompressedRistretto)
     }
 }
 
