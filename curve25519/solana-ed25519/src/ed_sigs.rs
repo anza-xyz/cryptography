@@ -25,9 +25,6 @@ pub use error::Error;
 pub use signing_key::SigningKey;
 pub use verification_key::{VerificationKey, VerificationKeyBytes};
 
-#[cfg(test)]
-pub(crate) use verification_key::LEGACY_EXCLUDED_R_ENCODINGS;
-
 #[cfg(all(
     feature = "avx512",
     target_arch = "x86_64",

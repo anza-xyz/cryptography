@@ -9,7 +9,7 @@ use color_eyre::{Report, eyre::eyre};
 use core::convert::TryFrom;
 use std::vec::Vec;
 
-pub(crate) use crate::ed_sigs::LEGACY_EXCLUDED_R_ENCODINGS as EXCLUDED_POINT_ENCODINGS;
+pub(crate) use crate::ed_sigs::verification_key::LEGACY_EXCLUDED_R_ENCODINGS as EXCLUDED_POINT_ENCODINGS;
 
 pub struct TestCase {
     pub vk_bytes: [u8; 32],
