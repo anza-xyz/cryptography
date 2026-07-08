@@ -13,6 +13,8 @@ pub mod batch;
 mod bip32;
 mod error;
 mod signing_key;
+#[cfg(feature = "simd")]
+pub mod simd;
 mod verification_key;
 
 // Allows importing traits used by `Signature`.
