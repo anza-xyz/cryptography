@@ -16,4 +16,7 @@ pub mod packed_simd;
 
 pub mod avx2;
 
+#[cfg(feature = "avx512")]
+pub mod avx512;
+
 pub mod scalar_mul;

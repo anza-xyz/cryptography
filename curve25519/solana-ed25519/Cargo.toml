@@ -45,6 +45,11 @@ rand.workspace = true
 rustc_version.workspace = true
 
 [[bench]]
+name = "bench"
+harness = false
+required-features = ["alloc", "rand_core"]
+
+[[bench]]
 name = "dalek_benchmarks"
 harness = false
 required-features = ["alloc", "digest", "group", "rand_core"]
@@ -82,6 +87,7 @@ serde = ["dep:serde", "serde/derive"]
 lizard = ["digest"]
 pkcs8 = ["dep:pkcs8", "pkcs8/alloc", "ed25519/pkcs8", "alloc"]
 pem = ["pkcs8", "dep:der", "ed25519/pem", "zeroize"]
+avx512 = ["std"]
 
 [lints.rust.unexpected_cfgs]
 level = "warn"

@@ -41,11 +41,13 @@ Only the following backends are maintained in this fork:
 | Backend | Selection | Notes |
 |---|---|---|
 | `serial` | Automatic fallback | Pure Rust, 64-bit word size on 64-bit targets |
-| `simd` / AVX2 | Runtime on x86-64 | Vectorised 4-wide field arithmetic |
+| AVX2 vector backend | Runtime on x86-64 | Vectorised 4-wide field arithmetic |
+| AVX-512 Ed25519 verifier | Opt-in (`avx512` feature + target features) | Batched Ed25519 verification, per-input results |
 | CUDA | Opt-in (`curve25519-cuda` crate) | GPU MSM via SPPARK/BLST |
 
 The `fiat` (formally-verified fiat-crypto) and `unstable_avx512` backends present in upstream
-have been removed.
+have been removed. The AVX-512 code in this fork is not the upstream curve arithmetic backend; it
+is a separate Ed25519 batch verifier exposed under `ed_sigs::avx512`.
 
 ---
 
@@ -159,6 +161,7 @@ let (rho, tau, flip_h) = h.heea_decompose();
 | `serde` | | Serialization for all point, scalar, and key types. |
 | `pkcs8` | | PKCS#8 DER encoding/decoding for Ed25519 keys. |
 | `pem` | | PEM encoding/decoding for Ed25519 keys (requires `pkcs8`). |
+| `avx512` | | Enables the `ed_sigs::avx512` batched verifier API. Requires an AVX-512 IFMA build for the optimized path. |
 | `legacy_compatibility` | | `Scalar::from_bits` (broken arithmetic, use only if required). |
 | `group` | | `group` and `ff` crate trait impls. |
 | `group-bits` | | `ff::PrimeFieldBits` for `Scalar`. |
@@ -168,11 +171,18 @@ let (rho, tau, flip_h) = h.heea_decompose();
 
 ## Backends
 
-### Serial (default)
+There are two separate backend decisions:
+
+- Curve arithmetic for `EdwardsPoint`, `RistrettoPoint`, scalar multiplication, and the default
+  Ed25519 verifier is selected automatically at runtime.
+- The AVX-512 Ed25519 batch verifier is an explicit API under `ed_sigs::avx512`; callers choose it
+  directly and must build for the required AVX-512 target features to get the optimized path.
+
+### Curve Arithmetic: Serial Fallback
 
 Pure-Rust, available on all targets.  64-bit arithmetic on 64-bit platforms.
 
-### AVX2 (automatic on x86-64)
+### Curve Arithmetic: AVX2 on x86-64
 
 Runtime CPU-feature detection via `cpufeatures`.  4-wide vectorised field elements in
 radix-25.5 representation.  Automatically selected when the CPU supports AVX2; falls through to
@@ -183,6 +193,33 @@ To hard-code AVX2 at compile time:
 ```sh
 RUSTFLAGS='-C target-feature=+avx2' cargo build --release
 ```
+
+### Ed25519 Batch Verification: AVX-512 IFMA
+
+Enable the `avx512` feature to expose `curve25519::ed_sigs::avx512`.  This verifier processes
+eight signatures per SIMD chunk, supports `Zip215` and Dalek-style policies, and returns one
+boolean per input instead of one pass/fail result for the whole batch.
+
+The optimized implementation is compiled only for `x86_64` builds with all of:
+
+- `avx512f`
+- `avx512dq`
+- `avx512ifma`
+
+For example:
+
+```sh
+RUSTFLAGS='-C target-feature=+avx512f,+avx512dq,+avx512ifma' \
+  cargo build --release --features avx512
+```
+
+`Verifier` construction also performs a runtime CPU/OS feature check before using the hot path.
+Builds without those target features still compile the public API, but constructing the verifier
+panics with a clear unsupported-build message.
+
+To compare the AVX2 and AVX-512 Ed25519 verification paths on an AVX-512 IFMA-capable host, run
+[`scripts/bench-ed25519-backends.sh`](../../scripts/bench-ed25519-backends.sh) from the workspace
+root.
 
 ### CUDA (opt-in)
 
@@ -197,8 +234,10 @@ All point types enforce validity invariants at the type level (no invalid `Edwar
 constructed).  All secret-operand operations use constant-time logic via the [`subtle`] crate.
 Variable-time functions are explicitly marked `vartime`.
 
-The SIMD backend uses `unsafe` internally for SIMD intrinsics, guarded by runtime CPU-feature
-checks.
+The AVX2 curve arithmetic backend and AVX-512 Ed25519 verifier use `unsafe` internally for SIMD
+intrinsics. AVX2 dispatch is guarded by runtime CPU-feature detection. The AVX-512 verifier also
+requires compile-time target features, then checks runtime CPU/OS support when the verifier is
+constructed.
 
 ---
 

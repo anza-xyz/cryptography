@@ -8,6 +8,8 @@ use zeroize::Zeroize;
 #[cfg(test)]
 mod tests;
 
+#[cfg(feature = "avx512")]
+pub mod avx512;
 #[cfg(feature = "alloc")]
 pub mod batch;
 mod bip32;
@@ -22,6 +24,15 @@ pub use bip32::{BIP32_HARDENED_INDEX_FLAG, Bip32DerivationError, ExtendedSigning
 pub use error::Error;
 pub use signing_key::SigningKey;
 pub use verification_key::{VerificationKey, VerificationKeyBytes};
+
+#[cfg(all(
+    feature = "avx512",
+    target_arch = "x86_64",
+    target_feature = "avx512f",
+    target_feature = "avx512dq",
+    target_feature = "avx512ifma",
+))]
+pub(crate) use verification_key::r_encoding_is_legacy_excluded;
 
 pub(crate) fn scalar_from_sha512(hash: Sha512) -> Scalar {
     #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
