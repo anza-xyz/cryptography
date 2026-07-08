@@ -2,7 +2,7 @@
 
 /// solana-ed25519's legacy `R` blacklist, kept byte-for-byte for Dalek policy
 /// compatibility.
-const LEGACY_EXCLUDED_R_ENCODINGS: [[u8; 32]; 11] = [
+pub(crate) const LEGACY_EXCLUDED_R_ENCODINGS: [[u8; 32]; 11] = [
     // Canonical encoding of a y=0 order-4 point.
     [0x00; 32],
     // Canonical identity encoding: y=1, x=0.

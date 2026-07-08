@@ -1,11 +1,5 @@
 use super::field::Fe51;
 
-/// The standard RFC 8032 encoding of the Ed25519 base point `B`.
-const BASEPOINT_COMPRESSED: [u8; 32] = [
-    0x58, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
-    0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
-];
-
 #[derive(Clone, Debug)]
 pub(crate) struct EdwardsPoint {
     x: Fe51,
@@ -175,7 +169,8 @@ impl EdwardsPoint {
         // Built once per process (see BASE_TABLE in verifier.rs), so a
         // decompress here (instead of hardcoded limb constants) costs
         // nothing worth avoiding.
-        Self::decompress(&BASEPOINT_COMPRESSED).expect("basepoint encoding is valid")
+        Self::decompress(crate::constants::ED25519_BASEPOINT_COMPRESSED.as_bytes())
+            .expect("basepoint encoding is valid")
     }
 
     pub(crate) fn decompress(bytes: &[u8; 32]) -> Option<Self> {

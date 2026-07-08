@@ -391,8 +391,6 @@ impl ConditionallySelectable for Scalar {
 }
 
 #[cfg(feature = "serde")]
-use serde::de::Visitor;
-#[cfg(feature = "serde")]
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[cfg(feature = "serde")]
@@ -402,12 +400,7 @@ impl Serialize for Scalar {
     where
         S: Serializer,
     {
-        use serde::ser::SerializeTuple;
-        let mut tup = serializer.serialize_tuple(32)?;
-        for byte in self.as_bytes().iter() {
-            tup.serialize_element(byte)?;
-        }
-        tup.end()
+        crate::serde_utils::serialize_bytes_32(self.as_bytes(), serializer)
     }
 }
 
@@ -418,40 +411,18 @@ impl<'de> Deserialize<'de> for Scalar {
     where
         D: Deserializer<'de>,
     {
-        struct ScalarVisitor;
+        let mut bytes = crate::serde_utils::deserialize_bytes_32(
+            deserializer,
+            "a sequence of 32 bytes whose little-endian interpretation is less than the \
+            basepoint order ℓ",
+        )?;
+        let scalar = Option::from(Scalar::from_canonical_bytes(bytes))
+            .ok_or_else(|| serde::de::Error::custom("scalar was not canonically encoded"));
 
-        impl<'de> Visitor<'de> for ScalarVisitor {
-            type Value = Scalar;
+        #[cfg(feature = "zeroize")]
+        bytes.zeroize();
 
-            fn expecting(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-                formatter.write_str(
-                    "a sequence of 32 bytes whose little-endian interpretation is less than the \
-                    basepoint order ℓ",
-                )
-            }
-
-            fn visit_seq<A>(self, mut seq: A) -> Result<Scalar, A::Error>
-            where
-                A: serde::de::SeqAccess<'de>,
-            {
-                let mut bytes = [0u8; 32];
-                #[allow(clippy::needless_range_loop)]
-                for i in 0..32 {
-                    bytes[i] = seq
-                        .next_element()?
-                        .ok_or_else(|| serde::de::Error::invalid_length(i, &"expected 32 bytes"))?;
-                }
-                let scalar = Option::from(Scalar::from_canonical_bytes(bytes))
-                    .ok_or_else(|| serde::de::Error::custom("scalar was not canonically encoded"));
-
-                #[cfg(feature = "zeroize")]
-                bytes.zeroize();
-
-                scalar
-            }
-        }
-
-        deserializer.deserialize_tuple(32, ScalarVisitor)
+        scalar
     }
 }
 
