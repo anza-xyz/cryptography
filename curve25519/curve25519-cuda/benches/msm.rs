@@ -1,11 +1,11 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use curve25519::edwards::EdwardsPoint;
-use curve25519::scalar::Scalar;
-use curve25519::short_weierstrass::SwPoint;
+use solana_ed25519::edwards::EdwardsPoint;
+use solana_ed25519::scalar::Scalar;
+use solana_ed25519::short_weierstrass::SwPoint;
 use rayon::prelude::*;
 
 fn cpu_msm(points: &[SwPoint], scalars: &[Scalar]) -> SwPoint {
-    use curve25519::traits::{Identity, VartimeMultiscalarMul};
+    use solana_ed25519::traits::{Identity, VartimeMultiscalarMul};
     assert_eq!(points.len(), scalars.len());
 
     let ed_points: Vec<EdwardsPoint> = points
@@ -50,7 +50,7 @@ fn bytes_from_seed(seed: u64) -> [u8; 32] {
 
 fn build_inputs(log_n: usize) -> (Vec<SwPoint>, Vec<Scalar>) {
     let npoints = 1usize << log_n;
-    let base = curve25519::constants::ED25519_BASEPOINT_POINT;
+    let base = solana_ed25519::constants::ED25519_BASEPOINT_POINT;
     let pairs: Vec<(SwPoint, Scalar)> = (0..npoints)
         .into_par_iter()
         .map(|i| {

@@ -2,14 +2,14 @@ use super::{
     msm_curve25519, scalar_to_sppark_scalar, scalar_to_sppark_scalar_bytes,
     sw_point_to_sppark_affine, sw_point_to_sppark_affine_bytes,
 };
-use curve25519::edwards::EdwardsPoint;
-use curve25519::scalar::Scalar;
-use curve25519::short_weierstrass::SwPoint;
+use solana_ed25519::edwards::EdwardsPoint;
+use solana_ed25519::scalar::Scalar;
+use solana_ed25519::short_weierstrass::SwPoint;
 #[cfg(curve25519_cuda)]
 use rayon::prelude::*;
 
 fn cpu_expected(points: &[SwPoint], scalars: &[Scalar]) -> SwPoint {
-    use curve25519::traits::VartimeMultiscalarMul;
+    use solana_ed25519::traits::VartimeMultiscalarMul;
     let mut ed_points = Vec::with_capacity(points.len());
     for point in points {
         ed_points.push(point.to_edwards().expect("valid sw point"));
@@ -48,7 +48,7 @@ fn sppark_scalar_bytes_one_is_one() {
 
 #[test]
 fn msm_curve25519_rejects_length_mismatch() {
-    let base = SwPoint::from_edwards(&curve25519::constants::ED25519_BASEPOINT_POINT);
+    let base = SwPoint::from_edwards(&solana_ed25519::constants::ED25519_BASEPOINT_POINT);
     let points = vec![base, base];
     let scalars = vec![Scalar::ONE];
     let err = msm_curve25519(&points, &scalars).unwrap_err();
@@ -63,7 +63,7 @@ fn msm_curve25519_empty_returns_identity() {
 
 #[test]
 fn msm_curve25519_matches_cpu_small() {
-    let base = SwPoint::from_edwards(&curve25519::constants::ED25519_BASEPOINT_POINT);
+    let base = SwPoint::from_edwards(&solana_ed25519::constants::ED25519_BASEPOINT_POINT);
     let points = vec![base, base, base.add(&base)];
     let scalars = vec![Scalar::ONE, Scalar::from(2u64), Scalar::from(3u64)];
     let out = msm_curve25519(&points, &scalars).expect("msm");
@@ -73,7 +73,7 @@ fn msm_curve25519_matches_cpu_small() {
 
 #[test]
 fn msm_curve25519_high_bit_scalars() {
-    let base = SwPoint::from_edwards(&curve25519::constants::ED25519_BASEPOINT_POINT);
+    let base = SwPoint::from_edwards(&solana_ed25519::constants::ED25519_BASEPOINT_POINT);
     let points = vec![base, base.add(&base)];
     let mut high = [0u8; 32];
     high[31] = 0x80;
@@ -85,7 +85,7 @@ fn msm_curve25519_high_bit_scalars() {
 
 #[test]
 fn msm_curve25519_infinity_points() {
-    let base = SwPoint::from_edwards(&curve25519::constants::ED25519_BASEPOINT_POINT);
+    let base = SwPoint::from_edwards(&solana_ed25519::constants::ED25519_BASEPOINT_POINT);
     let points = vec![SwPoint::Identity, base, SwPoint::Identity];
     let scalars = vec![Scalar::from(7u64), Scalar::from(9u64), Scalar::from(11u64)];
     let out = msm_curve25519(&points, &scalars).expect("msm");
@@ -95,12 +95,12 @@ fn msm_curve25519_infinity_points() {
 
 #[cfg(curve25519_cuda)]
 fn edwards_msm(
-    points: &[curve25519::edwards::EdwardsPoint],
+    points: &[solana_ed25519::edwards::EdwardsPoint],
     scalars: &[Scalar],
-) -> curve25519::edwards::EdwardsPoint {
-    use curve25519::traits::Identity;
+) -> solana_ed25519::edwards::EdwardsPoint {
+    use solana_ed25519::traits::Identity;
 
-    let mut acc = curve25519::edwards::EdwardsPoint::identity();
+    let mut acc = solana_ed25519::edwards::EdwardsPoint::identity();
     for (p, s) in points.iter().zip(scalars.iter()) {
         acc = acc + (p * s);
     }
@@ -171,7 +171,7 @@ fn affine_bytes_match(out: &crate::SpparkAffineBytes, expected: &crate::SpparkAf
 #[cfg(curve25519_cuda)]
 fn cuda_msm_matches_cpu() {
     use super::msm_curve25519_gpu_bytes;
-    use curve25519::constants;
+    use solana_ed25519::constants;
 
     let p_ed = constants::ED25519_BASEPOINT_POINT;
     let p = SwPoint::from_edwards(&p_ed);
@@ -193,7 +193,7 @@ fn cuda_msm_matches_cpu() {
 #[cfg(curve25519_cuda)]
 fn cuda_single_scalar_mul() {
     use super::msm_curve25519_gpu_bytes;
-    use curve25519::constants;
+    use solana_ed25519::constants;
 
     let base_ed = constants::ED25519_BASEPOINT_POINT;
     let base = SwPoint::from_edwards(&base_ed);
@@ -268,7 +268,7 @@ fn cuda_single_scalar_mul() {
 #[cfg(curve25519_cuda)]
 fn cuda_msm_randomized_batches() {
     use super::msm_curve25519_gpu_bytes;
-    use curve25519::constants;
+    use solana_ed25519::constants;
 
     let base = constants::ED25519_BASEPOINT_POINT;
     let sizes = [1usize, 2, 4, 8, 16];

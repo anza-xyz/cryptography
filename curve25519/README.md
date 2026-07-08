@@ -67,13 +67,13 @@ maintenance surface. If you need them, use upstream `curve25519-dalek` directly.
 Add the relevant crate to `Cargo.toml`:
 
 ```toml
-curve25519 = { package = "solana-ed25519", git = "https://github.com/anza-xyz/cryptography" }
+solana-ed25519 = { git = "https://github.com/anza-xyz/cryptography" }
 ```
 
 ### Standard Ed25519 verification
 
 ```rust
-use curve25519::ed_sigs::{SigningKey, VerificationKey};
+use solana_ed25519::ed_sigs::{SigningKey, VerificationKey};
 use rand::thread_rng;
 
 let msg = b"hello world";

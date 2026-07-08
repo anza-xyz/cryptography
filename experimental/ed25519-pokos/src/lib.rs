@@ -48,7 +48,7 @@
 //! # Ok::<(), String>(())
 //! ```
 
-use curve25519::ed_sigs::{Signature, VerificationKeyBytes};
+use solana_ed25519::ed_sigs::{Signature, VerificationKeyBytes};
 use sha2::{Digest, Sha512};
 
 // ─── Byte-length constants ────────────────────────────────────────────────────

@@ -33,12 +33,12 @@ use zeroize::DefaultIsZeroes;
 ///
 /// # Note
 ///
-/// The `curve25519::field` module provides a type alias
-/// `curve25519::field::FieldElement` to either `FieldElement51`
+/// The `solana_ed25519::field` module provides a type alias
+/// `solana_ed25519::field::FieldElement` to either `FieldElement51`
 /// or `FieldElement2625`.
 ///
 /// The backend-specific type `FieldElement51` should not be used
-/// outside of the `curve25519::field` module.
+/// outside of the `solana_ed25519::field` module.
 #[derive(Copy, Clone)]
 pub struct FieldElement51(pub(crate) [u64; 5]);
 

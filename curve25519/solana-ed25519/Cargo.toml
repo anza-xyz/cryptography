@@ -17,11 +17,6 @@ exclude = ["**/.gitignore", ".gitignore"]
 repository = { workspace = true }
 homepage = { workspace = true }
 
-# Keep the Rust library name as "curve25519" so that all existing `use curve25519::…`
-# references in doc-tests, dependent crates, and source files remain valid.
-[lib]
-name = "curve25519"
-
 [package.metadata.docs.rs]
 rustdoc-args = [
     "--html-in-header",

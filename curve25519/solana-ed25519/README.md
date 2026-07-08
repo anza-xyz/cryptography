@@ -96,14 +96,14 @@ See [ZIP 215] for full details.
 ## Use
 
 ```toml
-curve25519 = { package = "solana-ed25519", git = "https://github.com/anza-xyz/cryptography" }
+solana-ed25519 = { git = "https://github.com/anza-xyz/cryptography" }
 ```
 
 ### Ed25519 signing and verification
 
 ```rust,no_run
 use core::convert::TryFrom;
-use curve25519::ed_sigs::{SigningKey, VerificationKey};
+use solana_ed25519::ed_sigs::{SigningKey, VerificationKey};
 
 let msg = b"curve25519-sol";
 
@@ -119,7 +119,7 @@ vk.verify(&sig, msg).expect("valid signature");
 ### Batch verification
 
 ```rust,ignore
-use curve25519::ed_sigs::batch;
+use solana_ed25519::ed_sigs::batch;
 
 let mut verifier = batch::Verifier::new();
 for (vk_bytes, sig, msg) in items {
@@ -131,8 +131,8 @@ verifier.verify(rand::thread_rng()).expect("all valid");
 ### HEEA decomposition example
 
 ```rust,ignore
-use curve25519::traits::HEEADecomposition;
-use curve25519::scalar::Scalar;
+use solana_ed25519::traits::HEEADecomposition;
+use solana_ed25519::scalar::Scalar;
 use sha2::{Sha512, Digest};
 
 // h is a typical 256-bit hash scalar

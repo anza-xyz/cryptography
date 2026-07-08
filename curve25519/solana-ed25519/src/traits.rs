@@ -103,10 +103,10 @@ pub trait MultiscalarMul {
     /// ```
     /// # #[cfg(feature = "alloc")]
     /// # {
-    /// use curve25519::constants;
-    /// use curve25519::traits::MultiscalarMul;
-    /// use curve25519::ristretto::RistrettoPoint;
-    /// use curve25519::scalar::Scalar;
+    /// use solana_ed25519::constants;
+    /// use solana_ed25519::traits::MultiscalarMul;
+    /// use solana_ed25519::ristretto::RistrettoPoint;
+    /// use solana_ed25519::scalar::Scalar;
     ///
     /// // Some scalars
     /// let a = Scalar::from(87329482u64);
@@ -159,10 +159,10 @@ pub trait VartimeMultiscalarMul {
     /// ```
     /// #[cfg(feature = "alloc")]
     /// # {
-    /// use curve25519::constants;
-    /// use curve25519::traits::VartimeMultiscalarMul;
-    /// use curve25519::ristretto::RistrettoPoint;
-    /// use curve25519::scalar::Scalar;
+    /// use solana_ed25519::constants;
+    /// use solana_ed25519::traits::VartimeMultiscalarMul;
+    /// use solana_ed25519::ristretto::RistrettoPoint;
+    /// use solana_ed25519::scalar::Scalar;
     ///
     /// // Some scalars
     /// let a = Scalar::from(87329482u64);
@@ -225,10 +225,10 @@ pub trait VartimeMultiscalarMul {
     /// ```
     /// #[cfg(feature = "alloc")]
     /// # {
-    /// use curve25519::constants;
-    /// use curve25519::traits::VartimeMultiscalarMul;
-    /// use curve25519::ristretto::RistrettoPoint;
-    /// use curve25519::scalar::Scalar;
+    /// use solana_ed25519::constants;
+    /// use solana_ed25519::traits::VartimeMultiscalarMul;
+    /// use solana_ed25519::ristretto::RistrettoPoint;
+    /// use solana_ed25519::scalar::Scalar;
     ///
     /// // Some scalars
     /// let a = Scalar::from(87329482u64);
