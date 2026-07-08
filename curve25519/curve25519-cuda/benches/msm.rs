@@ -1,8 +1,8 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use rayon::prelude::*;
 use solana_ed25519::edwards::EdwardsPoint;
 use solana_ed25519::scalar::Scalar;
 use solana_ed25519::short_weierstrass::SwPoint;
-use rayon::prelude::*;
 
 fn cpu_msm(points: &[SwPoint], scalars: &[Scalar]) -> SwPoint {
     use solana_ed25519::traits::{Identity, VartimeMultiscalarMul};

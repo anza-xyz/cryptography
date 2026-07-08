@@ -108,10 +108,10 @@ pub fn msm_curve25519_gpu(points: &[SwPoint], scalars: &[Scalar]) -> Result<SwPo
 }
 
 fn msm_curve25519_cpu(points: &[SwPoint], scalars: &[Scalar]) -> Result<SwPoint, String> {
+    use rayon::prelude::*;
     use solana_ed25519::edwards::EdwardsPoint;
     use solana_ed25519::traits::Identity;
     use solana_ed25519::traits::VartimeMultiscalarMul;
-    use rayon::prelude::*;
 
     if points.len() != scalars.len() {
         return Err("length mismatch".to_string());

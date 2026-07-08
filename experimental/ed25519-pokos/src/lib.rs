@@ -48,8 +48,8 @@
 //! # Ok::<(), String>(())
 //! ```
 
-use solana_ed25519::ed_sigs::{Signature, VerificationKeyBytes};
 use sha2::{Digest, Sha512};
+use solana_ed25519::ed_sigs::{Signature, VerificationKeyBytes};
 
 // ─── Byte-length constants ────────────────────────────────────────────────────
 

@@ -2,11 +2,11 @@ use super::{
     msm_curve25519, scalar_to_sppark_scalar, scalar_to_sppark_scalar_bytes,
     sw_point_to_sppark_affine, sw_point_to_sppark_affine_bytes,
 };
+#[cfg(curve25519_cuda)]
+use rayon::prelude::*;
 use solana_ed25519::edwards::EdwardsPoint;
 use solana_ed25519::scalar::Scalar;
 use solana_ed25519::short_weierstrass::SwPoint;
-#[cfg(curve25519_cuda)]
-use rayon::prelude::*;
 
 fn cpu_expected(points: &[SwPoint], scalars: &[Scalar]) -> SwPoint {
     use solana_ed25519::traits::VartimeMultiscalarMul;
