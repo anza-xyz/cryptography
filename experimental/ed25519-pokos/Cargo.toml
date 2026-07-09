@@ -11,7 +11,7 @@ license = { workspace = true }
 bincode.workspace = true
 solana-ed25519.workspace = true
 p3-air = "0.4.2"
-p3-challenger = "0.4.2"
+p3-challenger = "0.6.1"
 p3-commit = "0.4.2"
 p3-dft = { version = "0.4.2", features = ["parallel"] }
 p3-field = "0.4.2"
