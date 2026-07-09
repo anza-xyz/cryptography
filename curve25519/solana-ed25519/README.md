@@ -125,7 +125,7 @@ let mut verifier = batch::Verifier::new();
 for (vk_bytes, sig, msg) in items {
     verifier.queue((vk_bytes, sig, msg));
 }
-verifier.verify(rand::thread_rng()).expect("all valid");
+verifier.verify().expect("all valid");
 ```
 
 ### HEEA decomposition example

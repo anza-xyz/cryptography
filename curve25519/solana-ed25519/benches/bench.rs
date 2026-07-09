@@ -68,7 +68,7 @@ fn bench_batch_verify(c: &mut Criterion) {
                     for (vk_bytes, sig) in sigs.iter().cloned() {
                         batch.queue((vk_bytes, sig, b""));
                     }
-                    batch.verify(rand::thread_rng())
+                    batch.verify()
                 })
             },
         );
@@ -84,7 +84,7 @@ fn bench_batch_verify(c: &mut Criterion) {
                     for (vk_bytes, sig) in sigs.iter().cloned() {
                         batch.queue((vk_bytes, sig, b""));
                     }
-                    batch.verify(rand::thread_rng())
+                    batch.verify()
                 })
             },
         );

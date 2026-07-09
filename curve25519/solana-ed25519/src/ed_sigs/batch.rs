@@ -43,7 +43,7 @@
 //!     let sig = sk.sign(&msg[..]);
 //!     batch.queue((vk_bytes, sig, &msg[..]));
 //! }
-//! assert!(batch.verify(rand::thread_rng()).is_ok());
+//! assert!(batch.verify().is_ok());
 //! ```
 //!
 //! [ZIP215]: https://zips.z.cash/zip-0215
@@ -59,7 +59,7 @@ use crate::{
 };
 use hashbrown::HashMap;
 #[cfg(feature = "rand_core")]
-use rand_core::{CryptoRng, RngCore};
+use rand_core::{OsRng, RngCore};
 use sha2::{Sha512, digest::Update};
 
 use super::{Error, VerificationKey, VerificationKeyBytes, scalar_from_sha512};
@@ -67,7 +67,7 @@ use ed25519::Signature;
 
 // Shim to generate a u128 without importing `rand`.
 #[cfg(feature = "rand_core")]
-fn gen_u128<R: RngCore + CryptoRng>(mut rng: R) -> u128 {
+fn gen_u128<R: RngCore + ?Sized>(rng: &mut R) -> u128 {
     let mut bytes = [0u8; 16];
     rng.fill_bytes(&mut bytes[..]);
     u128::from_le_bytes(bytes)
@@ -146,7 +146,7 @@ impl Verifier {
     /// valid and `Err` otherwise.
     #[cfg(feature = "rand_core")]
     #[allow(non_snake_case)]
-    pub fn verify<R: RngCore + CryptoRng>(self, mut rng: R) -> Result<(), Error> {
+    pub fn verify(self) -> Result<(), Error> {
         // The batch verification equation is
         //
         // 8*[-sum(z_i * s_i)]B + 8*sum([z_i]R_i) + 8*sum([z_i * k_i]A_i) = 0.
@@ -171,6 +171,7 @@ impl Verifier {
         // However, when m = 1 and all signatures are from a single verification
         // key, this is nearly twice as fast.
 
+        let mut rng = OsRng;
         let m = self.signatures.keys().count();
 
         let mut A_coeffs = Vec::with_capacity(m);
