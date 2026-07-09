@@ -1081,9 +1081,9 @@ impl EdwardsPoint {
     /// # Example
     ///
     /// ```
-    /// use curve25519::scalar::Scalar;
-    /// use curve25519::constants::ED25519_BASEPOINT_POINT;
-    /// use curve25519::edwards::EdwardsPoint;
+    /// use solana_ed25519::scalar::Scalar;
+    /// use solana_ed25519::constants::ED25519_BASEPOINT_POINT;
+    /// use solana_ed25519::edwards::EdwardsPoint;
     ///
     /// let a1 = Scalar::from(123u64);
     /// let a2 = Scalar::from(456u64);
@@ -1410,7 +1410,7 @@ impl EdwardsPoint {
     /// # Example
     ///
     /// ```
-    /// use curve25519::constants;
+    /// use solana_ed25519::constants;
     ///
     /// // Generator of the prime-order subgroup
     /// let P = constants::ED25519_BASEPOINT_POINT;
@@ -1440,7 +1440,7 @@ impl EdwardsPoint {
     /// # Example
     ///
     /// ```
-    /// use curve25519::constants;
+    /// use solana_ed25519::constants;
     ///
     /// // Generator of the prime-order subgroup
     /// let P = constants::ED25519_BASEPOINT_POINT;

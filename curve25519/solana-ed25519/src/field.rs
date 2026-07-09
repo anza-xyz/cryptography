@@ -11,8 +11,8 @@
 
 //! Field arithmetic modulo \\(p = 2\^{255} - 19\\).
 //!
-//! The `curve25519::field` module provides a type alias
-//! `curve25519::field::FieldElement` to a field element type
+//! The `solana_ed25519::field` module provides a type alias
+//! `solana_ed25519::field::FieldElement` to a field element type
 //! defined in the `backend` module; either `FieldElement51` or
 //! `FieldElement2625`.
 //!

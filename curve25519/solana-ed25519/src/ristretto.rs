@@ -539,7 +539,7 @@ impl RistrettoPoint {
     ///
     #[cfg_attr(feature = "rand_core", doc = "```")]
     #[cfg_attr(not(feature = "rand_core"), doc = "```ignore")]
-    /// # use curve25519::ristretto::RistrettoPoint;
+    /// # use solana_ed25519::ristretto::RistrettoPoint;
     ///
     /// # // Need fn main() here in comment so the doctest compiles
     /// # // See https://doc.rust-lang.org/book/documentation.html#documentation-as-tests
@@ -695,7 +695,7 @@ impl RistrettoPoint {
     ///
     #[cfg_attr(feature = "digest", doc = "```")]
     #[cfg_attr(not(feature = "digest"), doc = "```ignore")]
-    /// # use curve25519::ristretto::RistrettoPoint;
+    /// # use solana_ed25519::ristretto::RistrettoPoint;
     /// use sha2::Sha512;
     ///
     /// # // Need fn main() here in comment so the doctest compiles
@@ -1041,8 +1041,8 @@ impl RistrettoPoint {
 /// A precomputed table of multiples of the Ristretto basepoint is
 /// available in the `constants` module:
 /// ```
-/// use curve25519::constants::RISTRETTO_BASEPOINT_TABLE;
-/// use curve25519::scalar::Scalar;
+/// use solana_ed25519::constants::RISTRETTO_BASEPOINT_TABLE;
+/// use solana_ed25519::scalar::Scalar;
 ///
 /// let a = Scalar::from(87329482u64);
 /// let P = &a * RISTRETTO_BASEPOINT_TABLE;
@@ -1096,9 +1096,9 @@ impl ConditionallySelectable for RistrettoPoint {
     /// use subtle::ConditionallySelectable;
     /// use subtle::Choice;
     /// #
-    /// # use curve25519::traits::Identity;
-    /// # use curve25519::ristretto::RistrettoPoint;
-    /// # use curve25519::constants;
+    /// # use solana_ed25519::traits::Identity;
+    /// # use solana_ed25519::ristretto::RistrettoPoint;
+    /// # use solana_ed25519::constants;
     /// # fn main() {
     ///
     /// let A = RistrettoPoint::identity();

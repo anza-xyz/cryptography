@@ -1,9 +1,9 @@
 use core::convert::TryFrom;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use curve25519::ed_sigs::*;
 use ed25519::signature::Verifier as _;
 use ed25519_dalek::VerifyingKey as DalekVerifyingKey;
+use solana_ed25519::ed_sigs::*;
 
 fn signing_key_from_index(index: u64) -> SigningKey {
     let mut seed = [0u8; 32];
