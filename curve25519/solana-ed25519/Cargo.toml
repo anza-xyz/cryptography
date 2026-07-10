@@ -50,6 +50,7 @@ ed25519.workspace = true
 ff = { workspace = true, optional = true }
 group = { workspace = true, optional = true }
 rand_core = { workspace = true, optional = true }
+rand = { version = "0.10.2", optional = true, default-features = false, features = ["sys_rng"] }
 digest = { workspace = true, optional = true }
 hashbrown.workspace = true
 der = { workspace = true, optional = true }
@@ -68,7 +69,7 @@ default = ["alloc", "precomputed-tables", "zeroize", "rand_core", "digest"]
 alloc = ["zeroize?/alloc"]
 precomputed-tables = []
 legacy_compatibility = []
-rand_core = ["dep:rand_core"]
+rand_core = ["dep:rand_core", "dep:rand"]
 std = ["alloc"]
 group = ["dep:group", "rand_core"]
 group-bits = ["group", "ff/bits"]

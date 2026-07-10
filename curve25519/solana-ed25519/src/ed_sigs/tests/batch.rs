@@ -16,7 +16,7 @@ fn batch_verify() {
         let sig = sk.sign(&msg[..]);
         batch.queue((pk_bytes, sig, msg));
     }
-    assert!(batch.verify(rand::rng()).is_ok());
+    assert!(batch.verify().is_ok());
 }
 
 #[test]
@@ -39,7 +39,7 @@ fn batch_verify_with_one_bad_sig() {
         items.push(item.clone());
         batch.queue(item);
     }
-    assert!(batch.verify(rand::rng()).is_err());
+    assert!(batch.verify().is_err());
     for (i, item) in items.drain(..).enumerate() {
         if i != bad_index {
             assert!(item.verify_single().is_ok());
@@ -65,7 +65,7 @@ fn batch_verify_with_malformed_verification_key() {
     let mut batch = batch::Verifier::new();
     batch.queue((malformed_key, sig, msg));
 
-    assert_eq!(batch.verify(rand::rng()), Err(Error::MalformedPublicKey));
+    assert_eq!(batch.verify(), Err(Error::MalformedPublicKey));
 }
 
 fn first_undecodable_compressed_edwards_y() -> [u8; 32] {
