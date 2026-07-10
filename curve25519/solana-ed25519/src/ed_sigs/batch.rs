@@ -37,7 +37,7 @@
 //! # use solana_ed25519::ed_sigs::*;
 //! let mut batch = batch::Verifier::new();
 //! for _ in 0..32 {
-//!     let sk = SigningKey::new(rand::thread_rng());
+//!     let sk = SigningKey::new(rand::rng());
 //!     let vk_bytes = VerificationKeyBytes::from(&sk);
 //!     let msg = b"BatchVerifyTest";
 //!     let sig = sk.sign(&msg[..]);
@@ -59,7 +59,9 @@ use crate::{
 };
 use hashbrown::HashMap;
 #[cfg(feature = "rand_core")]
-use rand_core::{OsRng, RngCore};
+use rand::rngs::SysRng;
+#[cfg(feature = "rand_core")]
+use rand_core::{Rng, UnwrapErr};
 use sha2::{Sha512, digest::Update};
 
 use super::{Error, VerificationKey, VerificationKeyBytes, scalar_from_sha512};
@@ -67,7 +69,7 @@ use ed25519::Signature;
 
 // Shim to generate a u128 without importing `rand`.
 #[cfg(feature = "rand_core")]
-fn gen_u128<R: RngCore + ?Sized>(rng: &mut R) -> u128 {
+fn gen_u128<R: Rng + ?Sized>(rng: &mut R) -> u128 {
     let mut bytes = [0u8; 16];
     rng.fill_bytes(&mut bytes[..]);
     u128::from_le_bytes(bytes)
@@ -171,7 +173,7 @@ impl Verifier {
         // However, when m = 1 and all signatures are from a single verification
         // key, this is nearly twice as fast.
 
-        let mut rng = OsRng;
+        let mut rng = UnwrapErr(SysRng);
         let m = self.signatures.keys().count();
 
         let mut A_coeffs = Vec::with_capacity(m);

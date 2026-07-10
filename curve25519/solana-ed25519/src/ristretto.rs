@@ -180,12 +180,11 @@ use crate::field::FieldElement;
 #[cfg(feature = "group")]
 use {
     group::{GroupEncoding, cofactor::CofactorGroup, prime::PrimeGroup},
-    rand_core::RngCore as GroupRngCore,
     subtle::CtOption,
 };
 
 #[cfg(feature = "rand_core")]
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 
 use subtle::Choice;
 use subtle::ConditionallyNegatable;
@@ -544,7 +543,7 @@ impl RistrettoPoint {
     /// # // Need fn main() here in comment so the doctest compiles
     /// # // See https://doc.rust-lang.org/book/documentation.html#documentation-as-tests
     /// # fn main() {
-    /// let mut rng = rand::thread_rng();
+    /// let mut rng = rand::rng();
     ///
     /// let points: Vec<RistrettoPoint> =
     ///     (0..32).map(|_| RistrettoPoint::random(&mut rng)).collect();
@@ -669,7 +668,7 @@ impl RistrettoPoint {
     /// point should be unknown.  The map is applied twice and the
     /// results are added, to ensure a uniform distribution.
     #[cfg(feature = "rand_core")]
-    pub fn random<R: CryptoRng + RngCore + ?Sized>(rng: &mut R) -> Self {
+    pub fn random<R: CryptoRng + ?Sized>(rng: &mut R) -> Self {
         let mut uniform_bytes = [0u8; 64];
         rng.fill_bytes(&mut uniform_bytes);
 
@@ -1152,11 +1151,11 @@ impl Debug for RistrettoPoint {
 impl group::Group for RistrettoPoint {
     type Scalar = Scalar;
 
-    fn random(mut rng: impl GroupRngCore) -> Self {
+    fn try_random<R: rand_core::TryRng + ?Sized>(rng: &mut R) -> Result<Self, R::Error> {
         // NOTE: this is duplicated due to different `rng` bounds
         let mut uniform_bytes = [0u8; 64];
-        rng.fill_bytes(&mut uniform_bytes);
-        RistrettoPoint::from_uniform_bytes(&uniform_bytes)
+        rng.try_fill_bytes(&mut uniform_bytes)?;
+        Ok(RistrettoPoint::from_uniform_bytes(&uniform_bytes))
     }
 
     fn identity() -> Self {
@@ -1250,9 +1249,6 @@ mod test {
     use crate::edwards::CompressedEdwardsY;
     #[cfg(all(feature = "alloc", feature = "group"))]
     use proptest::prelude::*;
-    #[cfg(all(feature = "alloc", feature = "rand_core", feature = "group"))]
-    use rand::rngs::OsRng;
-
     #[test]
     #[cfg(feature = "serde")]
     fn serde_bincode_basepoint_roundtrip() {
@@ -1450,7 +1446,7 @@ mod test {
     #[cfg(feature = "rand_core")]
     #[test]
     fn four_torsion_random() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let P = RistrettoPoint::mul_base(&Scalar::random(&mut rng));
         let P_coset = P.coset4();
         for point in P_coset {
@@ -1461,7 +1457,7 @@ mod test {
     #[cfg(feature = "rand_core")]
     #[test]
     fn random_roundtrip() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         for _ in 0..100 {
             let P = RistrettoPoint::mul_base(&Scalar::random(&mut rng));
             let compressed_P = P.compress();
@@ -1476,7 +1472,7 @@ mod test {
     #[cfg(all(feature = "alloc", feature = "rand_core", feature = "group"))]
     fn double_and_compress_1024_random_points() {
         use group::Group;
-        let mut rng = OsRng;
+        let mut rng = rand::rng();
 
         let mut points: Vec<RistrettoPoint> = (0..1024)
             .map(|_| RistrettoPoint::random(&mut rng))
@@ -1526,7 +1522,7 @@ mod test {
     #[test]
     #[cfg(all(feature = "alloc", feature = "rand_core"))]
     fn vartime_precomputed_vs_nonprecomputed_multiscalar() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         let static_scalars = (0..128)
             .map(|_| Scalar::random(&mut rng))
@@ -1577,7 +1573,7 @@ mod test {
     #[test]
     #[cfg(all(feature = "alloc", feature = "rand_core"))]
     fn partial_precomputed_mixed_multiscalar_empty() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         let n_static = 16;
         let n_dynamic = 8;
@@ -1620,7 +1616,7 @@ mod test {
     #[test]
     #[cfg(all(feature = "alloc", feature = "rand_core"))]
     fn partial_precomputed_mixed_multiscalar() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         let n_static = 16;
         let n_dynamic = 8;
@@ -1665,7 +1661,7 @@ mod test {
     #[test]
     #[cfg(all(feature = "alloc", feature = "rand_core"))]
     fn partial_precomputed_multiscalar() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         let n_static = 16;
 
@@ -1694,7 +1690,7 @@ mod test {
     #[test]
     #[cfg(all(feature = "alloc", feature = "rand_core"))]
     fn partial_precomputed_multiscalar_empty() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         let n_static = 16;
 

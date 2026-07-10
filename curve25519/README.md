@@ -74,10 +74,9 @@ solana-ed25519 = { git = "https://github.com/anza-xyz/cryptography" }
 
 ```rust
 use solana_ed25519::ed_sigs::{SigningKey, VerificationKey};
-use rand::thread_rng;
 
 let msg = b"hello world";
-let sk = SigningKey::new(thread_rng());
+let sk = SigningKey::new(rand::rng());
 let sig = sk.sign(msg);
 let vk = VerificationKey::from(&sk);
 
