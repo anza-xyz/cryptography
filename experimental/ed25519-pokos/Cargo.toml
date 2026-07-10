@@ -16,7 +16,7 @@ p3-commit = "0.4.2"
 p3-dft = { version = "0.4.2", features = ["parallel"] }
 p3-field = "0.4.2"
 p3-fri = "0.4.2"
-p3-keccak = "0.4.2"
+p3-keccak = "0.6.1"
 p3-koala-bear = "0.4.2"
 p3-matrix = "0.4.2"
 p3-merkle-tree = "0.4.2"
