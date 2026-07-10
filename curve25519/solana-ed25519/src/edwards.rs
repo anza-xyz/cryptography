@@ -1254,7 +1254,7 @@ macro_rules! impl_basepoint_table {
             fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                 write!(f, "{:?}([\n", stringify!($name))?;
                 for i in 0..32 {
-                    write!(f, "\t{:?},\n", &self.0[i])?;
+                    write!(f, "\t{:?},\n", self.0[i])?;
                 }
                 write!(f, "])")
             }
@@ -1466,7 +1466,7 @@ impl Debug for EdwardsPoint {
         write!(
             f,
             "EdwardsPoint{{\n\tX: {:?},\n\tY: {:?},\n\tZ: {:?},\n\tT: {:?}\n}}",
-            &self.X, &self.Y, &self.Z, &self.T
+            self.X, self.Y, self.Z, self.T
         )
     }
 }
