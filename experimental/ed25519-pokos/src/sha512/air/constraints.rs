@@ -69,8 +69,7 @@ pub(super) fn constrain_add_2_limbs_across_rows<AB: AirBuilder<F = KoalaBear>>(
     for limb in 0..LIMBS_PER_WORD {
         let carry_out = local[carry_base + limb];
         constrain_carry_max::<AB>(builder, local, carry_base + limb, 1);
-        let sum =
-            local[limb_col(lhs, limb)] + local[limb_col(rhs, limb)] + carry_in;
+        let sum = local[limb_col(lhs, limb)] + local[limb_col(rhs, limb)] + carry_in;
         let expected = next[limb_col(out_next, limb)] + carry_out * two16;
         builder.assert_eq(sum, expected);
         carry_in = carry_out.into();
@@ -120,8 +119,7 @@ pub(super) fn constrain_private_sk_from_derive_final<AB: AirBuilder<F = KoalaBea
             let sum = row[limb_col(WORD_A + word_idx, limb)]
                 + prep_row[limb_col(WORD_A + word_idx, limb)]
                 + carry_in;
-            let expected =
-                row[private_sk_limb_col(word_idx, limb)] + carry_out * two16;
+            let expected = row[private_sk_limb_col(word_idx, limb)] + carry_out * two16;
             builder.assert_zero(selector.clone() * (sum - expected));
             carry_in = carry_out.into();
         }

@@ -134,16 +134,14 @@ where
             // Bind K exactly as a 64-bit value, not just modulo the base field.
             builder.assert_zero(
                 local_prep[PREP_ROUND_SELECTOR_COL]
-                    * (local[limb_col(WORD_K, limb)]
-                        - local_prep[limb_col(WORD_K, limb)]),
+                    * (local[limb_col(WORD_K, limb)] - local_prep[limb_col(WORD_K, limb)]),
             );
         }
         for limb in 0..LIMBS_PER_WORD {
             // Bind W[0..15] exactly as 64-bit words from the instance.
             builder.assert_zero(
                 local_prep[PREP_FIXED_INIT_W_SELECTOR_COL]
-                    * (local[limb_col(WORD_W, limb)]
-                        - local_prep[limb_col(WORD_W, limb)]),
+                    * (local[limb_col(WORD_W, limb)] - local_prep[limb_col(WORD_W, limb)]),
             );
         }
         for (word_idx, row_sel) in [
@@ -156,11 +154,9 @@ where
             for limb in 0..LIMBS_PER_WORD {
                 let seed_limb = local[private_seed_limb_col(word_idx, limb)];
                 let sk_limb = local[private_sk_limb_col(word_idx, limb)];
-                let expected = seed_limb * (AB::Expr::ONE - seed_or_sk_sel)
-                    + sk_limb * seed_or_sk_sel;
-                builder.assert_zero(
-                    row_sel * (local[limb_col(WORD_W, limb)] - expected),
-                );
+                let expected =
+                    seed_limb * (AB::Expr::ONE - seed_or_sk_sel) + sk_limb * seed_or_sk_sel;
+                builder.assert_zero(row_sel * (local[limb_col(WORD_W, limb)] - expected));
             }
         }
         for limb in 0..LIMBS_PER_WORD {
@@ -181,8 +177,7 @@ where
             for limb in 0..LIMBS_PER_WORD {
                 builder.assert_zero(
                     block_start_sel
-                        * (local[limb_col(word, limb)]
-                            - local_prep[limb_col(word, limb)]),
+                        * (local[limb_col(word, limb)] - local_prep[limb_col(word, limb)]),
                 );
             }
         }
@@ -192,12 +187,10 @@ where
         let hash_final_sel = local_prep[PREP_HASH_FINAL_SELECTOR_COL];
         for i in 0..8 {
             builder.assert_zero(
-                commit_final_sel
-                    * (public[i].into() - pack_word_from_limbs::<AB>(local, i)),
+                commit_final_sel * (public[i].into() - pack_word_from_limbs::<AB>(local, i)),
             );
             builder.assert_zero(
-                hash_final_sel
-                    * (public[8 + i].into() - pack_word_from_limbs::<AB>(local, i)),
+                hash_final_sel * (public[8 + i].into() - pack_word_from_limbs::<AB>(local, i)),
             );
         }
         let round_sel = local_prep[PREP_ROUND_SELECTOR_COL];
@@ -212,8 +205,7 @@ where
         ] {
             for bit in 0..64 {
                 builder.assert_zero(
-                    round_sel
-                        * (local[base + bit] * (AB::Expr::ONE - local[base + bit])),
+                    round_sel * (local[base + bit] * (AB::Expr::ONE - local[base + bit])),
                 );
             }
             builder.assert_zero(
@@ -226,9 +218,7 @@ where
                     let bit_col = base + limb * 16 + bit;
                     limb_expr += local[bit_col] * KoalaBear::from_u32(1 << bit);
                 }
-                builder.assert_zero(
-                    round_sel * (local[limb_col(word, limb)] - limb_expr),
-                );
+                builder.assert_zero(round_sel * (local[limb_col(word, limb)] - limb_expr));
             }
         }
         for limb in 0..LIMBS_PER_WORD {
@@ -267,18 +257,10 @@ where
                 ch_limb += ch_expr * bit_weight;
                 maj_limb += maj_expr * bit_weight;
             }
-            builder.assert_zero(
-                round_sel * (local[limb_col(WORD_SIGMA0, limb)] - sigma0_limb),
-            );
-            builder.assert_zero(
-                round_sel * (local[limb_col(WORD_SIGMA1, limb)] - sigma1_limb),
-            );
-            builder.assert_zero(
-                round_sel * (local[limb_col(WORD_CH, limb)] - ch_limb),
-            );
-            builder.assert_zero(
-                round_sel * (local[limb_col(WORD_MAJ, limb)] - maj_limb),
-            );
+            builder.assert_zero(round_sel * (local[limb_col(WORD_SIGMA0, limb)] - sigma0_limb));
+            builder.assert_zero(round_sel * (local[limb_col(WORD_SIGMA1, limb)] - sigma1_limb));
+            builder.assert_zero(round_sel * (local[limb_col(WORD_CH, limb)] - ch_limb));
+            builder.assert_zero(round_sel * (local[limb_col(WORD_MAJ, limb)] - maj_limb));
         }
 
         for src in 0..RANGE_SOURCES {
@@ -319,8 +301,7 @@ where
         }
 
         let mut transition_window = builder.when_transition();
-        let mut transition =
-            transition_window.when(local_prep[PREP_TRANSITION_SELECTOR_COL]);
+        let mut transition = transition_window.when(local_prep[PREP_TRANSITION_SELECTOR_COL]);
         constrain_add_5_limbs(
             &mut transition,
             local,
@@ -356,30 +337,12 @@ where
         );
 
         for limb in 0..LIMBS_PER_WORD {
-            transition.assert_eq(
-                next[limb_col(WORD_B, limb)],
-                local[limb_col(WORD_A, limb)],
-            );
-            transition.assert_eq(
-                next[limb_col(WORD_C, limb)],
-                local[limb_col(WORD_B, limb)],
-            );
-            transition.assert_eq(
-                next[limb_col(WORD_D, limb)],
-                local[limb_col(WORD_C, limb)],
-            );
-            transition.assert_eq(
-                next[limb_col(WORD_F, limb)],
-                local[limb_col(WORD_E, limb)],
-            );
-            transition.assert_eq(
-                next[limb_col(WORD_G, limb)],
-                local[limb_col(WORD_F, limb)],
-            );
-            transition.assert_eq(
-                next[limb_col(WORD_H, limb)],
-                local[limb_col(WORD_G, limb)],
-            );
+            transition.assert_eq(next[limb_col(WORD_B, limb)], local[limb_col(WORD_A, limb)]);
+            transition.assert_eq(next[limb_col(WORD_C, limb)], local[limb_col(WORD_B, limb)]);
+            transition.assert_eq(next[limb_col(WORD_D, limb)], local[limb_col(WORD_C, limb)]);
+            transition.assert_eq(next[limb_col(WORD_F, limb)], local[limb_col(WORD_E, limb)]);
+            transition.assert_eq(next[limb_col(WORD_G, limb)], local[limb_col(WORD_F, limb)]);
+            transition.assert_eq(next[limb_col(WORD_H, limb)], local[limb_col(WORD_G, limb)]);
         }
 
         for lag in 0..LAG_COUNT {
