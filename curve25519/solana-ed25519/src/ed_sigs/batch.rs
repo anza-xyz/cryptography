@@ -34,7 +34,7 @@
 //!
 //! # Example
 //! ```ignore
-//! # use curve25519::ed_sigs::*;
+//! # use solana_ed25519::ed_sigs::*;
 //! let mut batch = batch::Verifier::new();
 //! for _ in 0..32 {
 //!     let sk = SigningKey::new(rand::rng());

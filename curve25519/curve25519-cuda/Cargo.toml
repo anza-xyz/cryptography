@@ -8,7 +8,7 @@ homepage = { workspace = true }
 license = { workspace = true }
 
 [dependencies]
-curve25519.workspace = true
+solana-ed25519.workspace = true
 rayon.workspace = true
 
 [build-dependencies]

@@ -1,6 +1,6 @@
 use core::ffi::c_char;
-use curve25519::scalar::Scalar;
-use curve25519::short_weierstrass::SwPoint;
+use solana_ed25519::scalar::Scalar;
+use solana_ed25519::short_weierstrass::SwPoint;
 #[cfg(curve25519_cuda)]
 use std::ffi::CStr;
 
@@ -108,10 +108,10 @@ pub fn msm_curve25519_gpu(points: &[SwPoint], scalars: &[Scalar]) -> Result<SwPo
 }
 
 fn msm_curve25519_cpu(points: &[SwPoint], scalars: &[Scalar]) -> Result<SwPoint, String> {
-    use curve25519::edwards::EdwardsPoint;
-    use curve25519::traits::Identity;
-    use curve25519::traits::VartimeMultiscalarMul;
     use rayon::prelude::*;
+    use solana_ed25519::edwards::EdwardsPoint;
+    use solana_ed25519::traits::Identity;
+    use solana_ed25519::traits::VartimeMultiscalarMul;
 
     if points.len() != scalars.len() {
         return Err("length mismatch".to_string());

@@ -34,7 +34,7 @@
 //! `Some(Scalar)` in return:
 //!
 //! ```
-//! use curve25519::scalar::Scalar;
+//! use solana_ed25519::scalar::Scalar;
 //!
 //! let one_as_bytes: [u8; 32] = Scalar::ONE.to_bytes();
 //! let a: Option<Scalar> = Scalar::from_canonical_bytes(one_as_bytes).into();
@@ -46,7 +46,7 @@
 //! (in this case, \\( \ell + 2 \\)), we'll get `None` back:
 //!
 //! ```
-//! use curve25519::scalar::Scalar;
+//! use solana_ed25519::scalar::Scalar;
 //!
 //! let l_plus_two_bytes: [u8; 32] = [
 //!    0xef, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58,
@@ -66,7 +66,7 @@
 //! resultant scalar \\( \mod \ell \\), producing \\( 2 \\):
 //!
 //! ```
-//! use curve25519::scalar::Scalar;
+//! use solana_ed25519::scalar::Scalar;
 //!
 //! let l_plus_two_bytes: [u8; 32] = [
 //!    0xef, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58,
@@ -92,7 +92,7 @@
 #![cfg_attr(not(feature = "digest"), doc = "```ignore")]
 //! # fn main() {
 //! use sha2::{Digest, Sha512};
-//! use curve25519::scalar::Scalar;
+//! use solana_ed25519::scalar::Scalar;
 //!
 //! // Hashing a single byte slice
 //! let a = Scalar::hash_from_bytes::<Sha512>(b"Abolish ICE");
@@ -522,7 +522,7 @@ impl From<u64> for Scalar {
     /// # Example
     ///
     /// ```
-    /// use curve25519::scalar::Scalar;
+    /// use solana_ed25519::scalar::Scalar;
     ///
     /// let fourtytwo = Scalar::from(42u64);
     /// let six = Scalar::from(6u64);
@@ -621,7 +621,7 @@ impl Scalar {
     ///
     /// ```
     /// # fn main() {
-    /// use curve25519::scalar::Scalar;
+    /// use solana_ed25519::scalar::Scalar;
     ///
     /// let mut csprng = rand::rng();
     /// let a: Scalar = Scalar::random(&mut csprng);
@@ -651,7 +651,7 @@ impl Scalar {
     ///
     #[cfg_attr(feature = "digest", doc = "```")]
     #[cfg_attr(not(feature = "digest"), doc = "```ignore")]
-    /// # use curve25519::scalar::Scalar;
+    /// # use solana_ed25519::scalar::Scalar;
     /// use sha2::Sha512;
     ///
     /// # // Need fn main() here in comment so the doctest compiles
@@ -680,8 +680,8 @@ impl Scalar {
     /// # Example
     ///
     /// ```
-    /// # use curve25519::scalar::Scalar;
-    /// use curve25519::digest::Update;
+    /// # use solana_ed25519::scalar::Scalar;
+    /// use solana_ed25519::digest::Update;
     ///
     /// use sha2::Digest;
     /// use sha2::Sha512;
@@ -732,7 +732,7 @@ impl Scalar {
     /// # Example
     ///
     /// ```
-    /// use curve25519::scalar::Scalar;
+    /// use solana_ed25519::scalar::Scalar;
     ///
     /// let s: Scalar = Scalar::ZERO;
     ///
@@ -747,7 +747,7 @@ impl Scalar {
     /// # Example
     ///
     /// ```
-    /// use curve25519::scalar::Scalar;
+    /// use solana_ed25519::scalar::Scalar;
     ///
     /// let s: Scalar = Scalar::ZERO;
     ///
@@ -772,7 +772,7 @@ impl Scalar {
     /// # Example
     ///
     /// ```
-    /// use curve25519::scalar::Scalar;
+    /// use solana_ed25519::scalar::Scalar;
     ///
     /// // x = 2238329342913194256032495932344128051776374960164957527413114840482143558222
     /// let X: Scalar = Scalar::from_bytes_mod_order([
@@ -828,7 +828,7 @@ impl Scalar {
     /// # Example
     ///
     /// ```
-    /// # use curve25519::scalar::Scalar;
+    /// # use solana_ed25519::scalar::Scalar;
     /// # fn main() {
     /// let mut scalars = [
     ///     Scalar::from(3u64),

@@ -157,7 +157,7 @@ default `Sha512ProofSettings` change.
 - The STARK proves all three SHA-512 relations in a single concatenated
   three-segment proof.
 - The authentication key and signature use the Ed25519 implementation in this
-  repo (`curve25519` crate).
+  repo (`solana-ed25519` crate).
 - The `sk → pk` link is **not** proved inside the circuit; it remains external
   and is enforced by the Ed25519 signature over the proof statement.
 - The proof settings (`Sha512ProofSettings`) are configurable, but the

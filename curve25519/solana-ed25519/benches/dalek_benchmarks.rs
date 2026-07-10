@@ -8,8 +8,8 @@ use criterion::{
 #[cfg(feature = "digest")]
 use sha2::Sha512;
 
-use curve25519::constants;
-use curve25519::scalar::Scalar;
+use solana_ed25519::constants;
+use solana_ed25519::scalar::Scalar;
 
 static BATCH_SIZES: [usize; 5] = [1, 2, 4, 8, 16];
 static MULTISCALAR_SIZES: [usize; 13] = [1, 2, 4, 8, 16, 32, 64, 128, 256, 384, 512, 768, 1024];
@@ -17,7 +17,7 @@ static MULTISCALAR_SIZES: [usize; 13] = [1, 2, 4, 8, 16, 32, 64, 128, 256, 384, 
 mod edwards_benches {
     use super::*;
 
-    use curve25519::edwards::EdwardsPoint;
+    use solana_ed25519::edwards::EdwardsPoint;
 
     fn compress<M: Measurement>(c: &mut BenchmarkGroup<M>) {
         let B = &constants::ED25519_BASEPOINT_POINT;
@@ -123,11 +123,11 @@ mod edwards_benches {
 mod multiscalar_benches {
     use super::*;
 
-    use curve25519::edwards::EdwardsPoint;
-    use curve25519::edwards::VartimeEdwardsPrecomputation;
-    use curve25519::traits::MultiscalarMul;
-    use curve25519::traits::VartimeMultiscalarMul;
-    use curve25519::traits::VartimePrecomputedMultiscalarMul;
+    use solana_ed25519::edwards::EdwardsPoint;
+    use solana_ed25519::edwards::VartimeEdwardsPrecomputation;
+    use solana_ed25519::traits::MultiscalarMul;
+    use solana_ed25519::traits::VartimeMultiscalarMul;
+    use solana_ed25519::traits::VartimePrecomputedMultiscalarMul;
 
     fn construct_scalars(n: usize) -> Vec<Scalar> {
         let mut rng = rand::rng();
@@ -279,7 +279,7 @@ mod multiscalar_benches {
 
 mod ristretto_benches {
     use super::*;
-    use curve25519::ristretto::RistrettoPoint;
+    use solana_ed25519::ristretto::RistrettoPoint;
 
     fn compress<M: Measurement>(c: &mut BenchmarkGroup<M>) {
         c.bench_function("RistrettoPoint compression", |b| {
@@ -323,7 +323,7 @@ mod ristretto_benches {
 
 mod montgomery_benches {
     use super::*;
-    use curve25519::montgomery::MontgomeryPoint;
+    use solana_ed25519::montgomery::MontgomeryPoint;
 
     fn montgomery_ladder<M: Measurement>(c: &mut BenchmarkGroup<M>) {
         c.bench_function("Montgomery pseudomultiplication", |b| {
