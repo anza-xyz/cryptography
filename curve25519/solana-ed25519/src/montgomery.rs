@@ -513,7 +513,7 @@ mod test {
 
     #[cfg(feature = "rand_core")]
     use rand::CryptoRng;
-    use rand::RngCore;
+    use rand::Rng;
 
     #[test]
     fn identity_in_different_coordinates() {
@@ -602,7 +602,7 @@ mod test {
 
     /// Returns a random point on the prime-order subgroup
     #[cfg(feature = "rand_core")]
-    fn rand_prime_order_point<R: CryptoRng + RngCore + ?Sized>(rng: &mut R) -> EdwardsPoint {
+    fn rand_prime_order_point<R: CryptoRng + ?Sized>(rng: &mut R) -> EdwardsPoint {
         let s: Scalar = Scalar::random(rng);
         EdwardsPoint::mul_base(&s)
     }
@@ -622,7 +622,7 @@ mod test {
     #[cfg(feature = "rand_core")]
     #[test]
     fn montgomery_ladder_matches_edwards_scalarmult() {
-        let mut csprng = rand::thread_rng();
+        let mut csprng = rand::rng();
 
         for _ in 0..100 {
             let p_edwards = rand_prime_order_point(&mut csprng);
@@ -641,7 +641,7 @@ mod test {
     #[cfg(feature = "rand_core")]
     #[test]
     fn montgomery_mul_bits_be() {
-        let mut csprng = rand::thread_rng();
+        let mut csprng = rand::rng();
 
         for _ in 0..100 {
             // Make a random prime-order point P
@@ -666,7 +666,7 @@ mod test {
     // integers b₁, b₂ and random (curve or twist) point P.
     #[test]
     fn montgomery_mul_bits_be_twist() {
-        let mut csprng = rand::rngs::OsRng;
+        let mut csprng = rand::rng();
 
         for _ in 0..100 {
             // Make a random point P on the curve or its twist
@@ -699,7 +699,7 @@ mod test {
     /// Check that mul_base_clamped and mul_clamped agree
     #[test]
     fn mul_base_clamped() {
-        let mut csprng = rand::rngs::OsRng;
+        let mut csprng = rand::rng();
 
         // Test agreement on a large integer. Even after clamping, this is not reduced mod l.
         let a_bytes = [0xff; 32];
