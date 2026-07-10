@@ -19,15 +19,15 @@ pub(super) fn constrain_add_5_limbs<AB: AirBuilder<F = KoalaBear>>(
     let mut carry_in = AB::Expr::ZERO;
 
     for limb in 0..LIMBS_PER_WORD {
-        let carry_out = row[carry_base + limb].clone();
+        let carry_out = row[carry_base + limb];
         constrain_carry_max::<AB>(builder, row, carry_base + limb, 4);
-        let sum = row[limb_col(ops[0], limb)].clone()
-            + row[limb_col(ops[1], limb)].clone()
-            + row[limb_col(ops[2], limb)].clone()
-            + row[limb_col(ops[3], limb)].clone()
-            + row[limb_col(ops[4], limb)].clone()
+        let sum = row[limb_col(ops[0], limb)]
+            + row[limb_col(ops[1], limb)]
+            + row[limb_col(ops[2], limb)]
+            + row[limb_col(ops[3], limb)]
+            + row[limb_col(ops[4], limb)]
             + carry_in;
-        let rhs = row[limb_col(out, limb)].clone() + carry_out.clone() * two16;
+        let rhs = row[limb_col(out, limb)] + carry_out * two16;
         builder.assert_eq(sum, rhs);
         carry_in = carry_out.into();
     }
@@ -45,10 +45,10 @@ pub(super) fn constrain_add_2_limbs<AB: AirBuilder<F = KoalaBear>>(
     let mut carry_in = AB::Expr::ZERO;
 
     for limb in 0..LIMBS_PER_WORD {
-        let carry_out = row[carry_base + limb].clone();
+        let carry_out = row[carry_base + limb];
         constrain_carry_max::<AB>(builder, row, carry_base + limb, 1);
-        let sum = row[limb_col(lhs, limb)].clone() + row[limb_col(rhs, limb)].clone() + carry_in;
-        let expected = row[limb_col(out, limb)].clone() + carry_out.clone() * two16;
+        let sum = row[limb_col(lhs, limb)] + row[limb_col(rhs, limb)] + carry_in;
+        let expected = row[limb_col(out, limb)] + carry_out * two16;
         builder.assert_eq(sum, expected);
         carry_in = carry_out.into();
     }
@@ -67,11 +67,11 @@ pub(super) fn constrain_add_2_limbs_across_rows<AB: AirBuilder<F = KoalaBear>>(
     let mut carry_in = AB::Expr::ZERO;
 
     for limb in 0..LIMBS_PER_WORD {
-        let carry_out = local[carry_base + limb].clone();
+        let carry_out = local[carry_base + limb];
         constrain_carry_max::<AB>(builder, local, carry_base + limb, 1);
         let sum =
-            local[limb_col(lhs, limb)].clone() + local[limb_col(rhs, limb)].clone() + carry_in;
-        let expected = next[limb_col(out_next, limb)].clone() + carry_out.clone() * two16;
+            local[limb_col(lhs, limb)] + local[limb_col(rhs, limb)] + carry_in;
+        let expected = next[limb_col(out_next, limb)] + carry_out * two16;
         builder.assert_eq(sum, expected);
         carry_in = carry_out.into();
     }
@@ -88,13 +88,13 @@ pub(super) fn constrain_schedule_recurrence<B: AirBuilder<F = KoalaBear>>(
     for limb in 0..LIMBS_PER_WORD {
         let sigma1_limb = pack_small_sigma1_limb::<B>(row, limb);
         let sigma0_limb = pack_small_sigma0_limb::<B>(row, limb);
-        let lag7_limb = row[lag_limb_col(6, limb)].clone();
-        let lag16_limb = row[lag_limb_col(15, limb)].clone();
-        let carry_out = row[SCHED_CARRY_BASE + limb].clone();
+        let lag7_limb = row[lag_limb_col(6, limb)];
+        let lag16_limb = row[lag_limb_col(15, limb)];
+        let carry_out = row[SCHED_CARRY_BASE + limb];
         constrain_carry_max::<B>(builder, row, SCHED_CARRY_BASE + limb, 3);
 
         let sum = sigma1_limb + lag7_limb + sigma0_limb + lag16_limb + carry_in;
-        let expected = row[limb_col(WORD_W, limb)].clone() + carry_out.clone() * two16;
+        let expected = row[limb_col(WORD_W, limb)] + carry_out * two16;
         builder.assert_zero(selector.clone() * (sum - expected));
         carry_in = carry_out.into();
     }
@@ -115,13 +115,13 @@ pub(super) fn constrain_private_sk_from_derive_final<AB: AirBuilder<F = KoalaBea
     ] {
         let mut carry_in = AB::Expr::ZERO;
         for limb in 0..LIMBS_PER_WORD {
-            let carry_out = row[carry_base + limb].clone();
+            let carry_out = row[carry_base + limb];
             constrain_carry_max::<AB>(builder, row, carry_base + limb, 1);
-            let sum = row[limb_col(WORD_A + word_idx, limb)].clone()
-                + prep_row[limb_col(WORD_A + word_idx, limb)].clone()
+            let sum = row[limb_col(WORD_A + word_idx, limb)]
+                + prep_row[limb_col(WORD_A + word_idx, limb)]
                 + carry_in;
             let expected =
-                row[private_sk_limb_col(word_idx, limb)].clone() + carry_out.clone() * two16;
+                row[private_sk_limb_col(word_idx, limb)] + carry_out * two16;
             builder.assert_zero(selector.clone() * (sum - expected));
             carry_in = carry_out.into();
         }
@@ -137,19 +137,19 @@ pub(super) fn constrain_carry_max<AB: AirBuilder<F = KoalaBear>>(
     let width = carry_bit_width(carry_col);
     let mut packed = AB::Expr::ZERO;
     for bit in 0..width {
-        let b = row[carry_bit_col(carry_col, bit)].clone();
-        builder.assert_bool(b.clone());
+        let b = row[carry_bit_col(carry_col, bit)];
+        builder.assert_bool(b);
         packed += b * KoalaBear::from_u32(1 << bit);
     }
-    builder.assert_eq(row[carry_col].clone(), packed);
+    builder.assert_eq(row[carry_col], packed);
 
     match max {
         1 => {}
         3 => {}
         4 => {
-            let b0 = row[carry_bit_col(carry_col, 0)].clone();
-            let b1 = row[carry_bit_col(carry_col, 1)].clone();
-            let b2 = row[carry_bit_col(carry_col, 2)].clone();
+            let b0 = row[carry_bit_col(carry_col, 0)];
+            let b1 = row[carry_bit_col(carry_col, 1)];
+            let b2 = row[carry_bit_col(carry_col, 2)];
             builder.assert_zero(b2 * (b1 + b0));
         }
         _ => unreachable!("unsupported carry bound"),
@@ -162,7 +162,7 @@ pub(super) fn pack_bits<AB: AirBuilder<F = KoalaBear>>(
 ) -> AB::Expr {
     let mut acc = AB::Expr::ZERO;
     for i in (0..64).rev() {
-        acc = acc * KoalaBear::TWO + row[bit_base + i].clone();
+        acc = acc * KoalaBear::TWO + row[bit_base + i];
     }
     acc
 }
@@ -227,5 +227,5 @@ fn lag_bit_expr<B: AirBuilder<F = KoalaBear>>(row: &[B::Var], lag: usize, bit: u
         14 => LAG14_BIT_BASE,
         _ => unreachable!("only lag=1 and lag=14 are bit-addressed in schedule sigmas"),
     };
-    row[base + bit].clone().into()
+    row[base + bit].into()
 }
