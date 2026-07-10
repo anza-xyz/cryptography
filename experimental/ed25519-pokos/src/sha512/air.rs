@@ -41,12 +41,9 @@ mod seed_chain;
 #[path = "air/trace_builder.rs"]
 mod trace_builder;
 
-use p3_air::{
-    Air, AirBuilder, AirBuilderWithPublicValues, BaseAir, BaseAirWithPublicValues, PairBuilder,
-};
+use p3_air::{Air, AirBuilder, BaseAir, WindowAccess};
 use p3_field::PrimeCharacteristicRing;
 use p3_koala_bear::KoalaBear;
-use p3_matrix::Matrix;
 use p3_matrix::dense::RowMajorMatrix;
 
 use super::circuit::Sha512Circuit;
@@ -112,9 +109,11 @@ impl BaseAir<KoalaBear> for Sha512RoundAir {
     fn preprocessed_trace(&self) -> Option<RowMajorMatrix<KoalaBear>> {
         Some(self.preprocessed.clone())
     }
-}
 
-impl BaseAirWithPublicValues<KoalaBear> for Sha512RoundAir {
+    fn preprocessed_width(&self) -> usize {
+        AIR_WIDTH
+    }
+
     fn num_public_values(&self) -> usize {
         16
     }
@@ -122,16 +121,14 @@ impl BaseAirWithPublicValues<KoalaBear> for Sha512RoundAir {
 
 impl<AB> Air<AB> for Sha512RoundAir
 where
-    AB: AirBuilderWithPublicValues<F = KoalaBear> + PairBuilder,
+    AB: AirBuilder<F = KoalaBear>,
 {
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let prep = builder.preprocessed();
-        let local = main.row_slice(0).expect("window has local row");
-        let next = main.row_slice(1).expect("window has next row");
-        let local_prep = prep
-            .row_slice(0)
-            .expect("window has local preprocessed row");
+        let prep = builder.preprocessed().clone();
+        let local = main.current_slice();
+        let next = main.next_slice();
+        let local_prep = prep.current_slice();
 
         for limb in 0..LIMBS_PER_WORD {
             // Bind K exactly as a 64-bit value, not just modulo the base field.
@@ -174,8 +171,8 @@ where
         }
         constrain_private_sk_from_derive_final(
             builder,
-            &local,
-            &local_prep,
+            local,
+            local_prep,
             local_prep[PREP_DERIVE_FINAL_SELECTOR_COL].clone().into(),
         );
 
@@ -196,11 +193,11 @@ where
         for i in 0..8 {
             builder.assert_zero(
                 commit_final_sel.clone()
-                    * (public[i].into() - pack_word_from_limbs::<AB>(&local, i)),
+                    * (public[i].into() - pack_word_from_limbs::<AB>(local, i)),
             );
             builder.assert_zero(
                 hash_final_sel.clone()
-                    * (public[8 + i].into() - pack_word_from_limbs::<AB>(&local, i)),
+                    * (public[8 + i].into() - pack_word_from_limbs::<AB>(local, i)),
             );
         }
         let round_sel = local_prep[PREP_ROUND_SELECTOR_COL].clone();
@@ -221,7 +218,7 @@ where
             }
             builder.assert_zero(
                 round_sel.clone()
-                    * (pack_word_from_limbs::<AB>(&local, word) - pack_bits::<AB>(&local, base)),
+                    * (pack_word_from_limbs::<AB>(local, word) - pack_bits::<AB>(local, base)),
             );
             for limb in 0..LIMBS_PER_WORD {
                 let mut limb_expr = AB::Expr::ZERO;
@@ -326,14 +323,14 @@ where
             transition_window.when(local_prep[PREP_TRANSITION_SELECTOR_COL].clone());
         constrain_add_5_limbs(
             &mut transition,
-            &local,
+            local,
             [WORD_H, WORD_SIGMA1, WORD_CH, WORD_K, WORD_W],
             WORD_T1,
             CARRY_T1_BASE,
         );
         constrain_add_2_limbs(
             &mut transition,
-            &local,
+            local,
             WORD_SIGMA0,
             WORD_MAJ,
             WORD_T2,
@@ -341,8 +338,8 @@ where
         );
         constrain_add_2_limbs_across_rows(
             &mut transition,
-            &local,
-            &next,
+            local,
+            next,
             WORD_T1,
             WORD_T2,
             WORD_A,
@@ -350,8 +347,8 @@ where
         );
         constrain_add_2_limbs_across_rows(
             &mut transition,
-            &local,
-            &next,
+            local,
+            next,
             WORD_D,
             WORD_T1,
             WORD_E,
@@ -398,7 +395,7 @@ where
         let sched_sel = local_prep[PREP_ROUND_SELECTOR_COL].clone()
             * (AB::Expr::ONE - local_prep[PREP_FIXED_INIT_W_SELECTOR_COL].clone())
             * (AB::Expr::ONE - local_prep[PREP_PAYLOAD_WORD_SELECTOR_COL].clone());
-        constrain_schedule_recurrence(&mut transition, &local, sched_sel);
+        constrain_schedule_recurrence(&mut transition, local, sched_sel);
 
         let mut last = builder.when_last_row();
         for word in WORD_W..WORD_COUNT {
