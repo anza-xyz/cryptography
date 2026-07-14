@@ -41,12 +41,9 @@ mod seed_chain;
 #[path = "air/trace_builder.rs"]
 mod trace_builder;
 
-use p3_air::{
-    Air, AirBuilder, AirBuilderWithPublicValues, BaseAir, BaseAirWithPublicValues, PairBuilder,
-};
+use p3_air::{Air, AirBuilder, BaseAir, WindowAccess};
 use p3_field::PrimeCharacteristicRing;
 use p3_koala_bear::KoalaBear;
-use p3_matrix::Matrix;
 use p3_matrix::dense::RowMajorMatrix;
 
 use super::circuit::Sha512Circuit;
@@ -112,9 +109,11 @@ impl BaseAir<KoalaBear> for Sha512RoundAir {
     fn preprocessed_trace(&self) -> Option<RowMajorMatrix<KoalaBear>> {
         Some(self.preprocessed.clone())
     }
-}
 
-impl BaseAirWithPublicValues<KoalaBear> for Sha512RoundAir {
+    fn preprocessed_width(&self) -> usize {
+        AIR_WIDTH
+    }
+
     fn num_public_values(&self) -> usize {
         16
     }
@@ -122,88 +121,79 @@ impl BaseAirWithPublicValues<KoalaBear> for Sha512RoundAir {
 
 impl<AB> Air<AB> for Sha512RoundAir
 where
-    AB: AirBuilderWithPublicValues<F = KoalaBear> + PairBuilder,
+    AB: AirBuilder<F = KoalaBear>,
 {
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let prep = builder.preprocessed();
-        let local = main.row_slice(0).expect("window has local row");
-        let next = main.row_slice(1).expect("window has next row");
-        let local_prep = prep
-            .row_slice(0)
-            .expect("window has local preprocessed row");
+        let prep = builder.preprocessed().clone();
+        let local = main.current_slice();
+        let next = main.next_slice();
+        let local_prep = prep.current_slice();
 
         for limb in 0..LIMBS_PER_WORD {
             // Bind K exactly as a 64-bit value, not just modulo the base field.
             builder.assert_zero(
-                local_prep[PREP_ROUND_SELECTOR_COL].clone()
-                    * (local[limb_col(WORD_K, limb)].clone()
-                        - local_prep[limb_col(WORD_K, limb)].clone()),
+                local_prep[PREP_ROUND_SELECTOR_COL]
+                    * (local[limb_col(WORD_K, limb)] - local_prep[limb_col(WORD_K, limb)]),
             );
         }
         for limb in 0..LIMBS_PER_WORD {
             // Bind W[0..15] exactly as 64-bit words from the instance.
             builder.assert_zero(
-                local_prep[PREP_FIXED_INIT_W_SELECTOR_COL].clone()
-                    * (local[limb_col(WORD_W, limb)].clone()
-                        - local_prep[limb_col(WORD_W, limb)].clone()),
+                local_prep[PREP_FIXED_INIT_W_SELECTOR_COL]
+                    * (local[limb_col(WORD_W, limb)] - local_prep[limb_col(WORD_W, limb)]),
             );
         }
         for (word_idx, row_sel) in [
-            (0_usize, local_prep[PREP_PAYLOAD_WORD0_SELECTOR_COL].clone()),
-            (1_usize, local_prep[PREP_PAYLOAD_WORD1_SELECTOR_COL].clone()),
-            (2_usize, local_prep[PREP_PAYLOAD_WORD2_SELECTOR_COL].clone()),
-            (3_usize, local_prep[PREP_PAYLOAD_WORD3_SELECTOR_COL].clone()),
+            (0_usize, local_prep[PREP_PAYLOAD_WORD0_SELECTOR_COL]),
+            (1_usize, local_prep[PREP_PAYLOAD_WORD1_SELECTOR_COL]),
+            (2_usize, local_prep[PREP_PAYLOAD_WORD2_SELECTOR_COL]),
+            (3_usize, local_prep[PREP_PAYLOAD_WORD3_SELECTOR_COL]),
         ] {
-            let seed_or_sk_sel = local_prep[PREP_SEGMENT_HASH_SELECTOR_COL].clone();
+            let seed_or_sk_sel = local_prep[PREP_SEGMENT_HASH_SELECTOR_COL];
             for limb in 0..LIMBS_PER_WORD {
-                let seed_limb = local[private_seed_limb_col(word_idx, limb)].clone();
-                let sk_limb = local[private_sk_limb_col(word_idx, limb)].clone();
-                let expected = seed_limb.clone() * (AB::Expr::ONE - seed_or_sk_sel.clone())
-                    + sk_limb.clone() * seed_or_sk_sel.clone();
-                builder.assert_zero(
-                    row_sel.clone() * (local[limb_col(WORD_W, limb)].clone() - expected),
-                );
+                let seed_limb = local[private_seed_limb_col(word_idx, limb)];
+                let sk_limb = local[private_sk_limb_col(word_idx, limb)];
+                let expected =
+                    seed_limb * (AB::Expr::ONE - seed_or_sk_sel) + sk_limb * seed_or_sk_sel;
+                builder.assert_zero(row_sel * (local[limb_col(WORD_W, limb)] - expected));
             }
         }
         for limb in 0..LIMBS_PER_WORD {
             builder.assert_zero(
-                (AB::Expr::ONE - local_prep[PREP_ROUND_SELECTOR_COL].clone())
-                    * local[limb_col(WORD_W, limb)].clone(),
+                (AB::Expr::ONE - local_prep[PREP_ROUND_SELECTOR_COL])
+                    * local[limb_col(WORD_W, limb)],
             );
         }
         constrain_private_sk_from_derive_final(
             builder,
-            &local,
-            &local_prep,
-            local_prep[PREP_DERIVE_FINAL_SELECTOR_COL].clone().into(),
+            local,
+            local_prep,
+            local_prep[PREP_DERIVE_FINAL_SELECTOR_COL].into(),
         );
 
-        let block_start_sel = local_prep[PREP_BLOCK_START_SELECTOR_COL].clone();
+        let block_start_sel = local_prep[PREP_BLOCK_START_SELECTOR_COL];
         for word in WORD_A..=WORD_H {
             for limb in 0..LIMBS_PER_WORD {
                 builder.assert_zero(
-                    block_start_sel.clone()
-                        * (local[limb_col(word, limb)].clone()
-                            - local_prep[limb_col(word, limb)].clone()),
+                    block_start_sel
+                        * (local[limb_col(word, limb)] - local_prep[limb_col(word, limb)]),
                 );
             }
         }
 
         let public: [AB::PublicVar; 16] = core::array::from_fn(|i| builder.public_values()[i]);
-        let commit_final_sel = local_prep[PREP_COMMIT_FINAL_SELECTOR_COL].clone();
-        let hash_final_sel = local_prep[PREP_HASH_FINAL_SELECTOR_COL].clone();
+        let commit_final_sel = local_prep[PREP_COMMIT_FINAL_SELECTOR_COL];
+        let hash_final_sel = local_prep[PREP_HASH_FINAL_SELECTOR_COL];
         for i in 0..8 {
             builder.assert_zero(
-                commit_final_sel.clone()
-                    * (public[i].into() - pack_word_from_limbs::<AB>(&local, i)),
+                commit_final_sel * (public[i].into() - pack_word_from_limbs::<AB>(local, i)),
             );
             builder.assert_zero(
-                hash_final_sel.clone()
-                    * (public[8 + i].into() - pack_word_from_limbs::<AB>(&local, i)),
+                hash_final_sel * (public[8 + i].into() - pack_word_from_limbs::<AB>(local, i)),
             );
         }
-        let round_sel = local_prep[PREP_ROUND_SELECTOR_COL].clone();
+        let round_sel = local_prep[PREP_ROUND_SELECTOR_COL];
 
         for (word, base) in [
             (WORD_A, BIT_A_BASE),
@@ -215,23 +205,20 @@ where
         ] {
             for bit in 0..64 {
                 builder.assert_zero(
-                    round_sel.clone()
-                        * (local[base + bit].clone() * (AB::Expr::ONE - local[base + bit].clone())),
+                    round_sel * (local[base + bit] * (AB::Expr::ONE - local[base + bit])),
                 );
             }
             builder.assert_zero(
-                round_sel.clone()
-                    * (pack_word_from_limbs::<AB>(&local, word) - pack_bits::<AB>(&local, base)),
+                round_sel
+                    * (pack_word_from_limbs::<AB>(local, word) - pack_bits::<AB>(local, base)),
             );
             for limb in 0..LIMBS_PER_WORD {
                 let mut limb_expr = AB::Expr::ZERO;
                 for bit in 0..16 {
                     let bit_col = base + limb * 16 + bit;
-                    limb_expr += local[bit_col].clone() * KoalaBear::from_u32(1 << bit);
+                    limb_expr += local[bit_col] * KoalaBear::from_u32(1 << bit);
                 }
-                builder.assert_zero(
-                    round_sel.clone() * (local[limb_col(word, limb)].clone() - limb_expr),
-                );
+                builder.assert_zero(round_sel * (local[limb_col(word, limb)] - limb_expr));
             }
         }
         for limb in 0..LIMBS_PER_WORD {
@@ -241,27 +228,27 @@ where
             let mut maj_limb = AB::Expr::ZERO;
             for bit in 0..16 {
                 let bit_idx = limb * 16 + bit;
-                let a = local[BIT_A_BASE + bit_idx].clone();
-                let b = local[BIT_B_BASE + bit_idx].clone();
-                let c = local[BIT_C_BASE + bit_idx].clone();
-                let e = local[BIT_E_BASE + bit_idx].clone();
-                let f = local[BIT_F_BASE + bit_idx].clone();
-                let g = local[BIT_G_BASE + bit_idx].clone();
+                let a = local[BIT_A_BASE + bit_idx];
+                let b = local[BIT_B_BASE + bit_idx];
+                let c = local[BIT_C_BASE + bit_idx];
+                let e = local[BIT_E_BASE + bit_idx];
+                let f = local[BIT_F_BASE + bit_idx];
+                let g = local[BIT_G_BASE + bit_idx];
 
                 let sigma0 = xor3_expr::<AB>(
-                    local[BIT_A_BASE + ((bit_idx + 28) % 64)].clone().into(),
-                    local[BIT_A_BASE + ((bit_idx + 34) % 64)].clone().into(),
-                    local[BIT_A_BASE + ((bit_idx + 39) % 64)].clone().into(),
+                    local[BIT_A_BASE + ((bit_idx + 28) % 64)].into(),
+                    local[BIT_A_BASE + ((bit_idx + 34) % 64)].into(),
+                    local[BIT_A_BASE + ((bit_idx + 39) % 64)].into(),
                 );
                 let sigma1 = xor3_expr::<AB>(
-                    local[BIT_E_BASE + ((bit_idx + 14) % 64)].clone().into(),
-                    local[BIT_E_BASE + ((bit_idx + 18) % 64)].clone().into(),
-                    local[BIT_E_BASE + ((bit_idx + 41) % 64)].clone().into(),
+                    local[BIT_E_BASE + ((bit_idx + 14) % 64)].into(),
+                    local[BIT_E_BASE + ((bit_idx + 18) % 64)].into(),
+                    local[BIT_E_BASE + ((bit_idx + 41) % 64)].into(),
                 );
-                let ch_expr = e.clone() * f.clone() + (AB::Expr::ONE - e) * g.clone();
-                let ab = a.clone() * b.clone();
-                let ac = a.clone() * c.clone();
-                let bc = b.clone() * c.clone();
+                let ch_expr = e * f + (AB::Expr::ONE - e) * g;
+                let ab = a * b;
+                let ac = a * c;
+                let bc = b * c;
                 let abc = a * b * c;
                 let maj_expr = ab + ac + bc - abc * KoalaBear::TWO;
                 let bit_weight = KoalaBear::from_u32(1 << bit);
@@ -270,40 +257,32 @@ where
                 ch_limb += ch_expr * bit_weight;
                 maj_limb += maj_expr * bit_weight;
             }
-            builder.assert_zero(
-                round_sel.clone() * (local[limb_col(WORD_SIGMA0, limb)].clone() - sigma0_limb),
-            );
-            builder.assert_zero(
-                round_sel.clone() * (local[limb_col(WORD_SIGMA1, limb)].clone() - sigma1_limb),
-            );
-            builder.assert_zero(
-                round_sel.clone() * (local[limb_col(WORD_CH, limb)].clone() - ch_limb),
-            );
-            builder.assert_zero(
-                round_sel.clone() * (local[limb_col(WORD_MAJ, limb)].clone() - maj_limb),
-            );
+            builder.assert_zero(round_sel * (local[limb_col(WORD_SIGMA0, limb)] - sigma0_limb));
+            builder.assert_zero(round_sel * (local[limb_col(WORD_SIGMA1, limb)] - sigma1_limb));
+            builder.assert_zero(round_sel * (local[limb_col(WORD_CH, limb)] - ch_limb));
+            builder.assert_zero(round_sel * (local[limb_col(WORD_MAJ, limb)] - maj_limb));
         }
 
         for src in 0..RANGE_SOURCES {
             let mut packed = AB::Expr::ZERO;
             for bit in 0..RANGE_BITS_PER_SOURCE {
-                let b = local[range_bit_col(src, bit)].clone();
-                builder.assert_bool(b.clone());
+                let b = local[range_bit_col(src, bit)];
+                builder.assert_bool(b);
                 packed += b * KoalaBear::from_u32(1 << bit);
             }
-            builder.assert_eq(local[range_source_col(src)].clone(), packed);
+            builder.assert_eq(local[range_source_col(src)], packed);
         }
 
         for (lag, base) in [(1_usize, LAG1_BIT_BASE), (14_usize, LAG14_BIT_BASE)] {
             for bit in 0..64 {
-                builder.assert_bool(local[base + bit].clone());
+                builder.assert_bool(local[base + bit]);
             }
             for limb in 0..LIMBS_PER_WORD {
                 let mut packed = AB::Expr::ZERO;
                 for bit in 0..16 {
-                    packed += local[base + limb * 16 + bit].clone() * KoalaBear::from_u32(1 << bit);
+                    packed += local[base + limb * 16 + bit] * KoalaBear::from_u32(1 << bit);
                 }
-                builder.assert_eq(local[lag_limb_col(lag, limb)].clone(), packed);
+                builder.assert_eq(local[lag_limb_col(lag, limb)], packed);
             }
         }
 
@@ -311,29 +290,28 @@ where
         for word in 0..4 {
             for limb in 0..LIMBS_PER_WORD {
                 global_transition.assert_eq(
-                    next[private_seed_limb_col(word, limb)].clone(),
-                    local[private_seed_limb_col(word, limb)].clone(),
+                    next[private_seed_limb_col(word, limb)],
+                    local[private_seed_limb_col(word, limb)],
                 );
                 global_transition.assert_eq(
-                    next[private_sk_limb_col(word, limb)].clone(),
-                    local[private_sk_limb_col(word, limb)].clone(),
+                    next[private_sk_limb_col(word, limb)],
+                    local[private_sk_limb_col(word, limb)],
                 );
             }
         }
 
         let mut transition_window = builder.when_transition();
-        let mut transition =
-            transition_window.when(local_prep[PREP_TRANSITION_SELECTOR_COL].clone());
+        let mut transition = transition_window.when(local_prep[PREP_TRANSITION_SELECTOR_COL]);
         constrain_add_5_limbs(
             &mut transition,
-            &local,
+            local,
             [WORD_H, WORD_SIGMA1, WORD_CH, WORD_K, WORD_W],
             WORD_T1,
             CARRY_T1_BASE,
         );
         constrain_add_2_limbs(
             &mut transition,
-            &local,
+            local,
             WORD_SIGMA0,
             WORD_MAJ,
             WORD_T2,
@@ -341,8 +319,8 @@ where
         );
         constrain_add_2_limbs_across_rows(
             &mut transition,
-            &local,
-            &next,
+            local,
+            next,
             WORD_T1,
             WORD_T2,
             WORD_A,
@@ -350,8 +328,8 @@ where
         );
         constrain_add_2_limbs_across_rows(
             &mut transition,
-            &local,
-            &next,
+            local,
+            next,
             WORD_D,
             WORD_T1,
             WORD_E,
@@ -359,55 +337,37 @@ where
         );
 
         for limb in 0..LIMBS_PER_WORD {
-            transition.assert_eq(
-                next[limb_col(WORD_B, limb)].clone(),
-                local[limb_col(WORD_A, limb)].clone(),
-            );
-            transition.assert_eq(
-                next[limb_col(WORD_C, limb)].clone(),
-                local[limb_col(WORD_B, limb)].clone(),
-            );
-            transition.assert_eq(
-                next[limb_col(WORD_D, limb)].clone(),
-                local[limb_col(WORD_C, limb)].clone(),
-            );
-            transition.assert_eq(
-                next[limb_col(WORD_F, limb)].clone(),
-                local[limb_col(WORD_E, limb)].clone(),
-            );
-            transition.assert_eq(
-                next[limb_col(WORD_G, limb)].clone(),
-                local[limb_col(WORD_F, limb)].clone(),
-            );
-            transition.assert_eq(
-                next[limb_col(WORD_H, limb)].clone(),
-                local[limb_col(WORD_G, limb)].clone(),
-            );
+            transition.assert_eq(next[limb_col(WORD_B, limb)], local[limb_col(WORD_A, limb)]);
+            transition.assert_eq(next[limb_col(WORD_C, limb)], local[limb_col(WORD_B, limb)]);
+            transition.assert_eq(next[limb_col(WORD_D, limb)], local[limb_col(WORD_C, limb)]);
+            transition.assert_eq(next[limb_col(WORD_F, limb)], local[limb_col(WORD_E, limb)]);
+            transition.assert_eq(next[limb_col(WORD_G, limb)], local[limb_col(WORD_F, limb)]);
+            transition.assert_eq(next[limb_col(WORD_H, limb)], local[limb_col(WORD_G, limb)]);
         }
 
         for lag in 0..LAG_COUNT {
             for limb in 0..LIMBS_PER_WORD {
                 let expected = if lag == 0 {
-                    local[limb_col(WORD_W, limb)].clone()
+                    local[limb_col(WORD_W, limb)]
                 } else {
-                    local[lag_limb_col(lag - 1, limb)].clone()
+                    local[lag_limb_col(lag - 1, limb)]
                 };
-                transition.assert_eq(next[lag_limb_col(lag, limb)].clone(), expected);
+                transition.assert_eq(next[lag_limb_col(lag, limb)], expected);
             }
         }
-        let sched_sel = local_prep[PREP_ROUND_SELECTOR_COL].clone()
-            * (AB::Expr::ONE - local_prep[PREP_FIXED_INIT_W_SELECTOR_COL].clone())
-            * (AB::Expr::ONE - local_prep[PREP_PAYLOAD_WORD_SELECTOR_COL].clone());
-        constrain_schedule_recurrence(&mut transition, &local, sched_sel);
+        let sched_sel = local_prep[PREP_ROUND_SELECTOR_COL]
+            * (AB::Expr::ONE - local_prep[PREP_FIXED_INIT_W_SELECTOR_COL])
+            * (AB::Expr::ONE - local_prep[PREP_PAYLOAD_WORD_SELECTOR_COL]);
+        constrain_schedule_recurrence(&mut transition, local, sched_sel);
 
         let mut last = builder.when_last_row();
         for word in WORD_W..WORD_COUNT {
             for limb in 0..LIMBS_PER_WORD {
-                last.assert_eq(local[limb_col(word, limb)].clone(), KoalaBear::ZERO);
+                last.assert_eq(local[limb_col(word, limb)], KoalaBear::ZERO);
             }
         }
-        for col in CARRY_T1_BASE..BIT_A_BASE {
-            last.assert_eq(local[col].clone(), KoalaBear::ZERO);
+        for &cell in &local[CARRY_T1_BASE..BIT_A_BASE] {
+            last.assert_eq(cell, KoalaBear::ZERO);
         }
     }
 }
@@ -416,10 +376,10 @@ fn pack_word_from_limbs<AB: AirBuilder<F = KoalaBear>>(row: &[AB::Var], word: us
     let two16 = KoalaBear::from_u32(1 << 16);
     let two32 = KoalaBear::from_u64(1_u64 << 32);
     let two48 = KoalaBear::from_u64(1_u64 << 48);
-    row[limb_col(word, 0)].clone()
-        + row[limb_col(word, 1)].clone() * two16
-        + row[limb_col(word, 2)].clone() * two32
-        + row[limb_col(word, 3)].clone() * two48
+    row[limb_col(word, 0)]
+        + row[limb_col(word, 1)] * two16
+        + row[limb_col(word, 2)] * two32
+        + row[limb_col(word, 3)] * two48
 }
 
 impl Sha512Circuit {
