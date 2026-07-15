@@ -10,7 +10,7 @@ use p256::{
     AffinePoint as P256AffinePoint, ProjectivePoint as P256ProjectivePoint, Scalar,
     elliptic_curve::{ff::PrimeField, group::Group},
 };
-use secp256r1::group::{AffinePoint, ProjectivePoint};
+use solana_secp256r1::group::{AffinePoint, ProjectivePoint};
 
 const SCALAR: [u8; 32] = [
     0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
@@ -102,7 +102,7 @@ fn bench_group_double(c: &mut Criterion) {
     let fixture = Fixture::new();
     let (openssl_group, mut openssl_context, openssl_g, _) = openssl_fixture();
     let mut openssl_out = EcPoint::new(&openssl_group).unwrap();
-    let mut group = c.benchmark_group("secp256r1_group_double");
+    let mut group = c.benchmark_group("solana_secp256r1_group_double");
 
     group.bench_function("rust", |b| {
         b.iter(|| black_box(fixture.rust_g).double());
@@ -133,7 +133,7 @@ fn bench_group_add(c: &mut Criterion) {
     let fixture = Fixture::new();
     let (openssl_group, mut openssl_context, openssl_g, openssl_2g) = openssl_fixture();
     let mut openssl_out = EcPoint::new(&openssl_group).unwrap();
-    let mut group = c.benchmark_group("secp256r1_group_add");
+    let mut group = c.benchmark_group("solana_secp256r1_group_add");
 
     group.bench_function("rust", |b| {
         b.iter(|| black_box(fixture.rust_2g) + black_box(fixture.rust_g));
@@ -162,7 +162,7 @@ fn bench_group_add(c: &mut Criterion) {
 
 fn bench_group_mixed_add(c: &mut Criterion) {
     let fixture = Fixture::new();
-    let mut group = c.benchmark_group("secp256r1_group_mixed_add");
+    let mut group = c.benchmark_group("solana_secp256r1_group_mixed_add");
 
     group.bench_function("rust", |b| {
         b.iter(|| black_box(fixture.rust_2g).add_mixed(black_box(fixture.rust_affine_g)));
@@ -180,7 +180,7 @@ fn bench_group_base_scalar_mul(c: &mut Criterion) {
     let (openssl_group, mut openssl_context, _, _) = openssl_fixture();
     let openssl_scalar = BigNum::from_slice(&SCALAR).unwrap();
     let mut openssl_out = EcPoint::new(&openssl_group).unwrap();
-    let mut group = c.benchmark_group("secp256r1_group_base_scalar_mul");
+    let mut group = c.benchmark_group("solana_secp256r1_group_base_scalar_mul");
 
     group.bench_function("rust_variable_base", |b| {
         b.iter(|| black_box(fixture.rust_g).mul_scalar_vartime(black_box(SCALAR)));
@@ -218,7 +218,7 @@ fn bench_group_double_scalar_mul(c: &mut Criterion) {
     let (openssl_group, mut openssl_context, _, openssl_q) = openssl_fixture();
     let openssl_scalar = BigNum::from_slice(&SCALAR).unwrap();
     let mut openssl_out = EcPoint::new(&openssl_group).unwrap();
-    let mut group = c.benchmark_group("secp256r1_group_double_scalar_mul");
+    let mut group = c.benchmark_group("solana_secp256r1_group_double_scalar_mul");
 
     group.bench_function("rust_separate_projective_q", |b| {
         b.iter(|| {
@@ -277,7 +277,8 @@ fn bench_group_multi_scalar_mul(c: &mut Criterion) {
     for count in [MSM_8_POINTS, MSM_32_POINTS] {
         let (rust_points, rust_scalars) = rust_msm_fixture(count);
         let (p256_points, p256_scalars) = p256_msm_fixture(count);
-        let mut group = c.benchmark_group(format!("secp256r1_group_multi_scalar_mul_{count}"));
+        let mut group =
+            c.benchmark_group(format!("solana_secp256r1_group_multi_scalar_mul_{count}"));
 
         group.bench_function("rust_msm_window4", |b| {
             b.iter(|| {
