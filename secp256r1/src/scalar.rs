@@ -7,6 +7,7 @@
 //! [`to_be_bytes`][Scalar::to_be_bytes] to convert from/to canonical
 //! big-endian representation.
 
+use crate::Endianness;
 use core::ops::{Add, Mul, Neg, Sub};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -49,13 +50,27 @@ impl Scalar {
     };
 
     #[inline]
-    pub fn from_be_bytes(bytes: [u8; 32]) -> Option<Self> {
-        Self::from_canonical_limbs(limbs_from_be_bytes(bytes))
+    pub fn from_bytes(bytes: &[u8; 32], endianness: Endianness) -> Option<Self> {
+        let mut scalar_bytes = [0u8; 32];
+        scalar_bytes.copy_from_slice(bytes);
+
+        if endianness == Endianness::Little {
+            scalar_bytes.reverse();
+        }
+
+        Self::from_canonical_limbs(limbs_from_be_bytes(&scalar_bytes))
     }
 
     #[inline]
-    pub fn from_be_bytes_reduced(bytes: [u8; 32]) -> Self {
-        let mut limbs = limbs_from_be_bytes(bytes);
+    pub fn from_bytes_reduced(bytes: &[u8; 32], endianness: Endianness) -> Self {
+        let mut scalar_bytes = [0u8; 32];
+        scalar_bytes.copy_from_slice(bytes);
+
+        if endianness == Endianness::Little {
+            scalar_bytes.reverse();
+        }
+
+        let mut limbs = limbs_from_be_bytes(&scalar_bytes);
 
         if ge_limbs(limbs, MODULUS) {
             limbs = sub_limbs(limbs, MODULUS).0;
@@ -437,7 +452,7 @@ fn mac(a: u64, b: u64, c: u64, carry: u64) -> (u64, u64) {
 }
 
 #[inline]
-fn limbs_from_be_bytes(bytes: [u8; 32]) -> [u64; 4] {
+fn limbs_from_be_bytes(bytes: &[u8; 32]) -> [u64; 4] {
     let mut limbs = [0u64; 4];
 
     for (i, chunk) in bytes.chunks_exact(8).rev().enumerate() {
@@ -461,6 +476,7 @@ fn be_bytes_from_limbs(limbs: [u64; 4]) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::Scalar;
+    use crate::Endianness;
     use p256::{
         Scalar as P256Scalar,
         elliptic_curve::{bigint::U256, ff::PrimeField, ops::Reduce},
@@ -507,20 +523,25 @@ mod tests {
 
     #[test]
     fn rejects_non_canonical_order() {
-        assert!(Scalar::from_be_bytes(N).is_none());
+        assert!(Scalar::from_bytes(&N, Endianness::Big).is_none());
     }
 
     #[test]
     fn round_trips() {
         for bytes in [[0u8; 32], A, B] {
-            assert_eq!(Scalar::from_be_bytes(bytes).unwrap().to_be_bytes(), bytes);
+            assert_eq!(
+                Scalar::from_bytes(&bytes, Endianness::Big)
+                    .unwrap()
+                    .to_be_bytes(),
+                bytes
+            );
         }
     }
 
     #[test]
     fn arithmetic_matches_p256() {
-        let a = Scalar::from_be_bytes(A).unwrap();
-        let b = Scalar::from_be_bytes(B).unwrap();
+        let a = Scalar::from_bytes(&A, Endianness::Big).unwrap();
+        let b = Scalar::from_bytes(&B, Endianness::Big).unwrap();
         let p256_a = p256_scalar(A);
         let p256_b = p256_scalar(B);
 
@@ -533,7 +554,7 @@ mod tests {
 
     #[test]
     fn reduced_bytes_match_p256() {
-        let rust = Scalar::from_be_bytes_reduced(N);
+        let rust = Scalar::from_bytes_reduced(&N, Endianness::Big);
         let p256 = P256Scalar::reduce(U256::from_be_slice(&N));
         assert_matches_p256(rust, p256);
     }
@@ -543,8 +564,8 @@ mod tests {
         for i in 1..128 {
             let a = sample(i);
             let b = sample(i ^ 0xa5a5_a5a5_a5a5_a5a5);
-            let rust_a = Scalar::from_be_bytes(a).unwrap();
-            let rust_b = Scalar::from_be_bytes(b).unwrap();
+            let rust_a = Scalar::from_bytes(&a, Endianness::Big).unwrap();
+            let rust_b = Scalar::from_bytes(&b, Endianness::Big).unwrap();
             let p256_a = p256_scalar(a);
             let p256_b = p256_scalar(b);
 
@@ -557,5 +578,24 @@ mod tests {
                 Option::from(p256_a.invert()).unwrap(),
             );
         }
+    }
+
+    #[test]
+    fn parses_little_endian_scalars() {
+        let mut le_a = A;
+        le_a.reverse();
+
+        let be_scalar = Scalar::from_bytes(&A, Endianness::Big).unwrap();
+        let le_scalar = Scalar::from_bytes(&le_a, Endianness::Little).unwrap();
+
+        assert_eq!(be_scalar, le_scalar);
+
+        let mut le_n = N;
+        le_n.reverse();
+
+        let be_reduced = Scalar::from_bytes_reduced(&N, Endianness::Big);
+        let le_reduced = Scalar::from_bytes_reduced(&le_n, Endianness::Little);
+
+        assert_eq!(be_reduced, le_reduced);
     }
 }

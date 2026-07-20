@@ -14,6 +14,7 @@
 use core::ops::{Add, Neg, Sub};
 use std::sync::OnceLock;
 
+use crate::Endianness;
 use crate::field::FieldElement;
 
 const BASE_WINDOWS: usize = 32;
@@ -83,30 +84,42 @@ impl AffinePoint {
     }
 
     #[inline]
-    pub fn from_uncompressed(bytes: [u8; 65]) -> Option<Self> {
-        if bytes[0] != 0x04 {
-            return None;
+    pub fn from_uncompressed(bytes: &[u8; 64], endianness: Endianness) -> Option<Self> {
+        if bytes == &[0u8; 64] {
+            return Some(Self::IDENTITY);
         }
 
-        let mut x = [0u8; 32];
-        let mut y = [0u8; 32];
-        x.copy_from_slice(&bytes[1..33]);
-        y.copy_from_slice(&bytes[33..65]);
+        let mut x_bytes = [0u8; 32];
+        let mut y_bytes = [0u8; 32];
+        x_bytes.copy_from_slice(&bytes[0..32]);
+        y_bytes.copy_from_slice(&bytes[32..64]);
+
+        if endianness == Endianness::Little {
+            x_bytes.reverse();
+            y_bytes.reverse();
+        }
 
         Self::new(
-            FieldElement::from_be_bytes(x)?,
-            FieldElement::from_be_bytes(y)?,
+            FieldElement::from_be_bytes(x_bytes)?,
+            FieldElement::from_be_bytes(y_bytes)?,
         )
     }
 
     #[inline]
-    pub fn from_compressed(bytes: [u8; 33]) -> Option<Self> {
+    pub fn from_compressed(bytes: &[u8; 33], endianness: Endianness) -> Option<Self> {
+        // `0x02`: Compressed point with an even Y-coordinate
+        // `0x03`: Compressed point with an odd Y-coordinate
         if bytes[0] != 0x02 && bytes[0] != 0x03 {
             return None;
         }
 
         let mut x_bytes = [0u8; 32];
         x_bytes.copy_from_slice(&bytes[1..33]);
+
+        if endianness == Endianness::Little {
+            x_bytes.reverse();
+        }
+
         let x = FieldElement::from_be_bytes(x_bytes)?;
         let rhs = x.square() * x - triple(x) + CURVE_B;
         let mut y = rhs.sqrt()?;
@@ -136,15 +149,44 @@ impl AffinePoint {
     }
 
     #[inline]
-    pub fn to_uncompressed(self) -> Option<[u8; 65]> {
-        if self.infinity {
+    pub fn to_uncompressed(self, endianness: Endianness) -> [u8; 64] {
+        if self.is_identity() {
+            return [0u8; 64];
+        }
+
+        let mut x_bytes = self.x.to_be_bytes();
+        let mut y_bytes = self.y.to_be_bytes();
+
+        if endianness == Endianness::Little {
+            x_bytes.reverse();
+            y_bytes.reverse();
+        }
+
+        let mut out = [0u8; 64];
+        out[0..32].copy_from_slice(&x_bytes);
+        out[32..64].copy_from_slice(&y_bytes);
+        out
+    }
+
+    #[inline]
+    pub fn to_compressed(self, endianness: Endianness) -> Option<[u8; 33]> {
+        if self.is_identity() {
             return None;
         }
 
-        let mut out = [0u8; 65];
-        out[0] = 0x04;
-        out[1..33].copy_from_slice(&self.x.to_be_bytes());
-        out[33..65].copy_from_slice(&self.y.to_be_bytes());
+        let mut x_bytes = self.x.to_be_bytes();
+        let y_bytes = self.y.to_be_bytes();
+
+        let prefix = if (y_bytes[31] & 1) == 1 { 0x03 } else { 0x02 };
+
+        if endianness == Endianness::Little {
+            x_bytes.reverse();
+        }
+
+        let mut out = [0u8; 33];
+        out[0] = prefix;
+        out[1..33].copy_from_slice(&x_bytes);
+
         Some(out)
     }
 
@@ -269,8 +311,8 @@ impl ProjectivePoint {
     }
 
     #[inline]
-    pub fn to_uncompressed(self) -> Option<[u8; 65]> {
-        self.to_affine().to_uncompressed()
+    pub fn to_uncompressed(self, endianness: Endianness) -> [u8; 64] {
+        self.to_affine().to_uncompressed(endianness)
     }
 
     #[inline]
@@ -604,7 +646,7 @@ fn mul_window8_vartime(
 #[cfg(test)]
 mod tests {
     use super::{AffinePoint, ProjectivePoint};
-    use crate::field::FieldElement;
+    use crate::{Endianness, field::FieldElement};
     use p256::{
         ProjectivePoint as P256ProjectivePoint, Scalar,
         elliptic_curve::{ff::PrimeField, group::Group, sec1::ToEncodedPoint},
@@ -621,9 +663,9 @@ mod tests {
     ];
 
     fn assert_matches_p256(rust: ProjectivePoint, p256: P256ProjectivePoint) {
-        let rust_bytes = rust.to_uncompressed().unwrap();
+        let rust_bytes = rust.to_uncompressed(Endianness::Big);
         let p256_bytes = p256.to_affine().to_encoded_point(false);
-        assert_eq!(rust_bytes.as_slice(), p256_bytes.as_bytes());
+        assert_eq!(rust_bytes.as_slice(), &p256_bytes.as_bytes()[1..]);
     }
 
     #[test]
@@ -636,9 +678,9 @@ mod tests {
 
     #[test]
     fn parses_and_serializes_generator() {
-        let bytes = ProjectivePoint::generator().to_uncompressed().unwrap();
+        let bytes = ProjectivePoint::generator().to_uncompressed(Endianness::Big);
         assert_eq!(
-            AffinePoint::from_uncompressed(bytes).unwrap(),
+            AffinePoint::from_uncompressed(&bytes, Endianness::Big).unwrap(),
             AffinePoint::generator()
         );
     }
@@ -742,5 +784,67 @@ mod tests {
         assert!(
             ProjectivePoint::multi_scalar_mul_vartime(&[AffinePoint::generator()], &[]).is_none()
         );
+    }
+
+    #[test]
+    fn parses_and_serializes_little_endian() {
+        let point = AffinePoint::generator();
+
+        let be_bytes = point.to_uncompressed(Endianness::Big);
+        let le_bytes = point.to_uncompressed(Endianness::Little);
+
+        assert_ne!(be_bytes, le_bytes);
+        assert_eq!(
+            AffinePoint::from_uncompressed(&le_bytes, Endianness::Little).unwrap(),
+            point
+        );
+    }
+
+    #[test]
+    fn parses_and_serializes_compressed() {
+        let point = AffinePoint::generator();
+
+        let be_compressed = point.to_compressed(Endianness::Big).unwrap();
+        let le_compressed = point.to_compressed(Endianness::Little).unwrap();
+
+        assert_eq!(
+            AffinePoint::from_compressed(&be_compressed, Endianness::Big).unwrap(),
+            point
+        );
+        assert_eq!(
+            AffinePoint::from_compressed(&le_compressed, Endianness::Little).unwrap(),
+            point
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_compressed_prefixes() {
+        let mut bytes = [0u8; 33];
+
+        // Test the SEC1 identity marker (0x00)
+        assert!(AffinePoint::from_compressed(&bytes, Endianness::Big).is_none());
+
+        // Test the unassigned marker (0x01)
+        bytes[0] = 0x01;
+        assert!(AffinePoint::from_compressed(&bytes, Endianness::Big).is_none());
+
+        // Test the uncompressed marker (0x04)
+        bytes[0] = 0x04;
+        assert!(AffinePoint::from_compressed(&bytes, Endianness::Big).is_none());
+    }
+
+    #[test]
+    fn enforces_identity_point_rules() {
+        let identity = AffinePoint::IDENTITY;
+
+        // Uncompressed correctly handles the 64-byte zero array
+        assert_eq!(identity.to_uncompressed(Endianness::Big), [0u8; 64]);
+        assert_eq!(
+            AffinePoint::from_uncompressed(&[0u8; 64], Endianness::Big).unwrap(),
+            identity
+        );
+
+        // Compressed correctly refuses to serialize the identity point
+        assert!(identity.to_compressed(Endianness::Big).is_none());
     }
 }
