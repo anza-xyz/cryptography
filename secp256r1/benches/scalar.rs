@@ -3,7 +3,7 @@ use std::hint::black_box;
 use criterion::{Criterion, criterion_group, criterion_main};
 use openssl::bn::{BigNum, BigNumContext};
 use p256::{Scalar as P256Scalar, elliptic_curve::ff::PrimeField};
-use solana_secp256r1::scalar::Scalar;
+use solana_secp256r1::{Endianness, scalar::Scalar};
 
 const A: [u8; 32] = [
     0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
@@ -32,8 +32,8 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         Self {
-            rust_a: Scalar::from_be_bytes(A).unwrap(),
-            rust_b: Scalar::from_be_bytes(B).unwrap(),
+            rust_a: Scalar::from_bytes(&A, Endianness::Big).unwrap(),
+            rust_b: Scalar::from_bytes(&B, Endianness::Big).unwrap(),
             p256_a: p256_scalar(A),
             p256_b: p256_scalar(B),
             openssl_a: BigNum::from_slice(&A).unwrap(),
