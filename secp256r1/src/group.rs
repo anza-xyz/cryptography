@@ -148,6 +148,11 @@ impl AffinePoint {
         }
     }
 
+    /// Serializes the affine point to a 64-byte uncompressed representation.
+    ///
+    /// As specified in SIMD-565, the point at infinity (identity) is canonically
+    /// encoded as 64 bytes of zeroes. This ensures compatibility with the fixed-length
+    /// layout expected by syscalls like `sol_curve_group_op`.
     #[inline]
     pub fn to_uncompressed(self, endianness: Endianness) -> [u8; 64] {
         if self.is_identity() {
@@ -168,6 +173,13 @@ impl AffinePoint {
         out
     }
 
+    /// Serializes the affine point to a 33-byte compressed representation.
+    ///
+    /// Returns `None` if the point is the point at infinity (identity).
+    /// According to SIMD-565, decompression of the identity point is explicitly
+    /// unsupported within the fixed 33-byte layout (e.g., for `sol_curve_decompress`),
+    /// as it cannot satisfy the required `0x02` or `0x03` parity prefix. Enforcing
+    /// this via `Option` ensures the output is always valid for the syscall.
     #[inline]
     pub fn to_compressed(self, endianness: Endianness) -> Option<[u8; 33]> {
         if self.is_identity() {
