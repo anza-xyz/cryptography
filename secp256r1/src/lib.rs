@@ -27,3 +27,9 @@
 pub mod field;
 pub mod group;
 pub mod scalar;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Endianness {
+    Big,
+    Little,
+}
