@@ -1,13 +1,13 @@
 pub(crate) mod avx512ifma {
-    use super::batch::{PUBLIC_KEY_LEN, PreparedBatch, R_ENCODING_LEN};
+    use crate::backend::vector::avx512::batch::{PUBLIC_KEY_LEN, PreparedBatch, R_ENCODING_LEN};
     #[cfg(test)]
-    use super::edwards::EdwardsPoint;
-    use super::edwards::{BasepointTable, CachedPoint, PointTable};
-    use super::field::{Fe51, LIMB_COUNT};
-    use super::scalar::Radix16;
+    use crate::backend::vector::avx512::edwards::EdwardsPoint;
+    use crate::backend::vector::avx512::edwards::{BasepointTable, CachedPoint, PointTable};
+    use crate::backend::vector::avx512::field::{Fe51, LIMB_COUNT};
+    use crate::backend::vector::avx512::scalar::Radix16;
     use std::arch::x86_64::*;
 
-    const LANES: usize = super::batch::SIMD_LANES;
+    const LANES: usize = crate::backend::vector::avx512::batch::SIMD_LANES;
     // `__mmask8` and the raw 512-bit loadu/storeu intrinsics throughout this
     // module hard-code 8 lanes; this catches a `SIMD_LANES` change at compile
     // time instead of silently corrupting or truncating lanes at runtime.
@@ -1103,13 +1103,13 @@ pub(crate) mod avx512ifma {
         // Curve constants are defined once in `field.rs` and broadcast here, so
         // the scalar and SIMD field paths cannot drift.
         fn d() -> Self {
-            Self::constant(super::field::D_LIMBS)
+            Self::constant(crate::backend::vector::avx512::field::D_LIMBS)
         }
         fn sqrt_m1() -> Self {
-            Self::constant(super::field::SQRT_M1_LIMBS)
+            Self::constant(crate::backend::vector::avx512::field::SQRT_M1_LIMBS)
         }
         fn two_d() -> Self {
-            Self::constant(super::field::TWO_D_LIMBS)
+            Self::constant(crate::backend::vector::avx512::field::TWO_D_LIMBS)
         }
     }
     fn madd_one(lo: &mut __m512i, hi: &mut __m512i, a: __m512i, b: __m512i) {
@@ -1262,8 +1262,8 @@ pub(crate) mod avx512ifma {
                     "is_odd_lanes lane {lane}"
                 );
 
-                let expected_bytes = super::field::Fe51::from_limbs(input).to_bytes();
-                let actual_bytes = super::field::Fe51::from_limbs(actual).to_bytes();
+                let expected_bytes = Fe51::from_limbs(input).to_bytes();
+                let actual_bytes = Fe51::from_limbs(actual).to_bytes();
                 assert_eq!(
                     actual_bytes, expected_bytes,
                     "lane {lane} diverged from field.rs Fe51 reference"
@@ -1353,8 +1353,8 @@ pub(crate) mod avx512ifma {
                 };
             }
             for x in [
-                WideFe::constant(super::field::D_LIMBS),
-                WideFe::constant(super::field::SQRT_M1_LIMBS),
+                WideFe::constant(crate::backend::vector::avx512::field::D_LIMBS),
+                WideFe::constant(crate::backend::vector::avx512::field::SQRT_M1_LIMBS),
             ] {
                 check!(x, 0);
                 check!(x, 1);
@@ -1369,8 +1369,8 @@ pub(crate) mod avx512ifma {
 
         #[test]
         fn square_repeat_x2_matches_strict_reference() {
-            let a = WideFe::constant(super::field::D_LIMBS);
-            let b = WideFe::constant(super::field::SQRT_M1_LIMBS);
+            let a = WideFe::constant(crate::backend::vector::avx512::field::D_LIMBS);
+            let b = WideFe::constant(crate::backend::vector::avx512::field::SQRT_M1_LIMBS);
             macro_rules! check {
                 ($n:literal) => {
                     let (xa, xb) = WideFe::square_repeat_x2::<$n>(&a, &b);
@@ -1400,8 +1400,8 @@ pub(crate) mod avx512ifma {
         fn pow_x2_matches_sequential() {
             // The interleaved two-input exponentiation must be bit-identical to
             // two independent sequential pows on every lane.
-            let a = WideFe::constant(super::field::D_LIMBS);
-            let b = WideFe::constant(super::field::SQRT_M1_LIMBS);
+            let a = WideFe::constant(crate::backend::vector::avx512::field::D_LIMBS);
+            let b = WideFe::constant(crate::backend::vector::avx512::field::SQRT_M1_LIMBS);
             let (xa, xb) = WideFe::pow_p_minus_5_over_8_x2(&a, &b);
             assert!(
                 xa.equals_lanes(&a.pow_p_minus_5_over_8())
@@ -1428,9 +1428,9 @@ pub(crate) mod avx512ifma {
 
             let mut round = 0;
             while round < 200 {
-                let fields: [super::field::Fe51; LANES] = core::array::from_fn(|_| {
+                let fields: [Fe51; LANES] = core::array::from_fn(|_| {
                     let limbs: [u64; LIMB_COUNT] = core::array::from_fn(|_| next() & LIMB_MASK);
-                    super::field::Fe51::from_limbs(limbs)
+                    Fe51::from_limbs(limbs)
                 });
                 let wide_result = WideFe::from_fields(&fields)
                     .pow_p_minus_5_over_8()
@@ -1476,7 +1476,7 @@ pub(crate) mod avx512ifma {
             let s_digits = [[0i8; 64]; LANES];
             let mut one_bytes = [0u8; 32];
             one_bytes[0] = 1;
-            let k = super::scalar::Scalar::from_canonical_bytes(one_bytes);
+            let k = crate::backend::vector::avx512::scalar::Scalar::from_canonical_bytes(one_bytes);
             let k_digits = [k.to_radix16(); LANES];
             let prepared = PreparedBatch {
                 public_key_tables: [&table; LANES],
@@ -1527,8 +1527,8 @@ pub(crate) mod avx512ifma {
             let base_table = BasepointTable::new();
             let s_digits = [[0i8; 64]; LANES];
             let digest =
-                super::sha512::hash_slices(&[&r_bytes, &a_bytes, b"taming the many eddsas"]);
-            let k = super::scalar::Scalar::from_wide_bytes(digest);
+                crate::backend::vector::avx512::sha512::hash_slices(&[&r_bytes, &a_bytes, b"taming the many eddsas"]);
+            let k = crate::backend::vector::avx512::scalar::Scalar::from_wide_bytes(digest);
             let k_digits = [k.to_radix16(); LANES];
             let prepared = PreparedBatch {
                 public_key_tables: [&table; LANES],

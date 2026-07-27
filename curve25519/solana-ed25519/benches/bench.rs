@@ -10,8 +10,8 @@ use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_m
 ))]
 use curve25519::ed_sigs::avx512;
 use curve25519::ed_sigs::*;
-use ed25519::signature::Verifier as _;
-use ed25519_dalek::VerifyingKey as DalekVerifyingKey;
+use ed25519::signature::{Signer as _, Verifier as _};
+use ed25519_dalek::{SigningKey as DalekSigningKey, VerifyingKey as DalekVerifyingKey};
 
 fn signing_key_from_index(index: u64) -> SigningKey {
     let mut seed = [0u8; 32];
@@ -179,6 +179,23 @@ fn bench_batch_verify(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_sign(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Signing");
+
+    group.bench_function("local_sign", |b| {
+        let sk = signing_key_from_index(0);
+        b.iter(|| std::hint::black_box(sk.sign(b"")))
+    });
+
+    group.bench_function("crates_io_ed25519_dalek", |b| {
+        let sk = signing_key_from_index(0);
+        let dalek_sk = DalekSigningKey::from_bytes(sk.as_bytes());
+        b.iter(|| std::hint::black_box(dalek_sk.sign(b"")))
+    });
+
+    group.finish();
+}
+
 fn bench_single_verify(c: &mut Criterion) {
     let mut group = c.benchmark_group("Single Verification");
 
@@ -203,8 +220,46 @@ fn bench_single_verify(c: &mut Criterion) {
         })
     });
 
+    #[cfg(all(
+        feature = "avx512",
+        target_arch = "x86_64",
+        target_feature = "avx512f",
+        target_feature = "avx512dq",
+        target_feature = "avx512ifma",
+    ))]
+    {
+        let sk = signing_key_from_index(0);
+        let inputs = [avx512::VerifyInput {
+            public_key: VerificationKeyBytes::from(&sk).into(),
+            signature: sk.sign(b"").into(),
+            message: b"",
+        }];
+
+        group.bench_function("avx512_zip215", |b| {
+            let mut verifier = avx512::Verifier::new();
+            let mut out = [false; 1];
+            b.iter(|| {
+                verifier.verify_batch(&inputs, &mut out);
+                std::hint::black_box(&out);
+            })
+        });
+
+        group.bench_function("avx512_zip215_hot_cache", |b| {
+            let mut verifier = avx512::Verifier::with_cache(
+                avx512::VerifyPolicy::Zip215,
+                avx512::HotKeyCache::with_capacity(1),
+            );
+            let mut out = [false; 1];
+            verifier.verify_batch(&inputs, &mut out);
+            b.iter(|| {
+                verifier.verify_batch(&inputs, &mut out);
+                std::hint::black_box(&out);
+            })
+        });
+    }
+
     group.finish();
 }
 
-criterion_group!(benches, bench_single_verify, bench_batch_verify,);
+criterion_group!(benches, bench_sign, bench_single_verify, bench_batch_verify,);
 criterion_main!(benches);
