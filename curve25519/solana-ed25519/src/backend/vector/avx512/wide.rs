@@ -1526,8 +1526,11 @@ pub(crate) mod avx512ifma {
             let table = PointTable::new(&id);
             let base_table = BasepointTable::new();
             let s_digits = [[0i8; 64]; LANES];
-            let digest =
-                crate::backend::vector::avx512::sha512::hash_slices(&[&r_bytes, &a_bytes, b"taming the many eddsas"]);
+            let digest = crate::backend::vector::avx512::sha512::hash_slices(&[
+                &r_bytes,
+                &a_bytes,
+                b"taming the many eddsas",
+            ]);
             let k = crate::backend::vector::avx512::scalar::Scalar::from_wide_bytes(digest);
             let k_digits = [k.to_radix16(); LANES];
             let prepared = PreparedBatch {
