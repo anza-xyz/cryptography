@@ -2,7 +2,7 @@
 name = "solana-bls12-381-syscall"
 description = "Solana BLS12-381 Syscall"
 documentation = "https://docs.rs/solana-bls12-381-syscall"
-version = "0.1.0"
+version = "0.1.1"
 authors = { workspace = true }
 repository = { workspace = true }
 homepage = { workspace = true }
