@@ -6,8 +6,7 @@ use {
         Version,
     },
     blstrs::{Bls12, G1Affine, G2Prepared, Gt},
-    group::Group,
-    pairing::{MillerLoopResult, MultiMillerLoop},
+    pairing::{group::Group, MillerLoopResult, MultiMillerLoop},
 };
 
 /// Maximum number of pairs allowed in a single pairing operation.

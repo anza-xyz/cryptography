@@ -60,6 +60,21 @@ This fork retains only the backends actively tested and maintained here:
 The `fiat` (formally-verified) and `unstable_avx512` backends have been removed to reduce
 maintenance surface. If you need them, use upstream `curve25519-dalek` directly.
 
+#### Forcing the serial backend
+
+On x86-64 the AVX2 backend is compiled in and chosen at runtime whenever the host
+supports it. To compile it out entirely and always use `serial`:
+
+```bash
+RUSTFLAGS='--cfg curve25519_backend="serial"' cargo build
+```
+
+This is mainly useful for instrumented builds: under `-C instrument-coverage` the
+vectorized field arithmetic gets a counter per region and becomes pathologically
+slow at any `opt-level`, so coverage runs should force `serial`. Requesting
+`--cfg curve25519_backend="simd"` on a non-x86-64 target is a build error rather
+than a silent fallback.
+
 ---
 
 ## Usage
@@ -67,17 +82,16 @@ maintenance surface. If you need them, use upstream `curve25519-dalek` directly.
 Add the relevant crate to `Cargo.toml`:
 
 ```toml
-curve25519 = { package = "solana-ed25519", git = "https://github.com/anza-xyz/cryptography" }
+solana-ed25519 = { git = "https://github.com/anza-xyz/cryptography" }
 ```
 
 ### Standard Ed25519 verification
 
 ```rust
-use curve25519::ed_sigs::{SigningKey, VerificationKey};
-use rand::thread_rng;
+use solana_ed25519::ed_sigs::{SigningKey, VerificationKey};
 
 let msg = b"hello world";
-let sk = SigningKey::new(thread_rng());
+let sk = SigningKey::new(rand::rng());
 let sig = sk.sign(msg);
 let vk = VerificationKey::from(&sk);
 

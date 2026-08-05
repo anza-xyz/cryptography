@@ -1,9 +1,9 @@
 use core::convert::TryFrom;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use curve25519::ed_sigs::*;
 use ed25519::signature::Verifier as _;
 use ed25519_dalek::VerifyingKey as DalekVerifyingKey;
+use solana_ed25519::ed_sigs::*;
 
 fn signing_key_from_index(index: u64) -> SigningKey {
     let mut seed = [0u8; 32];
@@ -68,7 +68,7 @@ fn bench_batch_verify(c: &mut Criterion) {
                     for (vk_bytes, sig) in sigs.iter().cloned() {
                         batch.queue((vk_bytes, sig, b""));
                     }
-                    batch.verify(rand::thread_rng())
+                    batch.verify()
                 })
             },
         );
@@ -84,7 +84,7 @@ fn bench_batch_verify(c: &mut Criterion) {
                     for (vk_bytes, sig) in sigs.iter().cloned() {
                         batch.queue((vk_bytes, sig, b""));
                     }
-                    batch.verify(rand::thread_rng())
+                    batch.verify()
                 })
             },
         );

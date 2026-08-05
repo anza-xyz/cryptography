@@ -116,7 +116,7 @@ const LEGACY_EXCLUDED_R_ENCODINGS: [[u8; 32]; 11] = [
 /// following idiom:
 /// ```
 /// use core::convert::TryFrom;
-/// # use curve25519::ed_sigs::*;
+/// # use solana_ed25519::ed_sigs::*;
 /// # let msg = b"Zcash";
 /// # let sk = SigningKey::from_bytes(&[1u8; 32]);
 /// # let sig = sk.sign(msg);

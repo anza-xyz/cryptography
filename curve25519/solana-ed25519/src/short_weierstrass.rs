@@ -274,7 +274,7 @@ mod tests {
 
     fn random_scalar<R: Rng + ?Sized>(rng: &mut R) -> Scalar {
         let mut wide = [0u8; 64];
-        rng.fill(&mut wide);
+        rng.fill_bytes(&mut wide);
         Scalar::from_bytes_mod_order_wide(&wide)
     }
 
@@ -295,7 +295,7 @@ mod tests {
 
     #[test]
     fn sw_round_trip_add_matches_edwards() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         for _ in 0..32 {
             let a = random_scalar(&mut rng);
@@ -322,7 +322,7 @@ mod tests {
 
     #[test]
     fn sw_scalar_mul_matches_edwards() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         for _ in 0..32 {
             let s = random_scalar(&mut rng);
@@ -341,7 +341,7 @@ mod tests {
 
     #[test]
     fn sw_add_associativity() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         for _ in 0..32 {
             let a = random_scalar(&mut rng);
@@ -363,7 +363,7 @@ mod tests {
 
     #[test]
     fn sw_scalar_mul_associativity_commutes() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let base = SwPoint::from_edwards(&constants::ED25519_BASEPOINT_POINT);
 
         for _ in 0..32 {
@@ -444,7 +444,7 @@ mod tests {
 
     #[test]
     fn sw_affine_bytes_round_trip_valid_points() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         for _ in 0..32 {
             let scalar = random_scalar(&mut rng);

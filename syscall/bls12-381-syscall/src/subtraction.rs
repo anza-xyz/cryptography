@@ -4,7 +4,7 @@ use {
         Version,
     },
     blstrs::{G1Projective, G2Projective},
-    group::prime::PrimeCurveAffine,
+    pairing::group::prime::PrimeCurveAffine,
 };
 
 /// Performs point subtraction on G1: `P1 - P2`.

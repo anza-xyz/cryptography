@@ -18,7 +18,7 @@ use crate::{
     ED25519_SEED_LEN, HASH_OF_SK_DOMAIN, Seed, SeedChainProofEnvelope, SeedChainStatement,
     Sha512ProofBundle, authentication_transcript, encode_domain_message, sha512,
 };
-use curve25519::ed_sigs::{SigningKey, VerificationKeyBytes};
+use solana_ed25519::ed_sigs::{SigningKey, VerificationKeyBytes};
 
 /// Computes the public seed commitment: `SHA512(COMMIT_OF_SEED_DOMAIN || seed)`.
 ///

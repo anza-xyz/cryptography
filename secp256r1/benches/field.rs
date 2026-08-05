@@ -3,7 +3,7 @@ use std::hint::black_box;
 use criterion::{Criterion, criterion_group, criterion_main};
 use openssl::bn::{BigNum, BigNumContext};
 use p256::{FieldElement as P256FieldElement, elliptic_curve::ff::PrimeField};
-use secp256r1::field::FieldElement;
+use solana_secp256r1::field::FieldElement;
 
 const A: [u8; 32] = [
     0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
@@ -50,7 +50,7 @@ fn bench_field_add(c: &mut Criterion) {
     let fixture = Fixture::new();
     let mut context = BigNumContext::new().unwrap();
     let mut openssl_out = BigNum::new().unwrap();
-    let mut group = c.benchmark_group("secp256r1_field_add");
+    let mut group = c.benchmark_group("solana_secp256r1_field_add");
 
     group.bench_function("rust", |b| {
         b.iter(|| black_box(fixture.rust_a) + black_box(fixture.rust_b));
@@ -81,7 +81,7 @@ fn bench_field_sub(c: &mut Criterion) {
     let fixture = Fixture::new();
     let mut context = BigNumContext::new().unwrap();
     let mut openssl_out = BigNum::new().unwrap();
-    let mut group = c.benchmark_group("secp256r1_field_sub");
+    let mut group = c.benchmark_group("solana_secp256r1_field_sub");
 
     group.bench_function("rust", |b| {
         b.iter(|| black_box(fixture.rust_a) - black_box(fixture.rust_b));
@@ -112,7 +112,7 @@ fn bench_field_mul(c: &mut Criterion) {
     let fixture = Fixture::new();
     let mut context = BigNumContext::new().unwrap();
     let mut openssl_out = BigNum::new().unwrap();
-    let mut group = c.benchmark_group("secp256r1_field_mul");
+    let mut group = c.benchmark_group("solana_secp256r1_field_mul");
 
     group.bench_function("rust", |b| {
         b.iter(|| black_box(fixture.rust_a) * black_box(fixture.rust_b));
@@ -143,7 +143,7 @@ fn bench_field_square(c: &mut Criterion) {
     let fixture = Fixture::new();
     let mut context = BigNumContext::new().unwrap();
     let mut openssl_out = BigNum::new().unwrap();
-    let mut group = c.benchmark_group("secp256r1_field_square");
+    let mut group = c.benchmark_group("solana_secp256r1_field_square");
 
     group.bench_function("rust", |b| {
         b.iter(|| black_box(fixture.rust_a).square());

@@ -531,7 +531,7 @@ impl Debug for ProjectivePoint {
         write!(
             f,
             "ProjectivePoint{{\n\tX: {:?},\n\tY: {:?},\n\tZ: {:?}\n}}",
-            &self.X, &self.Y, &self.Z
+            self.X, self.Y, self.Z
         )
     }
 }
@@ -541,7 +541,7 @@ impl Debug for CompletedPoint {
         write!(
             f,
             "CompletedPoint{{\n\tX: {:?},\n\tY: {:?},\n\tZ: {:?},\n\tT: {:?}\n}}",
-            &self.X, &self.Y, &self.Z, &self.T
+            self.X, self.Y, self.Z, self.T
         )
     }
 }
@@ -551,7 +551,7 @@ impl Debug for AffineNielsPoint {
         write!(
             f,
             "AffineNielsPoint{{\n\ty_plus_x: {:?},\n\ty_minus_x: {:?},\n\txy2d: {:?}\n}}",
-            &self.y_plus_x, &self.y_minus_x, &self.xy2d
+            self.y_plus_x, self.y_minus_x, self.xy2d
         )
     }
 }
@@ -561,7 +561,7 @@ impl Debug for ProjectiveNielsPoint {
         write!(
             f,
             "ProjectiveNielsPoint{{\n\tY_plus_X: {:?},\n\tY_minus_X: {:?},\n\tZ: {:?},\n\tT2d: {:?}\n}}",
-            &self.Y_plus_X, &self.Y_minus_X, &self.Z, &self.T2d
+            self.Y_plus_X, self.Y_minus_X, self.Z, self.T2d
         )
     }
 }

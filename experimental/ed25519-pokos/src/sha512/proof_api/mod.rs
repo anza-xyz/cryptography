@@ -20,7 +20,7 @@ pub type Val = KoalaBear;
 type ByteHash = Keccak256Hash;
 type FieldHash = SerializingHasher<ByteHash>;
 type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
-type ValMmcs = MerkleTreeMmcs<Val, u8, FieldHash, MyCompress, 32>;
+type ValMmcs = MerkleTreeMmcs<Val, u8, FieldHash, MyCompress, 2, 32>;
 type Challenge = BinomialExtensionField<Val, 4>;
 type ChallengeMmcs = ExtensionMmcs<Val, Challenge, ValMmcs>;
 type Challenger = SerializingChallenger32<Val, HashChallenger<u8, ByteHash, 32>>;
@@ -82,11 +82,12 @@ pub(crate) fn setup_config(settings: Sha512ProofSettings) -> Sha512StarkConfig {
     let byte_hash = ByteHash {};
     let field_hash = FieldHash::new(byte_hash);
     let compress = MyCompress::new(byte_hash);
-    let val_mmcs = ValMmcs::new(field_hash, compress);
+    let val_mmcs = ValMmcs::new(field_hash, compress, 0);
     let challenge_mmcs = ChallengeMmcs::new(val_mmcs.clone());
     let fri_params = FriParameters {
         log_blowup: settings.log_blowup,
         log_final_poly_len: settings.log_final_poly_len,
+        max_log_arity: 1,
         num_queries: settings.num_queries,
         commit_proof_of_work_bits: settings.commit_proof_of_work_bits,
         query_proof_of_work_bits: settings.query_proof_of_work_bits,

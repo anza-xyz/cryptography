@@ -23,7 +23,7 @@ use crate::{
     SeedChainProofEnvelope, SeedChainStatement, Sha512ProofBundle, VerifyError,
     authentication_transcript,
 };
-use curve25519::ed_sigs::{Signature, VerificationKey, VerificationKeyBytes};
+use solana_ed25519::ed_sigs::{Signature, VerificationKey, VerificationKeyBytes};
 
 /// Verifies a [`SeedChainProofEnvelope`].
 ///
