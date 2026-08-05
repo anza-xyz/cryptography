@@ -60,7 +60,9 @@ subtle = { workspace = true, features = ["const-generics"] }
 serde = { workspace = true, optional = true }
 zeroize = { workspace = true, optional = true }
 
-[target.'cfg(target_arch = "x86_64")'.dependencies]
+# Only needed by the AVX2 vector backend, which `curve25519_backend="serial"`
+# compiles out.
+[target.'cfg(all(target_arch = "x86_64", not(curve25519_backend = "serial")))'.dependencies]
 cpufeatures = { workspace = true }
 curve25519-dalek-derive = { workspace = true }
 
@@ -83,7 +85,7 @@ pem = ["pkcs8", "dep:der", "ed25519/pem", "zeroize"]
 level = "warn"
 check-cfg = [
     'cfg(allow_unused_unsafe)',
-    'cfg(curve25519_backend, values("simd"))',
+    'cfg(curve25519_backend, values("simd", "serial"))',
     'cfg(curve25519_diagnostics, values("build"))',
     'cfg(curve25519_bits, values("64"))',
 ]

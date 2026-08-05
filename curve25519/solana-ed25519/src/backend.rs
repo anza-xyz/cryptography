@@ -31,27 +31,30 @@
 //! algorithms.  These are intended to be selected by a `#[cfg]`-based
 //! type alias.
 //!
-//! The [`vector`] backend is selected by the `simd_backend` cargo
-//! feature; it uses the [`serial`] backend for non-vectorized operations.
+//! The [`vector`] backend is compiled in on x86_64 unless the build is
+//! overridden with `RUSTFLAGS='--cfg curve25519_backend="serial"'`; it uses the
+//! [`serial`] backend for non-vectorized operations. When it is compiled in,
+//! the choice between it and the [`serial`] backend is made per-host at runtime
+//! by [`get_selected_backend`], based on AVX2 availability.
 
 use crate::EdwardsPoint;
 use crate::Scalar;
 
 pub mod serial;
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(curve25519_backend = "simd")]
 pub mod vector;
 
 #[derive(Copy, Clone)]
 enum BackendKind {
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(curve25519_backend = "simd")]
     Avx2,
     Serial,
 }
 
 #[inline]
 fn get_selected_backend() -> BackendKind {
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(curve25519_backend = "simd")]
     {
         cpufeatures::new!(cpuid_avx2, "avx2");
         let token_avx2: cpuid_avx2::InitToken = cpuid_avx2::init();
@@ -74,7 +77,7 @@ where
     use crate::traits::VartimeMultiscalarMul;
 
     match get_selected_backend() {
-        #[cfg(target_arch = "x86_64")]
+        #[cfg(curve25519_backend = "simd")]
         BackendKind::Avx2 => {
             vector::scalar_mul::pippenger::spec_avx2::Pippenger::optional_multiscalar_mul::<I, J>(
                 scalars, points,
@@ -90,7 +93,7 @@ where
 
 #[cfg(feature = "alloc")]
 pub(crate) enum VartimePrecomputedStraus {
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(curve25519_backend = "simd")]
     Avx2(vector::scalar_mul::precomputed_straus::spec_avx2::VartimePrecomputedStraus),
     Scalar(serial::scalar_mul::precomputed_straus::VartimePrecomputedStraus),
 }
@@ -105,7 +108,7 @@ impl VartimePrecomputedStraus {
         use crate::traits::VartimePrecomputedMultiscalarMul;
 
         match get_selected_backend() {
-            #[cfg(target_arch = "x86_64")]
+            #[cfg(curve25519_backend = "simd")]
             BackendKind::Avx2 => VartimePrecomputedStraus::Avx2(
                 vector::scalar_mul::precomputed_straus::spec_avx2::VartimePrecomputedStraus::new(
                     static_points,
@@ -124,7 +127,7 @@ impl VartimePrecomputedStraus {
         use crate::traits::VartimePrecomputedMultiscalarMul;
 
         match self {
-            #[cfg(target_arch = "x86_64")]
+            #[cfg(curve25519_backend = "simd")]
             VartimePrecomputedStraus::Avx2(inner) => inner.len(),
             VartimePrecomputedStraus::Scalar(inner) => inner.len(),
         }
@@ -135,7 +138,7 @@ impl VartimePrecomputedStraus {
         use crate::traits::VartimePrecomputedMultiscalarMul;
 
         match self {
-            #[cfg(target_arch = "x86_64")]
+            #[cfg(curve25519_backend = "simd")]
             VartimePrecomputedStraus::Avx2(inner) => inner.is_empty(),
             VartimePrecomputedStraus::Scalar(inner) => inner.is_empty(),
         }
@@ -157,7 +160,7 @@ impl VartimePrecomputedStraus {
         use crate::traits::VartimePrecomputedMultiscalarMul;
 
         match self {
-            #[cfg(target_arch = "x86_64")]
+            #[cfg(curve25519_backend = "simd")]
             VartimePrecomputedStraus::Avx2(inner) => inner.optional_mixed_multiscalar_mul(
                 static_scalars,
                 dynamic_scalars,
@@ -184,7 +187,7 @@ where
     use crate::traits::MultiscalarMul;
 
     match get_selected_backend() {
-        #[cfg(target_arch = "x86_64")]
+        #[cfg(curve25519_backend = "simd")]
         BackendKind::Avx2 => {
             vector::scalar_mul::straus::spec_avx2::Straus::multiscalar_mul::<I, J>(scalars, points)
         }
@@ -205,7 +208,7 @@ where
     use crate::traits::VartimeMultiscalarMul;
 
     match get_selected_backend() {
-        #[cfg(target_arch = "x86_64")]
+        #[cfg(curve25519_backend = "simd")]
         BackendKind::Avx2 => {
             vector::scalar_mul::straus::spec_avx2::Straus::optional_multiscalar_mul::<I, J>(
                 scalars, points,
@@ -220,7 +223,7 @@ where
 /// Perform constant-time, variable-base scalar multiplication.
 pub fn variable_base_mul(point: &EdwardsPoint, scalar: &Scalar) -> EdwardsPoint {
     match get_selected_backend() {
-        #[cfg(target_arch = "x86_64")]
+        #[cfg(curve25519_backend = "simd")]
         BackendKind::Avx2 => vector::scalar_mul::variable_base::spec_avx2::mul(point, scalar),
         BackendKind::Serial => serial::scalar_mul::variable_base::mul(point, scalar),
     }
@@ -230,7 +233,7 @@ pub fn variable_base_mul(point: &EdwardsPoint, scalar: &Scalar) -> EdwardsPoint 
 #[allow(non_snake_case)]
 pub fn vartime_double_base_mul(a: &Scalar, A: &EdwardsPoint, b: &Scalar) -> EdwardsPoint {
     match get_selected_backend() {
-        #[cfg(target_arch = "x86_64")]
+        #[cfg(curve25519_backend = "simd")]
         BackendKind::Avx2 => vector::scalar_mul::vartime_double_base::spec_avx2::mul(a, A, b),
         BackendKind::Serial => serial::scalar_mul::vartime_double_base::mul(a, A, b),
     }
@@ -267,7 +270,7 @@ pub(crate) fn vartime_triple_base_mul_128_128_256_prechecked(
     b: &Scalar,
 ) -> EdwardsPoint {
     match get_selected_backend() {
-        #[cfg(target_arch = "x86_64")]
+        #[cfg(curve25519_backend = "simd")]
         BackendKind::Avx2 => {
             vector::scalar_mul::vartime_triple_base::spec_avx2::mul_128_128_256_prechecked(
                 a1, A1, a2, A2, b,

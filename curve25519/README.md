@@ -60,6 +60,21 @@ This fork retains only the backends actively tested and maintained here:
 The `fiat` (formally-verified) and `unstable_avx512` backends have been removed to reduce
 maintenance surface. If you need them, use upstream `curve25519-dalek` directly.
 
+#### Forcing the serial backend
+
+On x86-64 the AVX2 backend is compiled in and chosen at runtime whenever the host
+supports it. To compile it out entirely and always use `serial`:
+
+```bash
+RUSTFLAGS='--cfg curve25519_backend="serial"' cargo build
+```
+
+This is mainly useful for instrumented builds: under `-C instrument-coverage` the
+vectorized field arithmetic gets a counter per region and becomes pathologically
+slow at any `opt-level`, so coverage runs should force `serial`. Requesting
+`--cfg curve25519_backend="simd"` on a non-x86-64 target is a build error rather
+than a silent fallback.
+
 ---
 
 ## Usage
