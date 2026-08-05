@@ -240,7 +240,7 @@ impl Scalar {
 
     /// Construct a `Scalar` from bytes that are known to be canonical.
     #[inline]
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(curve25519_backend = "simd")]
     pub(crate) const fn from_canonical_bytes_unchecked(bytes: [u8; 32]) -> Scalar {
         Scalar { bytes }
     }
