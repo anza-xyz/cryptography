@@ -13,7 +13,7 @@ resolver = "2"
 authors = ["Anza Maintainers <maintainers@anza.xyz>"]
 repository = "https://github.com/anza-xyz/cryptography"
 homepage = "https://anza.xyz/"
-license = "Apache-2.0 OR MIT"
+license = "Apache-2.0"
 rust-version = "1.89.0"                                 # solana platform-tools rust version
 
 [workspace.dependencies]

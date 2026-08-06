@@ -3,7 +3,7 @@
 // This file is part of solana-ed25519's ed_sigs module, forked from ed25519-zebra.
 // Original ed25519-zebra code: Copyright (c) Zcash Foundation contributors
 // Modifications for HEEA: Copyright (c) 2025 curve25519-sol contributors
-// See LICENSE-APACHE and LICENSE-MIT for licensing information.
+// See ../../LICENSE and ../../ACKNOWLEDGEMENTS.md for licensing information.
 //
 // Modifications from ed25519-zebra:
 // - Added `verify_zebra`, an accelerated verification path using the HEEA
