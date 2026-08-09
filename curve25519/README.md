@@ -135,15 +135,27 @@ cargo bench -p curve25519-cuda
 
 ## License
 
-Licensed under either of
+The crates in this directory are **not** under a single license. Check the one you are using:
 
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
-- MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+| Crate | License |
+|---|---|
+| [`curve25519-cuda`](./curve25519-cuda) | `Apache-2.0` |
+| [`solana-ed25519`](./solana-ed25519) | `BSD-3-Clause` (with MIT-licensed portions) |
 
-at your option.
+`curve25519-cuda` is original work, licensed under the Apache License, Version 2.0
+([LICENSE-APACHE](../LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0).
 
-Portions of this library are derived from [curve25519-dalek] (isis lovecruft, Henry de Valence)
-and [ed25519-zebra] (Zcash Foundation), both dual-licensed MIT/Apache-2.0.
+`solana-ed25519` is a fork of [curve25519-dalek] (isis agora lovecruft, Henry de Valence) and stays
+under its upstream BSD 3-Clause license — see [solana-ed25519/LICENSE](./solana-ed25519/LICENSE).
+The repository's Apache-2.0 license does **not** apply to it. Redistribution in source or
+binary form must reproduce that copyright notice, the list of conditions, and the disclaimer.
+
+Its ZIP-215 signature verification (the `ed_sigs` module) is derived from [ed25519-zebra]
+(Zcash Foundation, `MIT OR Apache-2.0`); the MIT branch is taken, and that notice is reproduced
+in [solana-ed25519/LICENSE-MIT](./solana-ed25519/LICENSE-MIT). Further third-party code the crate
+carries is documented in
+[solana-ed25519/ACKNOWLEDGEMENTS.md](./solana-ed25519/ACKNOWLEDGEMENTS.md): Adam Langley's Go
+ed25519 (The Go Authors, BSD-3-Clause) and Signal's `lizard` encoding (Bas Westerbaan, MIT).
 
 [curve25519-dalek]: https://github.com/dalek-cryptography/curve25519-dalek
 [ed25519-zebra]: https://github.com/ZcashFoundation/ed25519-zebra
