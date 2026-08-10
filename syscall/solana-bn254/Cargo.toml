@@ -1,0 +1,24 @@
+[package]
+name = "solana-bn254"
+description = "BN254 and Poseidon for Solana"
+version = "0.1.0"
+edition = "2024"
+authors = { workspace = true }
+repository = { workspace = true }
+license = { workspace = true }
+readme = "README.md"
+
+[features]
+
+[dependencies]
+
+[dev-dependencies]
+criterion = { workspace = true }
+rand = { workspace = true }
+ark-ff = { workspace = true }
+ark-bn254 = { workspace = true }
+light-poseidon = { workspace = true }
+
+[[bench]]
+name = "poseidon_bench"
+harness = false
