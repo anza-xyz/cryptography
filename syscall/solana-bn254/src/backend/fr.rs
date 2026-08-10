@@ -23,7 +23,13 @@ impl Field for Fr {
 }
 
 impl Fr {
-    /// Computes `a^(p-2) mod p` using a static 4-bit window addition chain.
+    /// Computes the modular inverse of `a` in the scalar field Fr.
+    ///
+    /// Computes `a^(r-2) mod r` via Fermat's Little Theorem, where `r` is
+    /// the Fr modulus.
+    ///
+    /// Like the Fq implementation, this strictly avoids dynamic branching or
+    /// loops in favor of a static 4-bit window addition chain.
     #[inline(always)]
     pub fn invert(a: &U256) -> U256 {
         type B = Backend<Fr>;

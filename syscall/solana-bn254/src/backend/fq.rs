@@ -23,7 +23,22 @@ impl Field for Fq {
 }
 
 impl Fq {
-    /// Computes `a^(p-2) mod p` using a static 4-bit window addition chain.
+    /// Computes the modular inverse of `a` in the base field Fq.
+    ///
+    /// This relies on Fermat's Little Theorem, computing `a^(p-2) mod p`.
+    ///
+    /// Rather than using the Extended Euclidean Algorithm (which relies on
+    /// unpredictable loops and branching), this function uses a fully
+    /// unrolled, static 4-bit window addition chain. This minimizes
+    /// Solana Compute Units by leveraging our highly optimized, branchless
+    /// Montgomery multiplications and squarings.
+    ///
+    /// # Algorithm Breakdown:
+    /// 1. Precomputation: Calculates `a^2` through `a^15` (`a2`..`a15`).
+    /// 2. Chain Execution: Traverses the bits of the exponent `p-2`.
+    ///    The accumulator `t` is squared 4 times (effectively shifting left
+    ///    by 4 bits), followed by a multiplication with the precomputed
+    ///    window value that matches the next 4 bits of the exponent.
     #[inline(always)]
     pub fn invert(a: &U256) -> U256 {
         type B = Backend<Fq>;

@@ -82,7 +82,7 @@ pub unsafe fn unpack_8x(packed: &FieldElement8x52) -> [U256; 8] {
 
 /// Broadcasts a single scalar 4-limb value identically to all 8 lanes of a SIMD register.
 ///
-/// Crucial for Poseidon matrix multiplication, where a single state element must
+/// Important for Poseidon matrix multiplication, where a single state element must
 /// be multiplied against an entire SIMD chunk of the matrix column vector.
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
