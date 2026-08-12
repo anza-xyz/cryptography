@@ -166,8 +166,7 @@ fn verify_dalek_rejects_forgeries_under_small_order_keys() {
     // whenever `h ≡ 0 mod ord(A)`, so 64 candidates suffice for all
     // `ord(A) <= 8`.
     assert_eq!(
-        forgeable,
-        14,
+        forgeable, 14,
         "expected all 14 low-order encodings to admit a satisfied equation, got {forgeable}"
     );
 }
