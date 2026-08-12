@@ -160,12 +160,15 @@ fn verify_dalek_rejects_forgeries_under_small_order_keys() {
         }
     }
 
-    // Every low-order encoding except the two order-4 points reached by
-    // y = 0 admits such a message within the search bound; assert that the
-    // test actually exercised forgeries rather than silently finding none.
-    assert!(
-        forgeable >= 13,
-        "expected at least 13 encodings with a satisfied equation, got {forgeable}"
+    // Assert that the test actually exercised a forgery for every encoding,
+    // rather than silently finding none. The count is deterministic: `s`, `R`
+    // and the candidate messages are all fixed, and `[h](-A)` is the identity
+    // whenever `h ≡ 0 mod ord(A)`, so 64 candidates suffice for all
+    // `ord(A) <= 8`.
+    assert_eq!(
+        forgeable,
+        14,
+        "expected all 14 low-order encodings to admit a satisfied equation, got {forgeable}"
     );
 }
 
