@@ -12,11 +12,16 @@
 
 use crate::backend::{Backend, Fr, MontgomeryBackend, U256};
 
+pub mod constants;
+
 /// Sparse matrix representation for Poseidon partial rounds.
 ///
 /// Precomputing the MDS matrix transitions into a sparse vector form reduces
 /// the `O(T^2)` dense matrix multiplication down to an `O(T)` sparse matrix
 /// computation, saving massive Compute Units on-chain.
+///
+/// `row` is the matrix's first row; `col[i]` for `i >= 1` is the entry at
+/// `[i][0]`. All other entries are the identity, and `col[0]` is unused.
 #[derive(Clone, Debug)]
 pub struct SparseMatrix<const T: usize> {
     pub row: [U256; T],
@@ -24,6 +29,16 @@ pub struct SparseMatrix<const T: usize> {
 }
 
 /// Constants required for Poseidon execution over a state of width `T`.
+///
+/// # Layout
+/// `round_constants` holds exactly `T * full_rounds + partial_rounds` elements
+/// in Montgomery form, ordered as `T` per full round in the first half, then one
+/// per partial round, then `T` per full round in the second half.
+///
+/// The factorization follows the optimized Poseidon construction: the final full
+/// round of the first half applies `pre_sparse_matrix` in place of `mds_matrix`,
+/// and each partial round applies its own `SparseMatrix`. See
+/// [`constants`] for the default circom-compatible parameters.
 pub struct PoseidonConstants<const T: usize> {
     pub full_rounds: usize,
     pub partial_rounds: usize,
@@ -124,6 +139,7 @@ unsafe fn apply_dense_matrix_simd<const T: usize>(state: &mut [U256; T], mds: &[
 }
 
 /// Branchlessly executes a dense matrix multiplication on the scalar state.
+#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512ifma")))]
 #[inline(always)]
 fn apply_dense_matrix<const T: usize>(state: &mut [U256; T], m: &[[U256; T]; T]) {
     type B = Backend<Fr>;
@@ -161,87 +177,97 @@ fn apply_sparse_matrix<const T: usize>(state: &mut [U256; T], m: &SparseMatrix<T
     }
 }
 
-/// Executes the highly optimized Poseidon hash function.
+/// Applies the S-box to every state element, routing to SIMD where available.
+#[inline(always)]
+fn sbox_layer<const T: usize>(state: &mut [U256; T]) {
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+    unsafe {
+        apply_sbox_simd(state);
+    }
+    #[cfg(not(all(target_arch = "x86_64", target_feature = "avx512ifma")))]
+    for state_val in state.iter_mut() {
+        *state_val = sbox(state_val);
+    }
+}
+
+/// Applies a dense matrix to the state, routing to SIMD where available.
+#[inline(always)]
+fn dense_layer<const T: usize>(state: &mut [U256; T], m: &[[U256; T]; T]) {
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+    unsafe {
+        apply_dense_matrix_simd(state, m);
+    }
+    #[cfg(not(all(target_arch = "x86_64", target_feature = "avx512ifma")))]
+    apply_dense_matrix(state, m);
+}
+
+/// Executes the Poseidon permutation on a state already in Montgomery form.
+///
+/// Every element of `state` must be a fully reduced Montgomery-form field
+/// element (`x < Fr::MODULUS`), per the `MontgomeryBackend` contract.
 pub fn poseidon<const T: usize>(
     mut state: [U256; T],
     constants: &PoseidonConstants<T>,
 ) -> [U256; T] {
     type B = Backend<Fr>;
     let half_full = constants.full_rounds / 2;
+    let rc = constants.round_constants;
+    debug_assert_eq!(
+        rc.len(),
+        T * constants.full_rounds + constants.partial_rounds
+    );
     let mut rc_idx = 0;
 
     // --- First Half: Full Rounds ---
-    for _ in 0..half_full {
+    // The final round applies `pre_sparse_matrix`, setting up the sparse
+    // factorization that the partial rounds rely on.
+    for round in 0..half_full {
         for state_val in state.iter_mut() {
-            *state_val = B::add(state_val, &constants.round_constants[rc_idx]);
+            *state_val = B::add(state_val, &rc[rc_idx]);
             rc_idx += 1;
         }
-
-        // Execute S-boxes based on hardware capabilities
-        #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
-        unsafe {
-            apply_sbox_simd(&mut state);
+        sbox_layer(&mut state);
+        if round + 1 == half_full {
+            dense_layer(&mut state, constants.pre_sparse_matrix);
+        } else {
+            dense_layer(&mut state, constants.mds_matrix);
         }
-        #[cfg(not(all(target_arch = "x86_64", target_feature = "avx512ifma")))]
-        for state_val in state.iter_mut() {
-            *state_val = sbox(state_val);
-        }
-
-        // Execute MDS Matrix based on hardware capabilities
-        #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
-        unsafe {
-            apply_dense_matrix_simd(&mut state, constants.mds_matrix);
-        }
-        #[cfg(not(all(target_arch = "x86_64", target_feature = "avx512ifma")))]
-        apply_dense_matrix(&mut state, constants.mds_matrix);
     }
-
-    // --- Transition to Partial Rounds ---
-    for state_val in state.iter_mut() {
-        *state_val = B::add(state_val, &constants.round_constants[rc_idx]);
-        rc_idx += 1;
-    }
-
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
-    unsafe {
-        apply_dense_matrix_simd(&mut state, constants.pre_sparse_matrix);
-    }
-    #[cfg(not(all(target_arch = "x86_64", target_feature = "avx512ifma")))]
-    apply_dense_matrix(&mut state, constants.pre_sparse_matrix);
 
     // --- Middle: Partial Rounds ---
     // Kept strictly scalar because only state[0] receives the S-box computation,
     // rendering SIMD parallelization overhead highly inefficient here.
     for sparse_idx in 0..constants.partial_rounds {
-        state[0] = sbox(&state[0]);
-        state[0] = B::add(&state[0], &constants.round_constants[rc_idx]);
+        state[0] = B::add(&state[0], &rc[rc_idx]);
         rc_idx += 1;
+        state[0] = sbox(&state[0]);
         apply_sparse_matrix(&mut state, &constants.sparse_matrices[sparse_idx]);
     }
 
     // --- Second Half: Full Rounds ---
     for _ in 0..half_full {
         for state_val in state.iter_mut() {
-            *state_val = B::add(state_val, &constants.round_constants[rc_idx]);
+            *state_val = B::add(state_val, &rc[rc_idx]);
             rc_idx += 1;
         }
-
-        #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
-        unsafe {
-            apply_sbox_simd(&mut state);
-        }
-        #[cfg(not(all(target_arch = "x86_64", target_feature = "avx512ifma")))]
-        for state_val in state.iter_mut() {
-            *state_val = sbox(state_val);
-        }
-
-        #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
-        unsafe {
-            apply_dense_matrix_simd(&mut state, constants.mds_matrix);
-        }
-        #[cfg(not(all(target_arch = "x86_64", target_feature = "avx512ifma")))]
-        apply_dense_matrix(&mut state, constants.mds_matrix);
+        sbox_layer(&mut state);
+        dense_layer(&mut state, constants.mds_matrix);
     }
 
     state
+}
+
+/// Hashes `T - 1` field elements under the circom-compatible Poseidon
+/// construction: a zero capacity element in `state[0]`, the inputs in
+/// `state[1..]`, one permutation, and `state[0]` as the digest.
+///
+/// Inputs must be fully reduced Montgomery-form field elements. Returns `None`
+/// if `inputs.len() != T - 1`.
+pub fn hash<const T: usize>(inputs: &[U256], constants: &PoseidonConstants<T>) -> Option<U256> {
+    if inputs.len() + 1 != T {
+        return None;
+    }
+    let mut state = [U256::zero(); T];
+    state[1..].copy_from_slice(inputs);
+    Some(poseidon(state, constants)[0])
 }
