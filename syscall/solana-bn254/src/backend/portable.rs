@@ -131,27 +131,33 @@ impl<F: Field> MontgomeryBackend<F> for PortableBackend<F> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::Fr;
 
-    /// BN254 scalar field (Fr) parameters for exact correctness testing.
-    struct TestFr;
+    type B = PortableBackend<Fr>;
 
-    impl Field for TestFr {
-        const MODULUS: U256 = U256::new([
-            0x43e1f593f0000001,
-            0x2833e84879b97091,
-            0xb85045b68181585d,
-            0x30644e72e131a029,
-        ]);
-        const INV: u64 = 0xc2e1f593efffffff;
-        const R2: U256 = U256::new([
-            0x1bb8e645ae216da7,
-            0x53fe3ab1e35c59e3,
-            0x8c49833d53bb8085,
-            0x0216d0b17f4e44a5,
-        ]);
+    /// `INV` must satisfy `INV * MODULUS == -1 (mod 2^64)`. Catches a
+    /// transcription error in the Fr parameters that would otherwise only
+    /// show up as silently wrong reductions.
+    #[test]
+    fn test_inv_parameter() {
+        assert_eq!(Fr::INV.wrapping_mul(Fr::MODULUS.0[0]), u64::MAX);
     }
 
-    type B = PortableBackend<TestFr>;
+    /// `to_mont(1)` must equal `R mod r` for `R = 2^256`. This pins the
+    /// Montgomery domain of the scalar backend, so a radix change cannot
+    /// pass silently.
+    #[test]
+    fn test_montgomery_domain() {
+        assert_eq!(
+            B::to_mont(&U256::one()),
+            U256::new([
+                0xac96341c4ffffffb,
+                0x36fc76959f60cd29,
+                0x666ea36f7879462e,
+                0x0e0a77c19a07df2f,
+            ])
+        );
+    }
 
     #[test]
     fn test_addition() {
@@ -169,7 +175,7 @@ mod tests {
         assert_eq!(B::from_mont(&c), U256::new([2, 0, 0, 0]));
 
         let underflow = B::sub(&b, &a); // 3 - 5 mod MODULUS
-        let mut expected = TestFr::MODULUS;
+        let mut expected = Fr::MODULUS;
         expected.0[0] -= 2;
         assert_eq!(B::from_mont(&underflow), expected);
     }
