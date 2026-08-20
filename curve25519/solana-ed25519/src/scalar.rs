@@ -408,6 +408,8 @@ impl<'de> Deserialize<'de> for Scalar {
     where
         D: Deserializer<'de>,
     {
+        // `bytes` is only mutated by the `zeroize` call below.
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
         let mut bytes = crate::util::deserialize_bytes_32(
             deserializer,
             "a sequence of 32 bytes whose little-endian interpretation is less than the \

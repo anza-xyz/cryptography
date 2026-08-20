@@ -1,5 +1,3 @@
-use core::convert::TryFrom;
-
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -9,7 +7,6 @@ use crate::ed_sigs::{
 };
 use crate::{constants::ED25519_BASEPOINT_POINT, ed_sigs::scalar_from_sha512, scalar::Scalar};
 use sha2::{Sha512, digest::Update};
-use std::vec::Vec;
 
 use super::small_order::low_order_encodings;
 
@@ -101,6 +98,9 @@ fn simd_dalek_rejects_small_order_forgery_with_and_without_cache() {
         // key was not rejected globally before policy dispatch.
         Verifier::with_policy(VerifyPolicy::Zip215).verify_batch(&inputs, &mut out);
         assert_eq!(out, [true; 8]);
+    }
+}
+
 #[test]
 fn sub_width_batch_matches_scalar_verification() {
     // Small batches are dispatched either to the scalar fallback (1-2 inputs)

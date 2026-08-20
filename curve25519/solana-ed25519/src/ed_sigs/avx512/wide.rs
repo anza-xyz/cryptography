@@ -1,13 +1,13 @@
 pub(crate) mod avx512ifma {
-    use crate::backend::vector::avx512::batch::{PUBLIC_KEY_LEN, PreparedBatch, R_ENCODING_LEN};
+    use crate::ed_sigs::avx512::batch::{PUBLIC_KEY_LEN, PreparedBatch, R_ENCODING_LEN};
     #[cfg(test)]
-    use crate::backend::vector::avx512::edwards::EdwardsPoint;
-    use crate::backend::vector::avx512::edwards::{BasepointTable, CachedPoint, PointTable};
-    use crate::backend::vector::avx512::field::{Fe51, LIMB_COUNT};
-    use crate::backend::vector::avx512::scalar::Radix16;
+    use crate::ed_sigs::avx512::edwards::EdwardsPoint;
+    use crate::ed_sigs::avx512::edwards::{BasepointTable, CachedPoint, PointTable};
+    use crate::ed_sigs::avx512::field::{Fe51, LIMB_COUNT};
+    use crate::ed_sigs::avx512::scalar::Radix16;
     use std::arch::x86_64::*;
 
-    const LANES: usize = crate::backend::vector::avx512::batch::SIMD_LANES;
+    const LANES: usize = crate::ed_sigs::avx512::batch::SIMD_LANES;
     // `__mmask8` and the raw 512-bit loadu/storeu intrinsics throughout this
     // module hard-code 8 lanes; this catches a `SIMD_LANES` change at compile
     // time instead of silently corrupting or truncating lanes at runtime.
@@ -1125,13 +1125,13 @@ pub(crate) mod avx512ifma {
         // Curve constants are defined once in `field.rs` and broadcast here, so
         // the scalar and SIMD field paths cannot drift.
         fn d() -> Self {
-            Self::constant(crate::backend::vector::avx512::field::D_LIMBS)
+            Self::constant(crate::ed_sigs::avx512::field::D_LIMBS)
         }
         fn sqrt_m1() -> Self {
-            Self::constant(crate::backend::vector::avx512::field::SQRT_M1_LIMBS)
+            Self::constant(crate::ed_sigs::avx512::field::SQRT_M1_LIMBS)
         }
         fn two_d() -> Self {
-            Self::constant(crate::backend::vector::avx512::field::TWO_D_LIMBS)
+            Self::constant(crate::ed_sigs::avx512::field::TWO_D_LIMBS)
         }
     }
     fn madd_one(lo: &mut __m512i, hi: &mut __m512i, a: __m512i, b: __m512i) {
@@ -1375,8 +1375,8 @@ pub(crate) mod avx512ifma {
                 };
             }
             for x in [
-                WideFe::constant(crate::backend::vector::avx512::field::D_LIMBS),
-                WideFe::constant(crate::backend::vector::avx512::field::SQRT_M1_LIMBS),
+                WideFe::constant(crate::ed_sigs::avx512::field::D_LIMBS),
+                WideFe::constant(crate::ed_sigs::avx512::field::SQRT_M1_LIMBS),
             ] {
                 check!(x, 0);
                 check!(x, 1);
@@ -1391,8 +1391,8 @@ pub(crate) mod avx512ifma {
 
         #[test]
         fn square_repeat_x2_matches_strict_reference() {
-            let a = WideFe::constant(crate::backend::vector::avx512::field::D_LIMBS);
-            let b = WideFe::constant(crate::backend::vector::avx512::field::SQRT_M1_LIMBS);
+            let a = WideFe::constant(crate::ed_sigs::avx512::field::D_LIMBS);
+            let b = WideFe::constant(crate::ed_sigs::avx512::field::SQRT_M1_LIMBS);
             macro_rules! check {
                 ($n:literal) => {
                     let (xa, xb) = WideFe::square_repeat_x2::<$n>(&a, &b);
@@ -1422,8 +1422,8 @@ pub(crate) mod avx512ifma {
         fn pow_x2_matches_sequential() {
             // The interleaved two-input exponentiation must be bit-identical to
             // two independent sequential pows on every lane.
-            let a = WideFe::constant(crate::backend::vector::avx512::field::D_LIMBS);
-            let b = WideFe::constant(crate::backend::vector::avx512::field::SQRT_M1_LIMBS);
+            let a = WideFe::constant(crate::ed_sigs::avx512::field::D_LIMBS);
+            let b = WideFe::constant(crate::ed_sigs::avx512::field::SQRT_M1_LIMBS);
             let (xa, xb) = WideFe::pow_p_minus_5_over_8_x2(&a, &b);
             assert!(
                 xa.equals_lanes(&a.pow_p_minus_5_over_8())
@@ -1498,7 +1498,7 @@ pub(crate) mod avx512ifma {
             let s_digits = [[0i8; 64]; LANES];
             let mut one_bytes = [0u8; 32];
             one_bytes[0] = 1;
-            let k = crate::backend::vector::avx512::scalar::Scalar::from_canonical_bytes(one_bytes);
+            let k = crate::ed_sigs::avx512::scalar::Scalar::from_canonical_bytes(one_bytes);
             let k_digits = [k.to_radix16(); LANES];
             let prepared = PreparedBatch {
                 public_key_tables: [&table; LANES],
@@ -1548,12 +1548,12 @@ pub(crate) mod avx512ifma {
             let table = PointTable::new(&id);
             let base_table = BasepointTable::new();
             let s_digits = [[0i8; 64]; LANES];
-            let digest = crate::backend::vector::avx512::sha512::hash_slices(&[
+            let digest = crate::ed_sigs::avx512::sha512::hash_slices(&[
                 &r_bytes,
                 &a_bytes,
                 b"taming the many eddsas",
             ]);
-            let k = crate::backend::vector::avx512::scalar::Scalar::from_wide_bytes(digest);
+            let k = crate::ed_sigs::avx512::scalar::Scalar::from_wide_bytes(digest);
             let k_digits = [k.to_radix16(); LANES];
             let prepared = PreparedBatch {
                 public_key_tables: [&table; LANES],

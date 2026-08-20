@@ -376,7 +376,11 @@ fn is_canonical_bytes(bytes: &[u8; 32]) -> bool {
 }
 
 fn load_u64_le(bytes: &[u8; 32], offset: usize) -> u64 {
-    u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap())
+    u64::from_le_bytes(
+        bytes[offset..offset + 8]
+            .try_into()
+            .expect("the slice is exactly 8 bytes wide"),
+    )
 }
 
 #[cfg(test)]

@@ -20,6 +20,12 @@ pub(crate) fn r_encoding_has_canonical_y(r_bytes: &[u8; 32]) -> bool {
     false
 }
 
+/// Which acceptance rules the verifier applies.
+///
+/// This mirrors the two scalar entry points: [`Zip215`](Self::Zip215) matches
+/// [`VerificationKey::verify_zebra`](crate::ed_sigs::VerificationKey::verify_zebra)
+/// and [`Dalek`](Self::Dalek) matches
+/// [`VerificationKey::verify_dalek`](crate::ed_sigs::VerificationKey::verify_dalek).
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum VerifyPolicy {
     /// ZIP-215 cofactored verification; accepts non-canonical point encodings.

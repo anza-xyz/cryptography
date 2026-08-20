@@ -196,9 +196,12 @@ RUSTFLAGS='-C target-feature=+avx2' cargo build --release
 
 ### Ed25519 Batch Verification: AVX-512 IFMA
 
-Enable the `avx512` feature to expose `curve25519::ed_sigs::avx512`.  This verifier processes
+Enable the `avx512` feature to expose `solana_ed25519::ed_sigs::avx512`.  This verifier processes
 eight signatures per SIMD chunk, supports `Zip215` and Dalek-style policies, and returns one
 boolean per input instead of one pass/fail result for the whole batch.
+
+> Forked from [ed25519-simd] (Apache-2.0, efagerho); see
+> [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md).
 
 The optimized implementation is compiled only for `x86_64` builds with all of:
 
@@ -252,13 +255,16 @@ Rust **1.85.0** (Edition 2024).
 - [TCHES 2025 paper] – _Accelerating EdDSA Signature Verification with Faster Scalar Size Halving_
 - [curve25519-dalek] – upstream curve25519 library (isis lovecruft, Henry de Valence)
 - [ed25519-zebra] – upstream Ed25519 library (Zcash Foundation)
+- [ed25519-simd] – upstream AVX-512 IFMA Ed25519 batch verifier (efagerho)
 - [ZIP 215] – Ed25519 validation rules for Zcash
 - [Original curve25519-dalek README](README_dalek.md)
 - [Original ed25519-zebra README](README_zebra.md)
+- [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md) – upstream sources and their licenses
 
 [TCHES 2025 paper]: https://tches.iacr.org/index.php/TCHES/article/view/11971
 [curve25519-dalek]: https://github.com/dalek-cryptography/curve25519-dalek
 [ed25519-zebra]: https://github.com/ZcashFoundation/ed25519-zebra
+[ed25519-simd]: https://github.com/efagerho/ed25519-simd-rs
 [ZIP 215]: https://zips.z.cash/zip-0215
 [SPPARK]: https://github.com/supranational/sppark
 [subtle]: https://docs.rs/subtle

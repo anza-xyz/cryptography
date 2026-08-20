@@ -1,6 +1,8 @@
 use core::convert::TryFrom;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use ed25519::signature::{Signer as _, Verifier as _};
+use ed25519_dalek::{SigningKey as DalekSigningKey, VerifyingKey as DalekVerifyingKey};
 #[cfg(all(
     feature = "avx512",
     target_arch = "x86_64",
@@ -8,10 +10,8 @@ use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_m
     target_feature = "avx512dq",
     target_feature = "avx512ifma",
 ))]
-use curve25519::ed_sigs::avx512;
-use curve25519::ed_sigs::*;
-use ed25519::signature::{Signer as _, Verifier as _};
-use ed25519_dalek::{SigningKey as DalekSigningKey, VerifyingKey as DalekVerifyingKey};
+use solana_ed25519::ed_sigs::avx512;
+use solana_ed25519::ed_sigs::*;
 
 fn signing_key_from_index(index: u64) -> SigningKey {
     let mut seed = [0u8; 32];
@@ -281,7 +281,7 @@ fn bench_small_batch_scan(c: &mut Criterion) {
                     for (vk_bytes, sig) in sigs.iter().cloned() {
                         batch.queue((vk_bytes, sig, b""));
                     }
-                    batch.verify(rand::thread_rng())
+                    batch.verify()
                 })
             },
         );

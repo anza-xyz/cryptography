@@ -18,6 +18,8 @@ pub struct HotKeyCache {
     keys: HashMap<[u8; PUBLIC_KEY_LEN], CacheEntry>,
     capacity: Option<usize>,
     clock: Cell<u64>,
+    /// Rotating start offset for the eviction sampling window.
+    evict_cursor: usize,
 }
 
 impl Default for HotKeyCache {
@@ -28,11 +30,22 @@ impl Default for HotKeyCache {
 
 impl HotKeyCache {
     /// Create an unbounded cache.
+    ///
+    /// # Memory
+    ///
+    /// Each retained key costs a precomputed multiple table (roughly 2.7 KiB),
+    /// and the verifier retains every distinct public key it successfully
+    /// decodes. Verification inputs are usually attacker-chosen, so an
+    /// unbounded cache lets a peer grow this map without limit: 1M distinct
+    /// keys is on the order of 2.7 GiB. Prefer
+    /// [`with_capacity`](Self::with_capacity) anywhere the key set is not
+    /// known-bounded.
     pub fn new() -> Self {
         Self {
             keys: HashMap::new(),
             capacity: None,
             clock: Cell::new(0),
+            evict_cursor: 0,
         }
     }
 
@@ -78,9 +91,23 @@ impl HotKeyCache {
         };
 
         while self.keys.len() > capacity {
+            // `HashMap::iter` yields a fixed order for a given map, so sampling
+            // the first `EVICTION_SAMPLE` entries every time would keep
+            // reconsidering the same head and never look at most of the cache
+            // — evicting hot keys while cold ones further in are untouchable.
+            // Rotate the sampling window instead.
+            let len = self.keys.len();
+            let offset = self.evict_cursor % len;
+            self.evict_cursor = offset.wrapping_add(EVICTION_SAMPLE);
+
             let victim = self
                 .keys
                 .iter()
+                .cycle()
+                // Bound the scan to one full rotation so an all-protected
+                // cache cannot spin forever on the infinite `cycle`.
+                .skip(offset)
+                .take(len)
                 .filter(|(encoded, _)| Some(**encoded) != protected)
                 .take(EVICTION_SAMPLE)
                 .min_by_key(|(_, entry)| entry.last_used.get())

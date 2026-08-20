@@ -46,6 +46,7 @@ pub trait KeyCache: private::Sealed {
 pub struct NullKeyCache;
 
 impl NullKeyCache {
+    /// Create the empty cache. It never retains a key, so this is free.
     pub fn new() -> Self {
         Self
     }

@@ -322,8 +322,11 @@ mod avx512 {
     ) -> [__m512i; 16] {
         // Called only when each message has its first 64 bytes; convert once
         // so bounds are checked once per lane.
-        let message_heads: [[u8; 64]; LANES] =
-            core::array::from_fn(|lane| messages[lane][..64].try_into().unwrap());
+        let message_heads: [[u8; 64]; LANES] = core::array::from_fn(|lane| {
+            messages[lane][..64]
+                .try_into()
+                .expect("callers guarantee at least 64 message bytes")
+        });
         core::array::from_fn(|word| {
             let mut lanes = [0u64; LANES];
             let mut lane = 0;
@@ -345,7 +348,7 @@ mod avx512 {
         let blocks: [[u8; 128]; LANES] = core::array::from_fn(|lane| {
             messages[lane][message_offset..message_offset + 128]
                 .try_into()
-                .unwrap()
+                .expect("callers guarantee a full 128-byte block")
         });
         core::array::from_fn(|word| {
             let mut lanes = [0u64; LANES];
@@ -362,12 +365,20 @@ mod avx512 {
     // Array references let fixed-size windows use a monomorphized bounds check.
     #[inline(always)]
     fn read_be_u64<const N: usize>(bytes: &[u8; N], offset: usize) -> u64 {
-        u64::from_be_bytes(bytes[offset..offset + 8].try_into().unwrap())
+        u64::from_be_bytes(
+            bytes[offset..offset + 8]
+                .try_into()
+                .expect("the slice is exactly 8 bytes wide"),
+        )
     }
 
     #[inline(always)]
     fn read_be_u64_slice(bytes: &[u8], offset: usize) -> u64 {
-        u64::from_be_bytes(bytes[offset..offset + 8].try_into().unwrap())
+        u64::from_be_bytes(
+            bytes[offset..offset + 8]
+                .try_into()
+                .expect("the slice is exactly 8 bytes wide"),
+        )
     }
 
     fn compress_block(state: &mut [__m512i; 8], block_words: [__m512i; 16]) {

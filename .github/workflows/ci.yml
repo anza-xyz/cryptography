@@ -52,3 +52,45 @@ jobs:
       - name: Check
         run: |
           cargo hack check --each-feature --all-targets
+
+  # The `avx512` feature only compiles its AVX-512 IFMA code when the required
+  # target features are enabled, so `feature-check` above builds nothing but the
+  # unsupported-build shim. GitHub runners have no AVX-512 IFMA, so we cannot
+  # *run* this code here — but we can and must still compile and lint it,
+  # otherwise the whole verifier goes unchecked by CI.
+  avx512-build:
+    name: avx512 (compile + lint only, not executed)
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -C target-feature=+avx512f,+avx512dq,+avx512ifma
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      # `--all-targets` is what catches breakage in the cfg-gated test and
+      # bench code, which no other job compiles.
+      #
+      # No `-D warnings` yet: enabling these target features also changes which
+      # cfg branches of the pre-existing AVX2/packed_simd code compile, and that
+      # configuration has never been linted — it is already warning-dirty on
+      # upstream master, independently of the avx512 code. Clean that up in its
+      # own change, then add `-- -D warnings` here.
+      - name: Lint
+        run: |
+          cargo clippy -p solana-ed25519 --features avx512 --all-targets
+
+      # The verifier must stay reachable when the curve backend is forced to
+      # serial, since it is not one of the curve-arithmetic backends.
+      - name: Check with serial curve backend
+        env:
+          RUSTFLAGS: -C target-feature=+avx512f,+avx512dq,+avx512ifma --cfg curve25519_backend="serial"
+        run: |
+          cargo check -p solana-ed25519 --features avx512 --all-targets

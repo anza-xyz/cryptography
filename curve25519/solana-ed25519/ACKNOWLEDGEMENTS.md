@@ -5,6 +5,13 @@ The `src/ed_sigs` module was forked from the Zcash Foundation's
 `MIT OR Apache-2.0`. It is used here under the MIT branch; that notice is reproduced verbatim in
 [LICENSE-MIT](LICENSE-MIT).
 
+# ed25519-simd
+
+The `src/ed_sigs/avx512` module was forked from efagerho's
+[ed25519-simd](https://github.com/efagerho/ed25519-simd-rs), licensed
+`Apache-2.0`, at commit `f0191ea4c5787ec5c9e6a462991398b54fa34be4`. That notice is reproduced
+verbatim in [LICENSE-APACHE](LICENSE-APACHE).
+
 # Go ed25519
 
 Portions of curve25519 were originally derived from Adam Langley's

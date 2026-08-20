@@ -24,11 +24,11 @@ pub struct VerifyInput<'a> {
 const SIMD_LANES: usize = batch::SIMD_LANES;
 const R_ENCODING_LEN: usize = batch::R_ENCODING_LEN;
 
-/// Batches smaller than this verify faster with the scalar path than through a
-/// padded SIMD chunk, which always pays for a full [`SIMD_LANES`]-wide
-/// verification. The crossover measured on AVX512 hardware is at 3 signatures:
-/// scalar wins at 1-2 inputs, the padded SIMD chunk wins from 3 onward.
-const SCALAR_FALLBACK_MAX: usize = 3;
+/// Smallest batch that goes through the SIMD path. A padded SIMD chunk always
+/// pays for a full [`SIMD_LANES`]-wide verification, so below this size the
+/// scalar path is cheaper. The crossover measured on AVX-512 hardware is at 3
+/// signatures: scalar wins at 1-2 inputs, the padded SIMD chunk from 3 onward.
+const SIMD_MIN_BATCH: usize = 3;
 
 // Shared once per process; the base-point table is policy- and cache-independent.
 static BASE_TABLE: LazyLock<BasepointTable> = LazyLock::new(BasepointTable::new);
@@ -130,11 +130,16 @@ impl<C: KeyCache> Verifier<C> {
         // The SIMD path always pads a partial chunk up to `SIMD_LANES` lanes,
         // so it costs a full 8-lane verification (~flat) no matter how many
         // lanes are real. That flat cost still beats verifying each signature
-        // one-by-one with the scalar path once there are `SCALAR_FALLBACK_MAX`
-        // or more signatures. Below that crossover, scalar per-signature
-        // verification is faster and matches the configured policy exactly
-        // (see `sub_width_batch_matches_scalar_verification`).
-        if inputs.len() < SCALAR_FALLBACK_MAX {
+        // one-by-one with the scalar path once there are `SIMD_MIN_BATCH` or
+        // more signatures. Below that crossover, scalar per-signature
+        // verification is faster.
+        //
+        // IMPORTANT: the two paths must accept exactly the same set of
+        // signatures, otherwise acceptance would depend on how many unrelated
+        // signatures share the batch. `verify_single_scalar` dispatches to the
+        // same policy entry points the SIMD path mirrors; the equivalence is
+        // covered by `sub_width_batch_matches_scalar_verification`.
+        if inputs.len() < SIMD_MIN_BATCH {
             for (input, slot) in inputs.iter().zip(out.iter_mut()) {
                 *slot = self.verify_single_scalar(input);
             }

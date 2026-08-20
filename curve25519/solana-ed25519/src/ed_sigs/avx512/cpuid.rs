@@ -9,7 +9,7 @@ use std::arch::x86_64::{__cpuid, __cpuid_count, _xgetbv};
 pub(crate) fn assert_required_avx512_runtime_support() {
     if let Err(reason) = required_avx512_runtime_support() {
         panic!(
-            "ed25519-simd was built for AVX-512 (F, DQ, IFMA) but cannot run \
+            "solana-ed25519 was built for AVX-512 (F, DQ, IFMA) but cannot run \
              safely on this host: {reason}; build and run on an AVX-512 IFMA \
              capable CPU with OS AVX-512 state support enabled"
         );
