@@ -63,6 +63,14 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: -C target-feature=+avx512f,+avx512dq,+avx512ifma
+      # Every cargo invocation below MUST pass this. `RUSTFLAGS` without an
+      # explicit `--target` is also applied to host artifacts — build scripts
+      # and proc macros — which cargo then *executes* during the build. The
+      # runner has no AVX-512, so the compiler's own auto-vectorization of, say,
+      # `proc-macro2`'s build script kills it with SIGILL before any of our code
+      # is even compiled. Passing `--target`, even when it equals the host
+      # triple, makes cargo build host artifacts without `RUSTFLAGS`.
+      AVX512_TARGET: x86_64-unknown-linux-gnu
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -71,6 +79,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+          targets: x86_64-unknown-linux-gnu
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
@@ -85,7 +94,8 @@ jobs:
       # own change, then add `-- -D warnings` here.
       - name: Lint
         run: |
-          cargo clippy -p solana-ed25519 --features avx512 --all-targets
+          cargo clippy -p solana-ed25519 --target "$AVX512_TARGET" \
+            --features avx512 --all-targets
 
       # The verifier must stay reachable when the curve backend is forced to
       # serial, since it is not one of the curve-arithmetic backends.
@@ -93,4 +103,5 @@ jobs:
         env:
           RUSTFLAGS: -C target-feature=+avx512f,+avx512dq,+avx512ifma --cfg curve25519_backend="serial"
         run: |
-          cargo check -p solana-ed25519 --features avx512 --all-targets
+          cargo check -p solana-ed25519 --target "$AVX512_TARGET" \
+            --features avx512 --all-targets

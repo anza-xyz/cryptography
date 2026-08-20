@@ -213,8 +213,14 @@ For example:
 
 ```sh
 RUSTFLAGS='-C target-feature=+avx512f,+avx512dq,+avx512ifma' \
-  cargo build --release --features avx512
+  cargo build --release --features avx512 --target x86_64-unknown-linux-gnu
 ```
+
+> **Always pass `--target`, even when it equals your host triple.** Without it, cargo applies
+> `RUSTFLAGS` to host artifacts too — build scripts and proc macros — and then *executes* them
+> during the build. On a machine without AVX-512 that aborts with `SIGILL: illegal instruction`
+> in an unrelated dependency's build script, long before any of this crate is compiled. Passing
+> `--target` makes cargo build host artifacts without `RUSTFLAGS`.
 
 `Verifier` construction also performs a runtime CPU/OS feature check before using the hot path.
 Builds without those target features still compile the public API, but constructing the verifier
