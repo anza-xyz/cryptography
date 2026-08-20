@@ -1,3 +1,10 @@
+# ed25519-zebra
+
+The `src/ed_sigs` module was forked from the Zcash Foundation's
+[ed25519-zebra](https://github.com/ZcashFoundation/ed25519-zebra), dual-licensed
+`MIT OR Apache-2.0`. It is used here under the MIT branch; that notice is reproduced verbatim in
+[LICENSE-MIT](LICENSE-MIT).
+
 # Go ed25519
 
 Portions of curve25519 were originally derived from Adam Langley's

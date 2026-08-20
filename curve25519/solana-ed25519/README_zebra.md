@@ -1,5 +1,5 @@
 > This is an upstream `ed25519-zebra` README snapshot retained for provenance.
-> It describes the upstream crate, not this fork's current `curve25519::ed_sigs`
+> It describes the upstream crate, not this fork's current `solana_ed25519::ed_sigs`
 > API. See [README.md](README.md) for current `solana-ed25519` usage.
 
 [![Build status](https://github.com/ZcashFoundation/ed25519-zebra/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/ZcashFoundation/ed25519-zebra/actions/workflows/main.yml?query=branch%3Amain)
@@ -52,7 +52,6 @@ ed25519-zebra-zip215 = { package = "ed25519-zebra", version = "4" }
 
 ```
 use std::convert::TryFrom;
-use rand::thread_rng;
 use ed25519_zebra::*;
 
 let msg = b"Zcash";
@@ -60,7 +59,7 @@ let msg = b"Zcash";
 // Signer's context
 let (vk_bytes, sig_bytes) = {
     // Generate a signing key and sign the message
-    let sk = SigningKey::new(thread_rng());
+    let sk = SigningKey::new(rand::rng());
     let sig = sk.sign(msg);
 
     // Types can be converted to raw byte arrays with From/Into

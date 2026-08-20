@@ -3,7 +3,9 @@
 // This file is part of solana-ed25519's ed_sigs module, forked from ed25519-zebra.
 // Original ed25519-zebra code: Copyright (c) Zcash Foundation contributors
 // Modifications for HEEA: Copyright (c) 2025 curve25519-sol contributors
-// See LICENSE-APACHE and LICENSE-MIT for licensing information.
+// The ed25519-zebra portions are used under the MIT branch of its `MIT OR
+// Apache-2.0` license; see the crate-root LICENSE-MIT. The crate as a whole is
+// BSD-3-Clause (see LICENSE) with third-party notices in ACKNOWLEDGEMENTS.md.
 //
 // Modifications from ed25519-zebra:
 // - Added `verify_zebra`, an accelerated verification path using the HEEA
@@ -58,7 +60,7 @@ const ALGORITHM_ID: AlgorithmIdentifierRef<'_> = AlgorithmIdentifierRef {
 /// following idiom:
 /// ```
 /// use core::convert::TryFrom;
-/// # use curve25519::ed_sigs::*;
+/// # use solana_ed25519::ed_sigs::*;
 /// # let msg = b"Zcash";
 /// # let sk = SigningKey::from_bytes(&[1u8; 32]);
 /// # let sig = sk.sign(msg);
@@ -369,8 +371,18 @@ impl VerificationKey {
     /// Verify a signature with the strict, non-cofactored rules of
     /// [`ed25519_dalek::VerifyingKey::verify_strict`].
     ///
-    /// This rejects small-order public keys and `R` points, then recomputes the
-    /// expected canonical `R` encoding and compares it to the signature bytes.
+    /// This is the pre-ZIP-215 verification rule and is accept/reject identical
+    /// to `verify_strict`:
+    ///
+    /// * `s` MUST be canonically encoded (i.e. reduced mod `ℓ`);
+    /// * `R` MUST decode to a point on the curve;
+    /// * neither `A` nor `R` may be of small order (i.e. of order dividing the
+    ///   cofactor 8) — this is what makes a signature unforgeable without the
+    ///   private scalar, since `[h](-A)` takes only `ord(A)` values when `A` is
+    ///   of small order, so an attacker with no private key can hit the
+    ///   verification equation by grinding the message;
+    /// * the recomputed canonical encoding of `R` MUST equal the signature's
+    ///   `R` bytes, which additionally rejects every non-canonical `R`.
     ///
     /// Note that dalek-style canonical-`R` comparison is incompatible with the HEEA
     /// transformed equation because the transformed check does not preserve the
@@ -382,6 +394,15 @@ impl VerificationKey {
 
     #[allow(non_snake_case)]
     fn verify_dalek_prehashed(&self, signature: &Signature, h: Scalar) -> Result<(), Error> {
+        // Reject small-order `A` and small-order `R`, exactly as
+        // `verify_strict` does. These are algebraic tests on purpose: a
+        // blacklist of encodings is not equivalent, because every low-order
+        // point has both a sign-bit-clear and a sign-bit-set encoding, and
+        // several also have non-canonical encodings.
+        //
+        // `A` is checked through `minus_A`, which has the same order as `A`.
+        // Cheap tests first: `is_small_order` is three doublings, whereas
+        // decompressing `R` costs a square root.
         if self.minus_A.is_small_order() {
             return Err(Error::InvalidSignature);
         }

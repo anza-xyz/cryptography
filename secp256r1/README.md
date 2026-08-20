@@ -1,4 +1,4 @@
-# secp256r1
+# solana-secp256r1
 
 Pure-Rust secp256r1/P-256 field, scalar, and group operations.
 
@@ -28,13 +28,13 @@ OpenSSL and `p256` are used only as dev/benchmark comparison dependencies.
 
 ```toml
 [dependencies]
-secp256r1 = { path = "." }
+solana-secp256r1 = "0.1.0"
 ```
 
 ## API
 
 ```rust
-use secp256r1::{
+use solana_secp256r1::{
     group::{AffinePoint, ProjectivePoint},
     scalar::Scalar,
 };
@@ -85,36 +85,36 @@ assert_eq!(parsed, AffinePoint::generator());
 Run all secp256r1 benchmarks:
 
 ```sh
-cargo bench -p secp256r1
+cargo bench -p solana_secp256r1
 ```
 
 Focused benchmark groups:
 
 ```sh
-cargo bench -p secp256r1 --bench field
-cargo bench -p secp256r1 --bench scalar
-cargo bench -p secp256r1 --bench group
+cargo bench -p solana_secp256r1 --bench field
+cargo bench -p solana_secp256r1 --bench scalar
+cargo bench -p solana_secp256r1 --bench group
 ```
 
 Representative local results from this workspace:
 
 ### Group Ops
 
-| Benchmark | rust | p256 | OpenSSL |
-|---|---:|---:|---:|
-| point double | 81.184 ns | 198.83 ns | 222.82 ns public EC |
-| point add | 131.49 ns | 222.38 ns | 216.44 ns public EC |
-| mixed add | 95.753 ns | 195.68 ns | n/a |
-| variable-base scalar mul | 30.579 us | 75.541 us | n/a |
-| fixed-base scalar mul | 3.087 us | n/a | 3.539 us |
-| double scalar mul | 36.716 us | 150.58 us separate | 25.352 us |
+| Benchmark                |      rust |               p256 |             OpenSSL |
+| ------------------------ | --------: | -----------------: | ------------------: |
+| point double             | 81.184 ns |          198.83 ns | 222.82 ns public EC |
+| point add                | 131.49 ns |          222.38 ns | 216.44 ns public EC |
+| mixed add                | 95.753 ns |          195.68 ns |                 n/a |
+| variable-base scalar mul | 30.579 us |          75.541 us |                 n/a |
+| fixed-base scalar mul    |  3.087 us |                n/a |            3.539 us |
+| double scalar mul        | 36.716 us | 150.58 us separate |           25.352 us |
 
 ### Multiscalar Multiplication
 
-| Benchmark | rust MSM | rust separate | p256 separate |
-|---|---:|---:|---:|
-| 8-point MSM | 96.571 us | 244.41 us | 601.21 us |
-| 32-point MSM | 322.63 us | 1.300 ms | 2.410 ms |
+| Benchmark    |  rust MSM | rust separate | p256 separate |
+| ------------ | --------: | ------------: | ------------: |
+| 8-point MSM  | 96.571 us |     244.41 us |     601.21 us |
+| 32-point MSM | 322.63 us |      1.300 ms |      2.410 ms |
 
 Benchmark numbers are machine- and compiler-dependent. Re-run locally before
 making performance decisions.

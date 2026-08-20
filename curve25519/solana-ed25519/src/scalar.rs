@@ -34,7 +34,7 @@
 //! `Some(Scalar)` in return:
 //!
 //! ```
-//! use curve25519::scalar::Scalar;
+//! use solana_ed25519::scalar::Scalar;
 //!
 //! let one_as_bytes: [u8; 32] = Scalar::ONE.to_bytes();
 //! let a: Option<Scalar> = Scalar::from_canonical_bytes(one_as_bytes).into();
@@ -46,7 +46,7 @@
 //! (in this case, \\( \ell + 2 \\)), we'll get `None` back:
 //!
 //! ```
-//! use curve25519::scalar::Scalar;
+//! use solana_ed25519::scalar::Scalar;
 //!
 //! let l_plus_two_bytes: [u8; 32] = [
 //!    0xef, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58,
@@ -66,7 +66,7 @@
 //! resultant scalar \\( \mod \ell \\), producing \\( 2 \\):
 //!
 //! ```
-//! use curve25519::scalar::Scalar;
+//! use solana_ed25519::scalar::Scalar;
 //!
 //! let l_plus_two_bytes: [u8; 32] = [
 //!    0xef, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58,
@@ -92,7 +92,7 @@
 #![cfg_attr(not(feature = "digest"), doc = "```ignore")]
 //! # fn main() {
 //! use sha2::{Digest, Sha512};
-//! use curve25519::scalar::Scalar;
+//! use solana_ed25519::scalar::Scalar;
 //!
 //! // Hashing a single byte slice
 //! let a = Scalar::hash_from_bytes::<Sha512>(b"Abolish ICE");
@@ -124,9 +124,6 @@ use core::ops::{Sub, SubAssign};
 use group::ff::{Field, FromUniformBytes, PrimeField};
 #[cfg(feature = "group-bits")]
 use group::ff::{FieldBits, PrimeFieldBits};
-
-#[cfg(any(feature = "group", feature = "rand_core"))]
-use rand_core::RngCore;
 
 #[cfg(feature = "rand_core")]
 use rand_core::CryptoRng;
@@ -243,7 +240,7 @@ impl Scalar {
 
     /// Construct a `Scalar` from bytes that are known to be canonical.
     #[inline]
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(curve25519_backend = "simd")]
     pub(crate) const fn from_canonical_bytes_unchecked(bytes: [u8; 32]) -> Scalar {
         Scalar { bytes }
     }
@@ -496,7 +493,7 @@ impl From<u64> for Scalar {
     /// # Example
     ///
     /// ```
-    /// use curve25519::scalar::Scalar;
+    /// use solana_ed25519::scalar::Scalar;
     ///
     /// let fourtytwo = Scalar::from(42u64);
     /// let six = Scalar::from(6u64);
@@ -595,13 +592,13 @@ impl Scalar {
     ///
     /// ```
     /// # fn main() {
-    /// use curve25519::scalar::Scalar;
+    /// use solana_ed25519::scalar::Scalar;
     ///
-    /// let mut csprng = rand::thread_rng();
+    /// let mut csprng = rand::rng();
     /// let a: Scalar = Scalar::random(&mut csprng);
     /// # }
     #[cfg(feature = "rand_core")]
-    pub fn random<R: CryptoRng + RngCore + ?Sized>(rng: &mut R) -> Self {
+    pub fn random<R: CryptoRng + ?Sized>(rng: &mut R) -> Self {
         #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
         let mut scalar_bytes = [0u8; 64];
         rng.fill_bytes(&mut scalar_bytes);
@@ -625,7 +622,7 @@ impl Scalar {
     ///
     #[cfg_attr(feature = "digest", doc = "```")]
     #[cfg_attr(not(feature = "digest"), doc = "```ignore")]
-    /// # use curve25519::scalar::Scalar;
+    /// # use solana_ed25519::scalar::Scalar;
     /// use sha2::Sha512;
     ///
     /// # // Need fn main() here in comment so the doctest compiles
@@ -654,8 +651,8 @@ impl Scalar {
     /// # Example
     ///
     /// ```
-    /// # use curve25519::scalar::Scalar;
-    /// use curve25519::digest::Update;
+    /// # use solana_ed25519::scalar::Scalar;
+    /// use solana_ed25519::digest::Update;
     ///
     /// use sha2::Digest;
     /// use sha2::Sha512;
@@ -706,7 +703,7 @@ impl Scalar {
     /// # Example
     ///
     /// ```
-    /// use curve25519::scalar::Scalar;
+    /// use solana_ed25519::scalar::Scalar;
     ///
     /// let s: Scalar = Scalar::ZERO;
     ///
@@ -721,7 +718,7 @@ impl Scalar {
     /// # Example
     ///
     /// ```
-    /// use curve25519::scalar::Scalar;
+    /// use solana_ed25519::scalar::Scalar;
     ///
     /// let s: Scalar = Scalar::ZERO;
     ///
@@ -746,7 +743,7 @@ impl Scalar {
     /// # Example
     ///
     /// ```
-    /// use curve25519::scalar::Scalar;
+    /// use solana_ed25519::scalar::Scalar;
     ///
     /// // x = 2238329342913194256032495932344128051776374960164957527413114840482143558222
     /// let X: Scalar = Scalar::from_bytes_mod_order([
@@ -802,7 +799,7 @@ impl Scalar {
     /// # Example
     ///
     /// ```
-    /// # use curve25519::scalar::Scalar;
+    /// # use solana_ed25519::scalar::Scalar;
     /// # fn main() {
     /// let mut scalars = [
     ///     Scalar::from(3u64),
@@ -1390,16 +1387,16 @@ impl Field for Scalar {
     const ZERO: Self = Self::ZERO;
     const ONE: Self = Self::ONE;
 
-    fn random(mut rng: impl RngCore) -> Self {
+    fn try_random<R: rand_core::TryRng + ?Sized>(rng: &mut R) -> Result<Self, R::Error> {
         // NOTE: this is duplicated due to different `rng` bounds
         let mut scalar_bytes = [0u8; 64];
-        rng.fill_bytes(&mut scalar_bytes);
+        rng.try_fill_bytes(&mut scalar_bytes)?;
         let scalar = Self::from_bytes_mod_order_wide(&scalar_bytes);
 
         #[cfg(feature = "zeroize")]
         scalar_bytes.zeroize();
 
-        scalar
+        Ok(scalar)
     }
 
     fn square(&self) -> Self {
@@ -1578,7 +1575,7 @@ pub(crate) mod test {
 
     #[cfg(feature = "alloc")]
     use alloc::vec::Vec;
-    use rand::RngCore;
+    use rand::Rng;
 
     /// x = 2238329342913194256032495932344128051776374960164957527413114840482143558222
     pub static X: Scalar = Scalar {
@@ -1771,7 +1768,7 @@ pub(crate) mod test {
     #[cfg(feature = "rand_core")]
     #[test]
     fn non_adjacent_form_random() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         for _ in 0..1_000 {
             let x = Scalar::random(&mut rng);
             for w in &[5, 6, 7, 8] {
@@ -2301,7 +2298,7 @@ pub(crate) mod test {
     // was reduced and b was clamped and unreduced. This checks that was always well-defined.
     #[test]
     fn test_mul_reduction_invariance() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         for _ in 0..10 {
             // Also define c that's clamped. We'll make sure that clamping doesn't affect

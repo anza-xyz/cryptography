@@ -234,7 +234,7 @@ pub(crate) fn serialize_gt(gt: Gt, endianness: Endianness) -> PodGtElement {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, blstrs::Gt, group::Group};
+    use {super::*, blstrs::Gt, pairing::group::Group};
 
     #[test]
     fn test_swap_fq_endianness() {

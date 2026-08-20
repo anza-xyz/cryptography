@@ -428,15 +428,14 @@ mod tests {
     use crate::{Scalar, digest::Update, traits::HEEADecomposition};
 
     #[cfg(all(feature = "rand_core", feature = "digest"))]
-    use rand_core::RngCore;
+    use rand::Rng;
 
     #[test]
     #[cfg(all(feature = "rand_core", feature = "digest"))]
     fn test_heea_decompose_half_size_scalars() {
-        use rand::thread_rng;
         use sha2::{Digest, Sha512};
 
-        let mut rng = thread_rng();
+        let mut rng = rand::rng();
 
         // Test with multiple random scalars
         for _ in 0..1000 {
