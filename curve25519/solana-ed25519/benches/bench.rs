@@ -90,7 +90,7 @@ fn avx512_inputs_with_same_pubkey(n: usize) -> Vec<avx512::VerifyInput<'static>>
 
 fn bench_batch_verify(c: &mut Criterion) {
     let mut group = c.benchmark_group("Batch Verification");
-    for n in [8usize, 16, 24, 32, 40, 48, 56, 64].iter() {
+    for n in [1usize, 2, 4, 8, 16, 32].iter() {
         group.throughput(Throughput::Elements(*n as u64));
         let sigs = sigs_with_distinct_pubkeys().take(*n).collect::<Vec<_>>();
         group.bench_with_input(
@@ -261,5 +261,63 @@ fn bench_single_verify(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_sign, bench_single_verify, bench_batch_verify,);
+/// Fine-grained scan over 1..=8 signatures comparing the randomized batch
+/// verification API (`batch::Verifier::verify`) against the AVX512 verifier for
+/// the same signature counts. All signatures use distinct public keys.
+#[cfg(all(feature = "alloc", feature = "rand_core"))]
+fn bench_small_batch_scan(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Small Batch Scan");
+    for n in 1..=8usize {
+        group.throughput(Throughput::Elements(n as u64));
+
+        // (1) The randomized batch-verification API, same signatures.
+        let sigs = sigs_with_distinct_pubkeys().take(n).collect::<Vec<_>>();
+        group.bench_with_input(
+            BenchmarkId::new("Batch API verify", n),
+            &sigs,
+            |b, sigs: &Vec<(VerificationKeyBytes, Signature)>| {
+                b.iter(|| {
+                    let mut batch = batch::Verifier::new();
+                    for (vk_bytes, sig) in sigs.iter().cloned() {
+                        batch.queue((vk_bytes, sig, b""));
+                    }
+                    batch.verify(rand::thread_rng())
+                })
+            },
+        );
+
+        // (2) The AVX512 verifier for the same signature count.
+        #[cfg(all(
+            feature = "avx512",
+            target_arch = "x86_64",
+            target_feature = "avx512f",
+            target_feature = "avx512dq",
+            target_feature = "avx512ifma",
+        ))]
+        {
+            let inputs = avx512_inputs_with_distinct_pubkeys(n);
+            group.bench_with_input(
+                BenchmarkId::new("AVX512 verify_batch", n),
+                &inputs,
+                |b, inputs: &Vec<avx512::VerifyInput<'static>>| {
+                    let mut verifier = avx512::Verifier::new();
+                    let mut out = vec![false; inputs.len()];
+                    b.iter(|| {
+                        verifier.verify_batch(inputs, &mut out);
+                        std::hint::black_box(&out);
+                    })
+                },
+            );
+        }
+    }
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    bench_sign,
+    bench_single_verify,
+    bench_batch_verify,
+    bench_small_batch_scan,
+);
 criterion_main!(benches);

@@ -1,5 +1,8 @@
 use core::convert::TryFrom;
 
+use alloc::vec;
+use alloc::vec::Vec;
+
 use crate::ed_sigs::{
     Signature, SigningKey, VerificationKey, VerificationKeyBytes,
     avx512::{HotKeyCache, Verifier, VerifyInput, VerifyPolicy},
@@ -98,5 +101,44 @@ fn simd_dalek_rejects_small_order_forgery_with_and_without_cache() {
         // key was not rejected globally before policy dispatch.
         Verifier::with_policy(VerifyPolicy::Zip215).verify_batch(&inputs, &mut out);
         assert_eq!(out, [true; 8]);
+#[test]
+fn sub_width_batch_matches_scalar_verification() {
+    // Small batches are dispatched either to the scalar fallback (1-2 inputs)
+    // or the padded SIMD chunk (3-7 inputs); check every size below the SIMD
+    // width across that crossover, including a tampered signature.
+    for len in 1..8usize {
+        let mut inputs = Vec::with_capacity(len);
+        for i in 0..len {
+            let mut seed = [0u8; 32];
+            seed[0] = i as u8 + 1;
+            let signing_key = SigningKey::from(seed);
+            let message: &[u8] = b"sub width batch";
+            let mut signature: [u8; 64] = signing_key.sign(message).into();
+            // Corrupt the last input so the fallback must reject a lane too.
+            if i + 1 == len {
+                signature[40] ^= 1;
+            }
+            inputs.push(VerifyInput {
+                public_key: VerificationKeyBytes::from(&signing_key).into(),
+                signature,
+                message,
+            });
+        }
+
+        let mut out = vec![false; len];
+        Verifier::new().verify_batch(&inputs, &mut out);
+
+        for (i, input) in inputs.iter().enumerate() {
+            let verification_key = VerificationKey::try_from(input.public_key).unwrap();
+            let signature = Signature::from(input.signature);
+            assert_eq!(
+                out[i],
+                verification_key.verify(&signature, input.message).is_ok(),
+                "len {len} lane {i} disagreed with scalar verification"
+            );
+        }
+        // Only the final tampered signature should be rejected.
+        assert!(out[..len - 1].iter().all(|&ok| ok));
+        assert!(!out[len - 1]);
     }
 }
