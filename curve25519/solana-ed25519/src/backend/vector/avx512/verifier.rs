@@ -24,6 +24,12 @@ pub struct VerifyInput<'a> {
 const SIMD_LANES: usize = batch::SIMD_LANES;
 const R_ENCODING_LEN: usize = batch::R_ENCODING_LEN;
 
+/// Batches smaller than this verify faster with the scalar path than through a
+/// padded SIMD chunk, which always pays for a full [`SIMD_LANES`]-wide
+/// verification. The crossover measured on AVX512 hardware is at 3 signatures:
+/// scalar wins at 1-2 inputs, the padded SIMD chunk wins from 3 onward.
+const SCALAR_FALLBACK_MAX: usize = 3;
+
 // Shared once per process; the base-point table is policy- and cache-independent.
 static BASE_TABLE: LazyLock<BasepointTable> = LazyLock::new(BasepointTable::new);
 
@@ -120,6 +126,21 @@ impl<C: KeyCache> Verifier<C> {
     /// Panics if `inputs.len() != out.len()`.
     pub fn verify_batch(&mut self, inputs: &[VerifyInput<'_>], out: &mut [bool]) {
         assert_eq!(inputs.len(), out.len());
+
+        // The SIMD path always pads a partial chunk up to `SIMD_LANES` lanes,
+        // so it costs a full 8-lane verification (~flat) no matter how many
+        // lanes are real. That flat cost still beats verifying each signature
+        // one-by-one with the scalar path once there are `SCALAR_FALLBACK_MAX`
+        // or more signatures. Below that crossover, scalar per-signature
+        // verification is faster and matches the configured policy exactly
+        // (see `sub_width_batch_matches_scalar_verification`).
+        if inputs.len() < SCALAR_FALLBACK_MAX {
+            for (input, slot) in inputs.iter().zip(out.iter_mut()) {
+                *slot = self.verify_single_scalar(input);
+            }
+            return;
+        }
+
         let mut bucket_order = core::mem::take(&mut self.bucket_order);
         batch::for_each_simd_chunk(inputs, &mut bucket_order, |chunk, output_indices, lanes| {
             let mut tmp = [false; SIMD_LANES];
@@ -130,6 +151,21 @@ impl<C: KeyCache> Verifier<C> {
             }
         });
         self.bucket_order = bucket_order;
+    }
+
+    /// Scalar single-signature verification matching `self.policy`, used as the
+    /// fallback for sub-`SIMD_LANES` batches where the padded SIMD path would
+    /// waste most lanes.
+    fn verify_single_scalar(&self, input: &VerifyInput<'_>) -> bool {
+        use crate::ed_sigs::{Signature, VerificationKey};
+        let Ok(vk) = VerificationKey::try_from(input.public_key) else {
+            return false;
+        };
+        let signature = Signature::from(input.signature);
+        match self.policy {
+            VerifyPolicy::Zip215 => vk.verify_zebra(&signature, input.message).is_ok(),
+            VerifyPolicy::Dalek => vk.verify_dalek(&signature, input.message).is_ok(),
+        }
     }
 
     fn try_verify_chunk(
