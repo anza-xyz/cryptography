@@ -97,6 +97,13 @@ jobs:
           cargo clippy -p solana-ed25519 --target "$AVX512_TARGET" \
             --features avx512 --all-targets
 
+      # Keep the opt-in verifier independent of unrelated default features,
+      # especially `precomputed-tables` from the curve-arithmetic backend.
+      - name: Check minimal feature set
+        run: |
+          cargo check -p solana-ed25519 --target "$AVX512_TARGET" \
+            --no-default-features --features avx512 --all-targets
+
       # The verifier must stay reachable when the curve backend is forced to
       # serial, since it is not one of the curve-arithmetic backends.
       - name: Check with serial curve backend
