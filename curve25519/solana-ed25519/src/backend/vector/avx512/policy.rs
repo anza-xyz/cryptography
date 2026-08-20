@@ -1,5 +1,3 @@
-pub(crate) use crate::ed_sigs::r_encoding_is_legacy_excluded;
-
 /// The Ed25519 field modulus `p = 2^255 - 19`, encoded little-endian.
 const FIELD_P_BYTES: [u8; 32] = [
     0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -27,6 +25,6 @@ pub enum VerifyPolicy {
     /// ZIP-215 cofactored verification; accepts non-canonical point encodings.
     #[default]
     Zip215,
-    /// Dalek-style canonical-`R` verification with solana-ed25519 legacy filters.
+    /// Strict Dalek verification, including algebraic small-order rejection.
     Dalek,
 }

@@ -23,7 +23,7 @@ pub enum VerifyPolicy {
     /// ZIP-215 cofactored verification; accepts non-canonical point encodings.
     #[default]
     Zip215,
-    /// Dalek-style canonical-`R` verification with solana-ed25519 legacy filters.
+    /// Strict Dalek verification, including algebraic small-order rejection.
     Dalek,
 }
 

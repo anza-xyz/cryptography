@@ -9,8 +9,6 @@ use color_eyre::{Report, eyre::eyre};
 use core::convert::TryFrom;
 use std::vec::Vec;
 
-pub(crate) use crate::ed_sigs::verification_key::LEGACY_EXCLUDED_R_ENCODINGS as EXCLUDED_POINT_ENCODINGS;
-
 pub struct TestCase {
     pub vk_bytes: [u8; 32],
     pub sig_bytes: [u8; 64],
@@ -190,16 +188,5 @@ pub fn order(point: EdwardsPoint) -> &'static str {
         "p"
     } else {
         ">p"
-    }
-}
-
-#[test]
-fn find_valid_excluded_encodings() {
-    for (i, encoding) in EXCLUDED_POINT_ENCODINGS.iter().enumerate() {
-        if let Some(point) = CompressedEdwardsY(*encoding).decompress() {
-            println!("index {} is valid point of order {}", i, order(point));
-        } else {
-            println!("index {} is not a valid encoding", i);
-        }
     }
 }

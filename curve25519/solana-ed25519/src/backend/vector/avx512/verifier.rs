@@ -2,7 +2,7 @@ use super::batch::{self, PreparedBatch};
 use super::cache::{CachedPublicKey, KeyCache, NullKeyCache};
 use super::cpuid;
 use super::edwards::{BasepointTable, EdwardsPoint, PointTable};
-use super::policy::{VerifyPolicy, r_encoding_has_canonical_y, r_encoding_is_legacy_excluded};
+use super::policy::{VerifyPolicy, r_encoding_has_canonical_y};
 use super::scalar::{self, Radix16, Scalar};
 use super::sha512;
 use super::wide::avx512ifma;
@@ -157,13 +157,32 @@ impl<C: KeyCache> Verifier<C> {
 
         // Decode uncached public keys and batch the R decompression only when a lane missed the cache.
         let mut decoded_r: Option<(avx512ifma::WideRPoints, [bool; SIMD_LANES])> = None;
-        let mut decoded_key_tables: Option<([PointTable; SIMD_LANES], [bool; SIMD_LANES])> = None;
+        let mut decoded_key_tables: Option<(
+            [PointTable; SIMD_LANES],
+            [bool; SIMD_LANES],
+            [bool; SIMD_LANES],
+        )> = None;
         if any_lane(&missing_key_lanes) {
-            let (tables, key_valid_bits, r_points, r_valid_bits) =
+            let (tables, key_valid_bits, key_small_order, r_points, r_valid_bits) =
                 avx512ifma::decode_keys_and_decompress_r(&public_keys, &r_bytes);
-            decoded_key_tables = Some((tables, lane_flags_from_mask(key_valid_bits)));
+            decoded_key_tables = Some((
+                tables,
+                lane_flags_from_mask(key_valid_bits),
+                key_small_order,
+            ));
             decoded_r = Some((r_points, lane_flags_from_mask(r_valid_bits)));
         }
+
+        let public_key_small_order: [bool; SIMD_LANES] = core::array::from_fn(|lane| {
+            if let Some(key) = cached_keys[lane] {
+                key.small_order
+            } else {
+                decoded_key_tables
+                    .as_ref()
+                    .expect("a cache miss always triggers a decode")
+                    .2[lane]
+            }
+        });
 
         // Build per-lane public key tables from cache hits or freshly decoded misses.
         let public_key_tables: [&PointTable; SIMD_LANES] = core::array::from_fn(|lane| {
@@ -171,7 +190,7 @@ impl<C: KeyCache> Verifier<C> {
                 &key.table
             } else {
                 // Cache misses populate `decoded_key_tables` above.
-                let (tables, key_valid_lanes) = decoded_key_tables
+                let (tables, key_valid_lanes, _) = decoded_key_tables
                     .as_ref()
                     .expect("a cache miss always triggers a decode");
                 if key_valid_lanes[lane] {
@@ -199,18 +218,24 @@ impl<C: KeyCache> Verifier<C> {
             VerifyPolicy::Zip215 => {
                 self.verify_zip215_lanes(&prepared, decoded_r, &r_bytes, &valid, out)
             }
-            VerifyPolicy::Dalek => {
-                self.verify_dalek_lanes(&prepared, decoded_r, &r_bytes, &public_keys, &valid, out)
-            }
+            VerifyPolicy::Dalek => self.verify_dalek_lanes(
+                &prepared,
+                decoded_r,
+                &r_bytes,
+                &public_key_small_order,
+                &valid,
+                out,
+            ),
         }
 
         // Try to insert any recently decoded keys into the cache.
-        if let Some((tables, key_valid_lanes)) = decoded_key_tables {
+        if let Some((tables, key_valid_lanes, key_small_order)) = decoded_key_tables {
             for (lane, table) in tables.into_iter().enumerate() {
                 if missing_key_lanes[lane] && key_valid_lanes[lane] {
                     self.cache.insert(CachedPublicKey {
                         encoded: public_keys[lane],
                         table,
+                        small_order: key_small_order[lane],
                     });
                 }
             }
@@ -248,7 +273,7 @@ impl<C: KeyCache> Verifier<C> {
         prepared: &PreparedBatch<'_>,
         decoded_r: Option<(avx512ifma::WideRPoints, [bool; SIMD_LANES])>,
         r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
-        public_keys: &[[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
+        public_key_small_order: &[bool; SIMD_LANES],
         valid: &[bool; SIMD_LANES],
         out: &mut [bool; SIMD_LANES],
     ) {
@@ -257,6 +282,7 @@ impl<C: KeyCache> Verifier<C> {
             let simd =
                 avx512ifma::verify_prepared_dalek_projective(prepared, &r_points, self.base_table);
             let r_x_zero = r_points.x_zero_lanes();
+            let r_small_order = r_points.small_order_lanes();
             for lane in 0..SIMD_LANES {
                 let signed_zero = r_x_zero[lane] && r_bytes[lane][31] & 0x80 != 0;
                 out[lane] = simd[lane]
@@ -264,15 +290,18 @@ impl<C: KeyCache> Verifier<C> {
                     && r_valid_lanes[lane]
                     && r_encoding_has_canonical_y(&r_bytes[lane])
                     && !signed_zero
-                    && !dalek_legacy_excluded(&public_keys[lane], &r_bytes[lane]);
+                    && !public_key_small_order[lane]
+                    && !r_small_order[lane];
             }
         } else {
             // All cache hits, nothing decompressed yet: recompute R and compare bytes.
-            let simd = avx512ifma::verify_prepared_dalek(prepared, r_bytes, self.base_table);
+            let (simd, r_small_order) =
+                avx512ifma::verify_prepared_dalek(prepared, r_bytes, self.base_table);
             for lane in 0..SIMD_LANES {
                 out[lane] = simd[lane]
                     && valid[lane]
-                    && !dalek_legacy_excluded(&public_keys[lane], &r_bytes[lane]);
+                    && !public_key_small_order[lane]
+                    && !r_small_order[lane];
             }
         }
     }
@@ -316,13 +345,6 @@ fn challenge_digits(
 ) -> [Radix16; SIMD_LANES] {
     let digests = sha512::hash_ed25519_challenge_words(r_bytes, public_keys, messages);
     core::array::from_fn(|lane| Scalar::from_wide_words(digests[lane]).to_radix16())
-}
-
-fn dalek_legacy_excluded(
-    public_key: &[u8; batch::PUBLIC_KEY_LEN],
-    r_bytes: &[u8; R_ENCODING_LEN],
-) -> bool {
-    *public_key == [0u8; batch::PUBLIC_KEY_LEN] || r_encoding_is_legacy_excluded(r_bytes)
 }
 
 fn lane_flags_from_mask(mask: u8) -> [bool; SIMD_LANES] {

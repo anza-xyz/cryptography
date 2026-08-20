@@ -234,6 +234,11 @@ impl EdwardsPoint {
         }
     }
 
+    pub(crate) fn is_small_order(&self) -> bool {
+        let point8 = self.double().double().double();
+        point8.x.equals(&Fe51::zero()) && point8.y.equals(&point8.z)
+    }
+
     #[cfg(test)]
     pub(crate) fn coords(&self) -> (&Fe51, &Fe51, &Fe51, &Fe51) {
         (&self.x, &self.y, &self.z, &self.t)

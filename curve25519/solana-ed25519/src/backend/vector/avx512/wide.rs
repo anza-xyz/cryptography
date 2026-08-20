@@ -26,6 +26,10 @@ pub(crate) mod avx512ifma {
         pub(crate) fn x_zero_lanes(&self) -> [bool; LANES] {
             self.0.x.is_zero_lanes()
         }
+
+        pub(crate) fn small_order_lanes(&self) -> [bool; LANES] {
+            self.0.small_order_lanes()
+        }
     }
 
     /// Decompress one SIMD chunk of `R` points and return a per-lane validity mask.
@@ -42,9 +46,16 @@ pub(crate) mod avx512ifma {
     pub(crate) fn decode_keys_and_decompress_r(
         keys: &[[u8; PUBLIC_KEY_LEN]; LANES],
         r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
-    ) -> ([PointTable; LANES], u8, WideRPoints, u8) {
+    ) -> ([PointTable; LANES], u8, [bool; LANES], WideRPoints, u8) {
         let ((kp, kmask), (rp, rmask)) = decompress_point_batches_wide(keys, r_bytes);
-        (build_tables_from_point(kp), kmask, WideRPoints(rp), rmask)
+        let key_small_order = kp.small_order_lanes();
+        (
+            build_tables_from_point(kp),
+            kmask,
+            key_small_order,
+            WideRPoints(rp),
+            rmask,
+        )
     }
 
     /// Build the per-lane radix-16 cached tables from an already-decompressed
@@ -121,10 +132,14 @@ pub(crate) mod avx512ifma {
         prepared: &PreparedBatch<'_>,
         r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
         base_table: &BasepointTable,
-    ) -> [bool; LANES] {
+    ) -> ([bool; LANES], [bool; LANES]) {
         let combined = mul_base_minus_public(base_table, prepared);
+        let small_order = combined.small_order_lanes();
         let recomputed = combined.compress();
-        core::array::from_fn(|lane| recomputed[lane] == r_bytes[lane])
+        (
+            core::array::from_fn(|lane| recomputed[lane] == r_bytes[lane]),
+            small_order,
+        )
     }
 
     pub(crate) fn verify_prepared_dalek_projective(
@@ -1058,6 +1073,13 @@ pub(crate) mod avx512ifma {
             let x_zero = self.x.is_zero_lanes();
             let yz_equal = self.y.equals_lanes(&self.z);
             core::array::from_fn(|lane| x_zero[lane] && yz_equal[lane])
+        }
+
+        fn small_order_lanes(&self) -> [bool; LANES] {
+            self.double_without_t()
+                .double_without_t()
+                .double_without_t()
+                .identity_lanes()
         }
 
         #[cfg(test)]

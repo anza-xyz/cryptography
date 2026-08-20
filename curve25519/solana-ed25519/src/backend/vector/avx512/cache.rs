@@ -10,14 +10,19 @@ pub(crate) mod private {
 pub struct CachedPublicKey {
     pub(crate) encoded: [u8; PUBLIC_KEY_LEN],
     pub(crate) table: PointTable,
+    pub(crate) small_order: bool,
 }
 
 impl CachedPublicKey {
     /// Build a cached public key from its encoded bytes.
     pub fn from_encoded(encoded: [u8; PUBLIC_KEY_LEN]) -> Option<Self> {
-        EdwardsPoint::decompress(&encoded).map(|point| Self {
-            encoded,
-            table: PointTable::new(&point),
+        EdwardsPoint::decompress(&encoded).map(|point| {
+            let small_order = point.is_small_order();
+            Self {
+                encoded,
+                table: PointTable::new(&point),
+                small_order,
+            }
         })
     }
 }

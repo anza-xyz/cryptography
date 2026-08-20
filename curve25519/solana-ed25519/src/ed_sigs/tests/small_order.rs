@@ -1,8 +1,10 @@
 #![cfg(feature = "std")]
 
 use crate::{
-    constants::EIGHT_TORSION, ed_sigs::scalar_from_sha512, edwards::CompressedEdwardsY,
-    scalar::Scalar, traits::IsIdentity,
+    constants::EIGHT_TORSION,
+    ed_sigs::scalar_from_sha512,
+    edwards::{CompressedEdwardsY, EdwardsPoint},
+    scalar::Scalar,
 };
 use color_eyre::Report;
 use once_cell::sync::Lazy;
@@ -12,18 +14,27 @@ use std::vec::Vec;
 use super::util;
 use util::TestCase;
 
-#[allow(non_snake_case)]
-pub static SMALL_ORDER_SIGS: Lazy<Vec<TestCase>> = Lazy::new(|| {
-    let mut tests = Vec::new();
-    let s = Scalar::ZERO;
-
-    // Use all the canonical encodings of the 8-torsion points,
-    // and the low-order non-canonical encodings.
+/// Every byte string that decodes to a point of order dividing the cofactor 8.
+pub(super) fn low_order_encodings() -> Vec<[u8; 32]> {
     let encodings = EIGHT_TORSION
         .iter()
         .map(|point| point.compress().to_bytes())
         .chain(util::non_canonical_point_encodings().into_iter().take(6))
         .collect::<Vec<_>>();
+
+    assert_eq!(encodings.len(), 14);
+    for encoding in &encodings {
+        let point = CompressedEdwardsY(*encoding).decompress().expect("decodes");
+        assert!(point.is_small_order());
+    }
+    encodings
+}
+
+#[allow(non_snake_case)]
+pub static SMALL_ORDER_SIGS: Lazy<Vec<TestCase>> = Lazy::new(|| {
+    let mut tests = Vec::new();
+    let s = Scalar::ZERO;
+    let encodings = low_order_encodings();
 
     /*
     for (i, e) in encodings.iter().enumerate() {
@@ -45,24 +56,10 @@ pub static SMALL_ORDER_SIGS: Lazy<Vec<TestCase>> = Lazy::new(|| {
             // The verification equation is [8][s]B = [8]R + [8][k]A.
             // If R, A are torsion points the LHS is 0, setting s = 0 makes RHS 0.
             let valid_zip215 = true;
-            // In the legacy equation the RHS is 0 and the LHS is R + [k]A.
-            // This will be valid only if:
-            // * A is not all zeros.
-            // * R is not an excluded point
-            // * R + [k]A = 0
-            // * R is canonically encoded (because the check recomputes R)
-            let k = scalar_from_sha512(
-                Sha512::default()
-                    .chain(&sig_bytes[0..32])
-                    .chain(vk_bytes)
-                    .chain(b"Zcash"),
-            );
-            let check = R + k * A;
-            let non_canonical_R = R.compress().as_bytes() != R_bytes;
-            let valid_legacy = !(vk_bytes == [0; 32]
-                || util::EXCLUDED_POINT_ENCODINGS.contains(R.compress().as_bytes())
-                || !check.is_identity()
-                || non_canonical_R);
+            // Strict Dalek verification rejects small-order A and R before
+            // evaluating the verification equation.
+            debug_assert!(A.is_small_order() && R.is_small_order());
+            let valid_legacy = false;
 
             tests.push(TestCase {
                 vk_bytes,
@@ -82,6 +79,80 @@ fn conformance() -> Result<(), Report> {
     }
     println!("{:#?}", *SMALL_ORDER_SIGS);
     Ok(())
+}
+
+/// A small-order public key admits a signature equation without knowledge of
+/// a private scalar; strict verification must reject it algebraically.
+#[test]
+#[allow(non_snake_case)]
+fn verify_dalek_rejects_forgeries_under_small_order_keys() {
+    use crate::constants::ED25519_BASEPOINT_POINT;
+    use crate::ed_sigs::{Signature, VerificationKey};
+    use core::convert::TryFrom;
+
+    let s = Scalar::from(1u64);
+    let R_bytes = (ED25519_BASEPOINT_POINT * s).compress().to_bytes();
+    let mut sig_bytes = [0u8; 64];
+    sig_bytes[..32].copy_from_slice(&R_bytes);
+    sig_bytes[32..].copy_from_slice(s.as_bytes());
+    let sig = Signature::from(sig_bytes);
+
+    let mut forgeable = 0usize;
+    for A_bytes in low_order_encodings() {
+        let vk = VerificationKey::try_from(A_bytes).expect("low-order keys decode");
+        let dalek_key = ed25519_dalek::VerifyingKey::from_bytes(&A_bytes);
+        let dalek_sig = Signature::from_bytes(&sig_bytes);
+
+        let mut found = false;
+        for n in 0..64u32 {
+            let msg = std::format!("pay attacker {n}").into_bytes();
+            let h = scalar_from_sha512(
+                Sha512::default()
+                    .chain(&R_bytes[..])
+                    .chain(&A_bytes[..])
+                    .chain(&msg[..]),
+            );
+            let expected_R =
+                EdwardsPoint::vartime_double_scalar_mul_basepoint(&h, &vk.minus_A, &s).compress();
+            if expected_R.as_bytes() != &R_bytes {
+                continue;
+            }
+            found = true;
+
+            assert_eq!(
+                vk.verify_dalek(&sig, &msg),
+                Err(crate::ed_sigs::Error::InvalidSignature),
+                "forgery accepted for A={} msg={}",
+                hex::encode(A_bytes),
+                std::string::String::from_utf8_lossy(&msg),
+            );
+            if let Ok(dalek_key) = dalek_key.as_ref() {
+                assert!(dalek_key.verify_strict(&msg, &dalek_sig).is_err());
+            }
+        }
+        if found {
+            forgeable += 1;
+        }
+    }
+
+    assert_eq!(forgeable, 14);
+}
+
+#[test]
+fn verify_dalek_matches_dalek_verify_strict_on_small_order_vectors() {
+    use crate::ed_sigs::{Signature, VerificationKey};
+    use core::convert::TryFrom;
+
+    for case in SMALL_ORDER_SIGS.iter() {
+        let msg = b"Zcash";
+        let ours = VerificationKey::try_from(case.vk_bytes)
+            .and_then(|vk| vk.verify_dalek(&Signature::from(case.sig_bytes), msg))
+            .is_ok();
+        let theirs = ed25519_dalek::VerifyingKey::from_bytes(&case.vk_bytes)
+            .and_then(|vk| vk.verify_strict(msg, &Signature::from_bytes(&case.sig_bytes)))
+            .is_ok();
+        assert_eq!(ours, theirs);
+    }
 }
 
 #[cfg(all(feature = "alloc", feature = "rand_core"))]

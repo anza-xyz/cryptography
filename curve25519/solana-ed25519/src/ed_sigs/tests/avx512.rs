@@ -2,8 +2,13 @@ use core::convert::TryFrom;
 
 use crate::ed_sigs::{
     Signature, SigningKey, VerificationKey, VerificationKeyBytes,
-    avx512::{Verifier, VerifyInput},
+    avx512::{HotKeyCache, Verifier, VerifyInput, VerifyPolicy},
 };
+use crate::{constants::ED25519_BASEPOINT_POINT, ed_sigs::scalar_from_sha512, scalar::Scalar};
+use sha2::{Sha512, digest::Update};
+use std::vec::Vec;
+
+use super::small_order::low_order_encodings;
 
 #[test]
 fn simd_batch_reports_per_input_results() {
@@ -35,4 +40,63 @@ fn simd_batch_reports_per_input_results() {
         );
     }
     assert_eq!(out, [true, true, true, false, true, true, true, true]);
+}
+
+#[allow(non_snake_case)]
+fn forge_for_small_order_key(A_bytes: [u8; 32]) -> ([u8; 64], Vec<u8>) {
+    let vk = VerificationKey::try_from(A_bytes).expect("small-order key decodes");
+    let s = Scalar::from(1u64);
+    let R_bytes = (ED25519_BASEPOINT_POINT * s).compress().to_bytes();
+    let mut signature = [0u8; 64];
+    signature[..32].copy_from_slice(&R_bytes);
+    signature[32..].copy_from_slice(s.as_bytes());
+
+    for n in 0..64u32 {
+        let message = std::format!("pay attacker {n}").into_bytes();
+        let h = scalar_from_sha512(
+            Sha512::default()
+                .chain(&R_bytes[..])
+                .chain(&A_bytes[..])
+                .chain(&message[..]),
+        );
+        let expected_R =
+            crate::EdwardsPoint::vartime_double_scalar_mul_basepoint(&h, &vk.minus_A, &s)
+                .compress();
+        if expected_R.as_bytes() == &R_bytes {
+            return (signature, message);
+        }
+    }
+
+    panic!("failed to find deterministic small-order forgery");
+}
+
+#[test]
+fn simd_dalek_rejects_small_order_forgery_with_and_without_cache() {
+    for public_key in low_order_encodings() {
+        let (signature, message) = forge_for_small_order_key(public_key);
+        let input = VerifyInput {
+            public_key,
+            signature,
+            message: &message,
+        };
+        let inputs = [input; 8];
+
+        let mut out = [false; 8];
+        Verifier::with_policy(VerifyPolicy::Dalek).verify_batch(&inputs, &mut out);
+        assert_eq!(out, [false; 8]);
+
+        let mut cached = Verifier::with_cache(
+            VerifyPolicy::Dalek,
+            HotKeyCache::with_capacity(low_order_encodings().len()),
+        );
+        cached.verify_batch(&inputs, &mut out);
+        assert_eq!(out, [false; 8]);
+        cached.verify_batch(&inputs, &mut out);
+        assert_eq!(out, [false; 8]);
+
+        // ZIP-215 intentionally accepts the cofactored equation, proving the
+        // key was not rejected globally before policy dispatch.
+        Verifier::with_policy(VerifyPolicy::Zip215).verify_batch(&inputs, &mut out);
+        assert_eq!(out, [true; 8]);
+    }
 }
