@@ -1,8 +1,8 @@
-//! Unified 256-bit field arithmetic for Fq (base) and Fr (scalar).
+//! 256-bit Montgomery arithmetic for the BN254 scalar field (Fr).
 //!
 //! Handles core Montgomery arithmetic. Execution routes to either
-//! pure Rust multi-limb operations or highly optimized x86_64
-//! assembly based on active feature flags.
+//! pure Rust multi-limb operations or an AVX-512 IFMA batched engine,
+//! selected at compile time from the active target features.
 
 pub mod fr;
 pub mod traits;

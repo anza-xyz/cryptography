@@ -2,8 +2,8 @@
 
 //! `solana-bn254`
 //!
-//! BN254 elliptic curve operations and Poseidon hashing, optimized
-//! for the Solana Agave validator.
+//! Poseidon hashing over the BN254 scalar field, optimized for the
+//! Solana Agave validator.
 //!
 //! # Security Warning
 //! This crate is designed exclusively for PUBLIC DATA CONTEXTS.

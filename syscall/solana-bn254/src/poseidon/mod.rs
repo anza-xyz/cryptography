@@ -93,6 +93,13 @@ unsafe fn apply_sbox_simd<const T: usize>(state: &mut [U256; T]) {
 /// Instead of computing rows sequentially (`T^2` multiplications), we broadcast
 /// the scalar `state[j]`, pack the Matrix Column `j` into a SIMD vector, and execute
 /// parallel multiplications.
+///
+/// # Input criteria
+/// Every element of `state` and of `mds` must be a fully reduced Montgomery-form
+/// field element (`x < Fr::MODULUS`). Products are accumulated with the scalar
+/// backend's `add`, which performs a single conditional subtraction and is only
+/// correct for reduced operands. `mul_8x` upholds this on its results by ending
+/// with a conditional subtraction of the modulus.
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
