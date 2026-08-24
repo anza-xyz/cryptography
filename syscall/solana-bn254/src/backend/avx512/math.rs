@@ -34,12 +34,111 @@ pub unsafe fn add_lazy(a: &FieldElement8x52, b: &FieldElement8x52) -> FieldEleme
     }
 }
 
+/// Multiplies each lane by `2^4`, renormalizing to 52-bit limbs.
+///
+/// Used to reconcile Montgomery radices: five 52-bit CIOS iterations divide by
+/// `2^260`, while the rest of the crate represents field elements with `R = 2^256`.
+///
+/// The input must be below `2^256`, which keeps the scaled result inside the
+/// 260-bit window spanned by five limbs, so no significant bits are discarded.
+#[inline]
+#[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
+unsafe fn scale_by_16(x: &FieldElement8x52) -> FieldElement8x52 {
+    let mask_52 = _mm512_set1_epi64(0xFFFFFFFFFFFFF);
+
+    let s0 = _mm512_slli_epi64(x.l0, 4);
+    let s1 = _mm512_slli_epi64(x.l1, 4);
+    let s2 = _mm512_slli_epi64(x.l2, 4);
+    let s3 = _mm512_slli_epi64(x.l3, 4);
+    let s4 = _mm512_slli_epi64(x.l4, 4);
+
+    let mut out = FieldElement8x52::zero();
+
+    let carry0 = _mm512_srli_epi64(s0, 52);
+    out.l0 = _mm512_and_si512(s0, mask_52);
+
+    let s1 = _mm512_add_epi64(s1, carry0);
+    let carry1 = _mm512_srli_epi64(s1, 52);
+    out.l1 = _mm512_and_si512(s1, mask_52);
+
+    let s2 = _mm512_add_epi64(s2, carry1);
+    let carry2 = _mm512_srli_epi64(s2, 52);
+    out.l2 = _mm512_and_si512(s2, mask_52);
+
+    let s3 = _mm512_add_epi64(s3, carry2);
+    let carry3 = _mm512_srli_epi64(s3, 52);
+    out.l3 = _mm512_and_si512(s3, mask_52);
+
+    let s4 = _mm512_add_epi64(s4, carry3);
+    out.l4 = _mm512_and_si512(s4, mask_52);
+
+    out
+}
+
+/// Subtracts the modulus from every lane whose value is at least the modulus.
+///
+/// Yields a fully reduced result provided the input is below `2r`. This is what
+/// lets a packed result be handed back to the scalar backend, whose `add` and
+/// `sub` assume both operands are already below the modulus.
+#[inline]
+#[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
+unsafe fn cond_sub_modulus(x: &FieldElement8x52) -> FieldElement8x52 {
+    let mask_52 = _mm512_set1_epi64(0xFFFFFFFFFFFFF);
+    let mod0 = _mm512_set1_epi64(FR_MOD_L0);
+    let mod1 = _mm512_set1_epi64(FR_MOD_L1);
+    let mod2 = _mm512_set1_epi64(FR_MOD_L2);
+    let mod3 = _mm512_set1_epi64(FR_MOD_L3);
+    let mod4 = _mm512_set1_epi64(FR_MOD_L4);
+
+    // Compute `x - MODULUS`, rippling the borrow across the 52-bit limbs. Each
+    // limb difference lands in `(-2^52, 2^52)`, so its sign bit is exactly the
+    // borrow out of that limb.
+    let d0 = _mm512_sub_epi64(x.l0, mod0);
+    let borrow0 = _mm512_maskz_set1_epi64(_mm512_movepi64_mask(d0), -1);
+
+    let d1 = _mm512_add_epi64(_mm512_sub_epi64(x.l1, mod1), borrow0);
+    let borrow1 = _mm512_maskz_set1_epi64(_mm512_movepi64_mask(d1), -1);
+
+    let d2 = _mm512_add_epi64(_mm512_sub_epi64(x.l2, mod2), borrow1);
+    let borrow2 = _mm512_maskz_set1_epi64(_mm512_movepi64_mask(d2), -1);
+
+    let d3 = _mm512_add_epi64(_mm512_sub_epi64(x.l3, mod3), borrow2);
+    let borrow3 = _mm512_maskz_set1_epi64(_mm512_movepi64_mask(d3), -1);
+
+    let d4 = _mm512_add_epi64(_mm512_sub_epi64(x.l4, mod4), borrow3);
+
+    // A borrow out of the top limb means `x < MODULUS`; keep the original lane.
+    let underflow = _mm512_movepi64_mask(d4);
+
+    FieldElement8x52 {
+        l0: _mm512_mask_blend_epi64(underflow, _mm512_and_si512(d0, mask_52), x.l0),
+        l1: _mm512_mask_blend_epi64(underflow, _mm512_and_si512(d1, mask_52), x.l1),
+        l2: _mm512_mask_blend_epi64(underflow, _mm512_and_si512(d2, mask_52), x.l2),
+        l3: _mm512_mask_blend_epi64(underflow, _mm512_and_si512(d3, mask_52), x.l3),
+        l4: _mm512_mask_blend_epi64(underflow, _mm512_and_si512(d4, mask_52), x.l4),
+    }
+}
+
 /// Computes an 8-way parallel Montgomery Multiplication for the BN254 Fr field.
 ///
 /// Implements a fully unrolled CIOS (Coarsely Integrated Operand Scanning) algorithm.
 /// Because IFMA tracks sums in a 64-bit accumulator, cross-product carries are
 /// strictly contained within the active iteration and do not require ripple logic
 /// between intermediate multiplies.
+///
+/// # Montgomery domain
+/// Five 52-bit CIOS iterations divide by `2^260`, but field elements throughout
+/// this crate are represented with `R = 2^256`. Pre-scaling `a` by `2^4` moves the
+/// product back into the `2^256` domain. The correction is applied to the input
+/// rather than the result because the CIOS reduction absorbs the extra magnitude
+/// for free: correcting the output instead would require reducing a value as
+/// large as `32r`.
+///
+/// # Contract
+/// Both operands must be fully reduced (`< MODULUS`) Montgomery-form values, as
+/// required by `MontgomeryBackend`. The result is fully reduced.
+///
+/// The operands are not symmetric in cost: `a` is scaled, `b` is not.
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 pub unsafe fn mul_8x(a: &FieldElement8x52, b: &FieldElement8x52) -> FieldElement8x52 {
@@ -54,7 +153,15 @@ pub unsafe fn mul_8x(a: &FieldElement8x52, b: &FieldElement8x52) -> FieldElement
     let mod3 = _mm512_set1_epi64(FR_MOD_L3);
     let mod4 = _mm512_set1_epi64(FR_MOD_L4);
 
-    let a_limbs = [a.l0, a.l1, a.l2, a.l3, a.l4];
+    // Radix correction, see the note above.
+    let a_scaled = scale_by_16(a);
+    let a_limbs = [
+        a_scaled.l0,
+        a_scaled.l1,
+        a_scaled.l2,
+        a_scaled.l3,
+        a_scaled.l4,
+    ];
 
     // CIOS Algorithm: Loop is fully unrolled by the LLVM compiler.
     for i in 0..5 {
@@ -136,7 +243,11 @@ pub unsafe fn mul_8x(a: &FieldElement8x52, b: &FieldElement8x52) -> FieldElement
     let t4_new = _mm512_add_epi64(t[4], carry3);
     out.l4 = _mm512_and_si512(t4_new, mask_52);
 
-    out
+    // --- 6. Final Reduction ---
+    // CIOS leaves the result below `2r`, not below `r`. The scalar backend's
+    // `add` performs a single conditional subtraction and therefore requires
+    // both operands to be fully reduced, so normalize before returning.
+    cond_sub_modulus(&out)
 }
 
 /// Executes the Poseidon S-box (`x^5`) on 8 independent field elements simultaneously.
