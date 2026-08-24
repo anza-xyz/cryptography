@@ -455,8 +455,8 @@ fn mac(a: u64, b: u64, c: u64, carry: u64) -> (u64, u64) {
 fn limbs_from_be_bytes(bytes: &[u8; 32]) -> [u64; 4] {
     let mut limbs = [0u64; 4];
 
-    for (i, chunk) in bytes.chunks_exact(8).rev().enumerate() {
-        limbs[i] = u64::from_be_bytes(chunk.try_into().expect("chunk length is 8"));
+    for (i, chunk) in bytes.as_chunks::<8>().0.iter().rev().enumerate() {
+        limbs[i] = u64::from_be_bytes(*chunk);
     }
 
     limbs
