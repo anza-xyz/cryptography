@@ -510,7 +510,7 @@ mod tests {
     fn sample(mut seed: u64) -> [u8; 32] {
         let mut bytes = [0u8; 32];
 
-        for chunk in bytes.chunks_exact_mut(8) {
+        for chunk in bytes.as_chunks_mut::<8>().0 {
             seed ^= seed << 13;
             seed ^= seed >> 7;
             seed ^= seed << 17;

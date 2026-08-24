@@ -94,7 +94,7 @@ pub(crate) fn swap_endianness<const CHUNK_SIZE: usize, const ARRAY_SIZE: usize>(
         "ARRAY_SIZE must be a multiple of CHUNK_SIZE"
     );
 
-    for chunk in bytes.chunks_exact_mut(CHUNK_SIZE) {
+    for chunk in bytes.as_chunks_mut::<CHUNK_SIZE>().0 {
         chunk.reverse();
     }
     bytes
