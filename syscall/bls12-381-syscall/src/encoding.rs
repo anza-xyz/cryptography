@@ -176,7 +176,7 @@ pub(crate) fn swap_fq_endianness(bytes: &mut [u8]) {
 /// This function expects 96-byte chunks (representing one `Fq2` element or a G2 coordinate)
 /// and swaps the first 48 bytes with the last 48 bytes.
 pub(crate) fn swap_g2_c0_c1(bytes: &mut [u8]) {
-    for fq2_chunk in bytes.chunks_exact_mut(FQ2_SIZE) {
+    for fq2_chunk in bytes.as_chunks_mut::<FQ2_SIZE>().0 {
         let (c0, c1) = fq2_chunk.split_at_mut(FQ_SIZE);
         c0.swap_with_slice(c1);
     }

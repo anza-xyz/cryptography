@@ -41,9 +41,8 @@ fn splitmix64(state: &mut u64) -> u64 {
 fn bytes_from_seed(seed: u64) -> [u8; 32] {
     let mut state = seed;
     let mut out = [0u8; 32];
-    for chunk in out.chunks_exact_mut(8) {
-        let v = splitmix64(&mut state).to_le_bytes();
-        chunk.copy_from_slice(&v);
+    for chunk in out.as_chunks_mut::<8>().0 {
+        *chunk = splitmix64(&mut state).to_le_bytes();
     }
     out
 }

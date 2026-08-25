@@ -486,8 +486,8 @@ fn mac(a: u64, b: u64, c: u64, carry: u64) -> (u64, u64) {
 fn limbs_from_be_bytes(bytes: [u8; 32]) -> [u64; 4] {
     let mut limbs = [0u64; 4];
 
-    for (i, chunk) in bytes.chunks_exact(8).rev().enumerate() {
-        limbs[i] = u64::from_be_bytes(chunk.try_into().expect("chunk length is 8"));
+    for (i, chunk) in bytes.as_chunks::<8>().0.iter().rev().enumerate() {
+        limbs[i] = u64::from_be_bytes(*chunk);
     }
 
     limbs
@@ -542,7 +542,7 @@ mod tests {
     fn sample(mut seed: u64) -> [u8; 32] {
         let mut bytes = [0u8; 32];
 
-        for chunk in bytes.chunks_exact_mut(8) {
+        for chunk in bytes.as_chunks_mut::<8>().0 {
             seed ^= seed << 13;
             seed ^= seed >> 7;
             seed ^= seed << 17;
