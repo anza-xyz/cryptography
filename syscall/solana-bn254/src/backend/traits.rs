@@ -55,4 +55,19 @@ pub trait MontgomeryBackend<F: Field> {
     fn from_mont(a: &U256) -> U256 {
         Self::mul(a, &U256::one())
     }
+
+    /// Returns `true` when `a` is a fully reduced field element (`a < MODULUS`).
+    ///
+    /// All other operations in this trait assume reduced inputs; this is the
+    /// check callers use at a trust boundary before relying on that.
+    #[inline(always)]
+    fn is_reduced(a: &U256) -> bool {
+        let m = F::MODULUS.0;
+        for i in (0..4).rev() {
+            if a.0[i] != m[i] {
+                return a.0[i] < m[i];
+            }
+        }
+        false
+    }
 }

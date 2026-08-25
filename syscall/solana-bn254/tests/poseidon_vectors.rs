@@ -130,6 +130,17 @@ macro_rules! width_suite {
                 let too_many = [U256::zero(); $t];
                 assert!(hash(&too_many, params).is_none());
             }
+
+            /// An unreduced input is rejected rather than silently aliasing the
+            /// value congruent to it: `MODULUS` and `0` would otherwise hash
+            /// identically, since `add` performs a single conditional subtraction.
+            #[test]
+            fn rejects_unreduced_input() {
+                let params: &PoseidonConstants<$t> = &$params;
+                let mut inputs = [U256::zero(); $t - 1];
+                inputs[0] = <Fr as Field>::MODULUS;
+                assert!(hash(&inputs, params).is_none());
+            }
         }
     };
 }

@@ -268,10 +268,15 @@ pub fn poseidon<const T: usize>(
 /// construction: a zero capacity element in `state[0]`, the inputs in
 /// `state[1..]`, one permutation, and `state[0]` as the digest.
 ///
-/// Inputs must be fully reduced Montgomery-form field elements. Returns `None`
-/// if `inputs.len() != T - 1`.
+/// Inputs are Montgomery-form field elements. Returns `None` if
+/// `inputs.len() != T - 1`, or if any input is not fully reduced —
+/// an unreduced input would otherwise alias the value congruent to it,
+/// so `MODULUS` and `0` would hash identically.
 pub fn hash<const T: usize>(inputs: &[U256], constants: &PoseidonConstants<T>) -> Option<U256> {
     if inputs.len() + 1 != T {
+        return None;
+    }
+    if !inputs.iter().all(Backend::<Fr>::is_reduced) {
         return None;
     }
     let mut state = [U256::zero(); T];
