@@ -1,8 +1,8 @@
 use core::convert::TryFrom;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use ed25519::signature::{Signer as _, Verifier as _};
-use ed25519_dalek::{SigningKey as DalekSigningKey, VerifyingKey as DalekVerifyingKey};
+use ed25519::signature::Verifier as _;
+use ed25519_dalek::VerifyingKey as DalekVerifyingKey;
 #[cfg(all(
     feature = "avx512",
     target_arch = "x86_64",
@@ -90,7 +90,7 @@ fn avx512_inputs_with_same_pubkey(n: usize) -> Vec<avx512::VerifyInput<'static>>
 
 fn bench_batch_verify(c: &mut Criterion) {
     let mut group = c.benchmark_group("Batch Verification");
-    for n in [1usize, 2, 4, 8, 16, 32].iter() {
+    for n in [8usize, 16, 24, 32, 40, 48, 56, 64].iter() {
         group.throughput(Throughput::Elements(*n as u64));
         let sigs = sigs_with_distinct_pubkeys().take(*n).collect::<Vec<_>>();
         group.bench_with_input(
@@ -176,23 +176,6 @@ fn bench_batch_verify(c: &mut Criterion) {
             );
         }
     }
-    group.finish();
-}
-
-fn bench_sign(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Signing");
-
-    group.bench_function("local_sign", |b| {
-        let sk = signing_key_from_index(0);
-        b.iter(|| std::hint::black_box(sk.sign(b"")))
-    });
-
-    group.bench_function("crates_io_ed25519_dalek", |b| {
-        let sk = signing_key_from_index(0);
-        let dalek_sk = DalekSigningKey::from_bytes(sk.as_bytes());
-        b.iter(|| std::hint::black_box(dalek_sk.sign(b"")))
-    });
-
     group.finish();
 }
 
@@ -315,7 +298,6 @@ fn bench_small_batch_scan(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    bench_sign,
     bench_single_verify,
     bench_batch_verify,
     bench_small_batch_scan,

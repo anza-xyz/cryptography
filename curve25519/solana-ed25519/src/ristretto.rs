@@ -369,6 +369,8 @@ impl TryFrom<&[u8]> for CompressedRistretto {
 // serializers to serialize those structures.
 
 #[cfg(feature = "serde")]
+use serde::de::Visitor;
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[cfg(feature = "serde")]
@@ -377,7 +379,12 @@ impl Serialize for RistrettoPoint {
     where
         S: Serializer,
     {
-        crate::util::serialize_bytes_32(self.compress().as_bytes(), serializer)
+        use serde::ser::SerializeTuple;
+        let mut tup = serializer.serialize_tuple(32)?;
+        for byte in self.compress().as_bytes().iter() {
+            tup.serialize_element(byte)?;
+        }
+        tup.end()
     }
 }
 
@@ -387,7 +394,12 @@ impl Serialize for CompressedRistretto {
     where
         S: Serializer,
     {
-        crate::util::serialize_bytes_32(self.as_bytes(), serializer)
+        use serde::ser::SerializeTuple;
+        let mut tup = serializer.serialize_tuple(32)?;
+        for byte in self.as_bytes().iter() {
+            tup.serialize_element(byte)?;
+        }
+        tup.end()
     }
 }
 
@@ -397,11 +409,33 @@ impl<'de> Deserialize<'de> for RistrettoPoint {
     where
         D: Deserializer<'de>,
     {
-        let bytes =
-            crate::util::deserialize_bytes_32(deserializer, "a valid point in Ristretto format")?;
-        CompressedRistretto(bytes)
-            .decompress()
-            .ok_or_else(|| serde::de::Error::custom("decompression failed"))
+        struct RistrettoPointVisitor;
+
+        impl<'de> Visitor<'de> for RistrettoPointVisitor {
+            type Value = RistrettoPoint;
+
+            fn expecting(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                formatter.write_str("a valid point in Ristretto format")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<RistrettoPoint, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let mut bytes = [0u8; 32];
+                #[allow(clippy::needless_range_loop)]
+                for i in 0..32 {
+                    bytes[i] = seq
+                        .next_element()?
+                        .ok_or_else(|| serde::de::Error::invalid_length(i, &"expected 32 bytes"))?;
+                }
+                CompressedRistretto(bytes)
+                    .decompress()
+                    .ok_or_else(|| serde::de::Error::custom("decompression failed"))
+            }
+        }
+
+        deserializer.deserialize_tuple(32, RistrettoPointVisitor)
     }
 }
 
@@ -411,7 +445,31 @@ impl<'de> Deserialize<'de> for CompressedRistretto {
     where
         D: Deserializer<'de>,
     {
-        crate::util::deserialize_bytes_32(deserializer, "32 bytes of data").map(CompressedRistretto)
+        struct CompressedRistrettoVisitor;
+
+        impl<'de> Visitor<'de> for CompressedRistrettoVisitor {
+            type Value = CompressedRistretto;
+
+            fn expecting(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                formatter.write_str("32 bytes of data")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<CompressedRistretto, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let mut bytes = [0u8; 32];
+                #[allow(clippy::needless_range_loop)]
+                for i in 0..32 {
+                    bytes[i] = seq
+                        .next_element()?
+                        .ok_or_else(|| serde::de::Error::invalid_length(i, &"expected 32 bytes"))?;
+                }
+                Ok(CompressedRistretto(bytes))
+            }
+        }
+
+        deserializer.deserialize_tuple(32, CompressedRistrettoVisitor)
     }
 }
 

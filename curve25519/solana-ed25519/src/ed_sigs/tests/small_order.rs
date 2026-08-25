@@ -40,6 +40,7 @@ pub fn low_order_encodings() -> Vec<[u8; 32]> {
 pub static SMALL_ORDER_SIGS: Lazy<Vec<TestCase>> = Lazy::new(|| {
     let mut tests = Vec::new();
     let s = Scalar::ZERO;
+
     let encodings = low_order_encodings();
 
     /*
