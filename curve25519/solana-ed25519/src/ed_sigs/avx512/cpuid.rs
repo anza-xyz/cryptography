@@ -1,19 +1,13 @@
+use super::error::UnsupportedError;
 use std::arch::x86_64::{__cpuid, __cpuid_count, _xgetbv};
 
-/// Panics if this host lacks AVX-512 F/DQ/IFMA or OS register-state support.
+/// Fails if this host lacks AVX-512 F/DQ/IFMA or OS register-state support.
 ///
 /// This lowers `SIGILL` risk but cannot guard code that runs before verifier
 /// construction or elsewhere in the AVX-512-built binary.
-#[cold]
 #[inline(never)]
-pub(crate) fn assert_required_avx512_runtime_support() {
-    if let Err(reason) = required_avx512_runtime_support() {
-        panic!(
-            "solana-ed25519 was built for AVX-512 (F, DQ, IFMA) but cannot run \
-             safely on this host: {reason}; build and run on an AVX-512 IFMA \
-             capable CPU with OS AVX-512 state support enabled"
-        );
-    }
+pub(crate) fn check_required_avx512_runtime_support() -> Result<(), UnsupportedError> {
+    required_avx512_runtime_support().map_err(UnsupportedError::new)
 }
 
 #[inline(never)]

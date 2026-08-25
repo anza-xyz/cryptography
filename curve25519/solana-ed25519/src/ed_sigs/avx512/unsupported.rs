@@ -1,5 +1,11 @@
 //! Public API shim for builds without AVX-512 IFMA code generation.
 
+use super::error::UnsupportedError;
+
+/// Reason reported by every constructor in this shim.
+const UNSUPPORTED_BUILD: &str = "this crate was not built for x86_64 with the \
+                                 avx512f, avx512dq, and avx512ifma target features";
+
 /// Byte length of an encoded Ed25519 public key.
 pub const PUBLIC_KEY_LEN: usize = 32;
 /// Byte length of an encoded Ed25519 signature.
@@ -77,27 +83,22 @@ impl KeyCache for NullKeyCache {
 }
 
 /// A [`KeyCache`] that retains hot decoded keys across batches.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct HotKeyCache {
-    capacity: Option<usize>,
+    capacity: usize,
 }
 
 impl HotKeyCache {
-    /// Create an unbounded cache.
-    pub fn new() -> Self {
-        Self { capacity: None }
-    }
-
-    /// Create a cache bounded to at least one retained key.
+    /// Create a cache bounded to `capacity` retained keys, at least one.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            capacity: Some(capacity.max(1)),
+            capacity: capacity.max(1),
         }
     }
 
-    /// Set the maximum retained key count, or `None` for an unbounded cache.
-    pub fn set_capacity(&mut self, capacity: Option<usize>) {
-        self.capacity = capacity.map(|capacity| capacity.max(1));
+    /// Set the maximum retained key count. Clamped to at least one key.
+    pub fn set_capacity(&mut self, capacity: usize) {
+        self.capacity = capacity.max(1);
     }
 }
 
@@ -129,9 +130,16 @@ impl Verifier<NullKeyCache> {
     /// # Panics
     ///
     /// Always panics unless this crate was compiled for `x86_64` with
-    /// `avx512f`, `avx512dq`, and `avx512ifma` target features.
+    /// `avx512f`, `avx512dq`, and `avx512ifma` target features. Use
+    /// [`try_new`](Self::try_new) to handle that case instead.
     pub fn new() -> Self {
         Self::with_policy(VerifyPolicy::default())
+    }
+
+    /// Fallible [`new`](Self::new). Always returns [`UnsupportedError`] in this
+    /// build.
+    pub fn try_new() -> Result<Self, UnsupportedError> {
+        Self::try_with_policy(VerifyPolicy::default())
     }
 
     /// Create a verifier with a specific policy and no retained-key cache.
@@ -142,6 +150,12 @@ impl Verifier<NullKeyCache> {
     pub fn with_policy(policy: VerifyPolicy) -> Self {
         Self::with_cache(policy, NullKeyCache::new())
     }
+
+    /// Fallible [`with_policy`](Self::with_policy). Always returns
+    /// [`UnsupportedError`] in this build.
+    pub fn try_with_policy(policy: VerifyPolicy) -> Result<Self, UnsupportedError> {
+        Self::try_with_cache(policy, NullKeyCache::new())
+    }
 }
 
 impl<C: KeyCache> Verifier<C> {
@@ -150,13 +164,20 @@ impl<C: KeyCache> Verifier<C> {
     /// # Panics
     ///
     /// Always panics unless this crate was compiled for `x86_64` with
-    /// `avx512f`, `avx512dq`, and `avx512ifma` target features.
+    /// `avx512f`, `avx512dq`, and `avx512ifma` target features. Use
+    /// [`try_with_cache`](Self::try_with_cache) to handle that case instead.
     pub fn with_cache(policy: VerifyPolicy, cache: C) -> Self {
+        match Self::try_with_cache(policy, cache) {
+            Ok(verifier) => verifier,
+            Err(error) => panic!("{error}"),
+        }
+    }
+
+    /// Fallible [`with_cache`](Self::with_cache). Always returns
+    /// [`UnsupportedError`] in this build.
+    pub fn try_with_cache(policy: VerifyPolicy, cache: C) -> Result<Self, UnsupportedError> {
         let _ = (policy, cache);
-        panic!(
-            "solana-ed25519 SIMD verification requires an x86_64 build with \
-             avx512f, avx512dq, and avx512ifma target features enabled"
-        );
+        Err(UnsupportedError::new(UNSUPPORTED_BUILD))
     }
 
     /// Borrow the configured cache.
@@ -181,9 +202,6 @@ impl<C: KeyCache> Verifier<C> {
     /// Always panics in unsupported builds.
     pub fn verify_batch(&mut self, inputs: &[VerifyInput<'_>], out: &mut [bool]) {
         let _ = (inputs, out);
-        panic!(
-            "solana-ed25519 SIMD verification requires an x86_64 build with \
-             avx512f, avx512dq, and avx512ifma target features enabled"
-        );
+        panic!("{}", UnsupportedError::new(UNSUPPORTED_BUILD));
     }
 }

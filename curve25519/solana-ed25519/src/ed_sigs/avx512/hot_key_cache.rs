@@ -16,49 +16,34 @@ struct CacheEntry {
 #[derive(Debug)]
 pub struct HotKeyCache {
     keys: HashMap<[u8; PUBLIC_KEY_LEN], CacheEntry>,
-    capacity: Option<usize>,
+    capacity: usize,
     clock: Cell<u64>,
     /// Rotating start offset for the eviction sampling window.
     evict_cursor: usize,
 }
 
-impl Default for HotKeyCache {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl HotKeyCache {
-    /// Create an unbounded cache.
+    /// Create a cache bounded to `capacity` retained keys, at least one.
     ///
-    /// # Memory
-    ///
-    /// Each retained key costs a precomputed multiple table (roughly 2.7 KiB),
-    /// and the verifier retains every distinct public key it successfully
-    /// decodes. Verification inputs are usually attacker-chosen, so an
-    /// unbounded cache lets a peer grow this map without limit: 1M distinct
-    /// keys is on the order of 2.7 GiB. Prefer
-    /// [`with_capacity`](Self::with_capacity) anywhere the key set is not
-    /// known-bounded.
-    pub fn new() -> Self {
+    /// This is the only constructor on purpose. Each retained key costs a
+    /// precomputed multiple table (roughly 2.7 KiB) and the verifier retains
+    /// every distinct public key it successfully decodes, so an unbounded
+    /// variant would let a peer sending attacker-chosen keys grow this map
+    /// without limit: 1M distinct keys is on the order of 2.7 GiB. Callers that
+    /// really do have a known-bounded key set can pass that bound.
+    pub fn with_capacity(capacity: usize) -> Self {
         Self {
             keys: HashMap::new(),
-            capacity: None,
+            capacity: capacity.max(1),
             clock: Cell::new(0),
             evict_cursor: 0,
         }
     }
 
-    /// Create a cache bounded to at least one retained key.
-    pub fn with_capacity(capacity: usize) -> Self {
-        let mut cache = Self::new();
-        cache.set_capacity(Some(capacity));
-        cache
-    }
-
-    /// Set the maximum retained key count, or `None` for an unbounded cache.
-    pub fn set_capacity(&mut self, capacity: Option<usize>) {
-        self.capacity = capacity.map(|capacity| capacity.max(1));
+    /// Set the maximum retained key count, evicting down to it immediately.
+    /// Clamped to at least one key.
+    pub fn set_capacity(&mut self, capacity: usize) {
+        self.capacity = capacity.max(1);
         self.evict_to_capacity(None);
     }
 
@@ -86,11 +71,7 @@ impl HotKeyCache {
     }
 
     fn evict_to_capacity(&mut self, protected: Option<[u8; PUBLIC_KEY_LEN]>) {
-        let Some(capacity) = self.capacity else {
-            return;
-        };
-
-        while self.keys.len() > capacity {
+        while self.keys.len() > self.capacity {
             // `HashMap::iter` yields a fixed order for a given map, so sampling
             // the first `EVICTION_SAMPLE` entries every time would keep
             // reconsidering the same head and never look at most of the cache
