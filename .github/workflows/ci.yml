@@ -52,3 +52,67 @@ jobs:
       - name: Check
         run: |
           cargo hack check --each-feature --all-targets
+
+  # The `avx512` feature only compiles its AVX-512 IFMA code when the required
+  # target features are enabled, so `feature-check` above builds nothing but the
+  # unsupported-build shim. GitHub runners have no AVX-512 IFMA, so we cannot
+  # *run* this code here — but we can and must still compile and lint it,
+  # otherwise the whole verifier goes unchecked by CI.
+  avx512-build:
+    name: avx512 (compile + lint only, not executed)
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -C target-feature=+avx512f,+avx512dq,+avx512ifma
+      # Every cargo invocation below MUST pass this. `RUSTFLAGS` without an
+      # explicit `--target` is also applied to host artifacts — build scripts
+      # and proc macros — which cargo then *executes* during the build. The
+      # runner has no AVX-512, so the compiler's own auto-vectorization of, say,
+      # `proc-macro2`'s build script kills it with SIGILL before any of our code
+      # is even compiled. Passing `--target`, even when it equals the host
+      # triple, makes cargo build host artifacts without `RUSTFLAGS`.
+      AVX512_TARGET: x86_64-unknown-linux-gnu
+      # Fail safely if a future change accidentally tries to run a target
+      # binary. Cargo does not use the target runner for host build scripts or
+      # proc macros.
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: /bin/false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      # `--all-targets` also catches breakage in eligible cfg-gated test and
+      # bench code.
+      #
+      # No `-D warnings` yet: enabling these target features also changes which
+      # cfg branches of the pre-existing AVX2/packed_simd code compile, and that
+      # configuration has never been linted — it is already warning-dirty on
+      # upstream master, independently of the avx512 code. Clean that up in its
+      # own change, then add `-- -D warnings` here.
+      - name: Lint
+        run: |
+          cargo clippy -p solana-ed25519 --target "$AVX512_TARGET" \
+            --features avx512 --all-targets
+
+      # Keep the opt-in verifier independent of unrelated default features,
+      # especially `precomputed-tables` from the curve-arithmetic backend.
+      - name: Build minimal feature set
+        run: |
+          cargo build -p solana-ed25519 --target "$AVX512_TARGET" \
+            --no-default-features --features avx512 --all-targets
+
+      # The verifier must stay reachable when the curve backend is forced to
+      # serial, since it is not one of the curve-arithmetic backends.
+      - name: Build with serial curve backend
+        env:
+          RUSTFLAGS: -C target-feature=+avx512f,+avx512dq,+avx512ifma --cfg curve25519_backend="serial"
+        run: |
+          cargo build -p solana-ed25519 --target "$AVX512_TARGET" \
+            --features avx512 --all-targets
