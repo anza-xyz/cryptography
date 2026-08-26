@@ -229,11 +229,9 @@ impl Scalar {
     /// modulo the group order \\( \ell \\), taking the integer as its eight
     /// 64-bit words rather than its bytes.
     ///
-    /// Equivalent to [`Self::from_bytes_mod_order_wide`] on the little-endian
-    /// encoding of `words`, without the byte load that entails.
-    // Gated to exactly the configuration that compiles the AVX-512 verifier,
-    // its only caller: the `avx512` feature alone still builds just the
-    // unsupported-build shim, which never reduces a hash.
+    /// Equivalent to [`Self::from_bytes_mod_order_wide`] without the byte load.
+    // Gated to the configuration that compiles the AVX-512 verifier, its only
+    // caller.
     #[cfg(all(
         feature = "avx512",
         target_arch = "x86_64",

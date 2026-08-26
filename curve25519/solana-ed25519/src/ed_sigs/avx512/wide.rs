@@ -362,7 +362,7 @@ pub(crate) mod avx512ifma {
             let mut by_limb = [[0u64; LANES]; LIMB_COUNT];
             let mut lane = 0;
             while lane < LANES {
-                let limbs = fields[lane].reduced_limbs();
+                let limbs = fields[lane].loose_limbs();
                 let mut limb = 0;
                 while limb < 5 {
                     by_limb[limb][lane] = limbs[limb];
@@ -385,7 +385,7 @@ pub(crate) mod avx512ifma {
             let mut by_limb = [[0u64; LANES]; LIMB_COUNT];
             let mut lane = 0;
             while lane < LANES {
-                let limbs = fields[lane].reduced_limbs();
+                let limbs = fields[lane].loose_limbs();
                 let mut limb = 0;
                 while limb < 5 {
                     by_limb[limb][lane] = limbs[limb];

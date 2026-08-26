@@ -1,32 +1,17 @@
-//! Scalar helpers for the AVX-512 verifier.
-//!
-//! These are thin wrappers over [`crate::scalar::Scalar`]; the module exists
-//! only to keep the two shapes the verifier needs off the generic API's slower
-//! paths (see [`is_canonical`] and [`radix16_from_wide_words`]). The reduction
-//! and radix-16 arithmetic itself lives in the crate's scalar backend.
+//! Scalar helpers for the AVX-512 verifier, over `crate::scalar::Scalar`.
 
 use crate::constants::BASEPOINT_ORDER;
 use crate::scalar::Scalar;
 
-/// Signed radix-16 digits of a scalar, little-endian.
-///
-/// The crate's [`Scalar::as_radix_16`] centres digits on `[-8, 7]` (with a
-/// final digit up to `8`). Both the 17-entry public-key tables and the
-/// `+-136` base-point table cover that range, so the digits drop straight in.
 pub(crate) type Radix16 = [i8; 64];
 
-/// `L`, the group order, little-endian.
 const L_BYTES: [u8; 32] = *BASEPOINT_ORDER.as_bytes();
 
-/// Whether `bytes` is the canonical encoding of a scalar, i.e. `< L`.
+/// Whether `bytes` encodes a scalar `< L`.
 ///
-/// [`Scalar::from_canonical_bytes`] answers the same question, but its check is
-/// `ct_eq(&self.reduce())` -- a full constant-time Montgomery reduction, run
-/// once per signature here. Signature scalars are public data, so this
-/// early-exit comparison against `L` is equally sound and far cheaper.
-///
-/// A set high bit is rejected implicitly: `L_BYTES[31]` is `0x10`, so any
-/// `bytes[31] >= 0x80` fails the very first comparison.
+/// `Scalar::from_canonical_bytes` checks this as `ct_eq(&self.reduce())`, a
+/// full Montgomery reduction per signature. Signature scalars are public data,
+/// so this early-exit comparison is equally sound and much cheaper.
 pub(crate) fn is_canonical(bytes: &[u8; 32]) -> bool {
     let mut i = 32;
     while i > 0 {
@@ -46,15 +31,11 @@ pub(crate) fn canonical_radix16(bytes: [u8; 32]) -> Option<Radix16> {
     if !is_canonical(&bytes) {
         return None;
     }
-    // Checked immediately above, so the unchecked constructor is sound and
-    // skips `from_canonical_bytes`'s redundant second check.
     Some(Scalar::from_canonical_bytes_unchecked(bytes).as_radix_16())
 }
 
-/// Radix-16 digits of a 512-bit hash reduced mod `L`.
-///
-/// Takes the digest as pre-swapped 64-bit words, which is how the SIMD
-/// SHA-512 already holds it, so the hot path never round-trips through bytes.
+/// Radix-16 digits of a 512-bit hash reduced mod `L`, taking the pre-swapped
+/// words the SIMD SHA-512 already holds rather than bytes.
 pub(crate) fn radix16_from_wide_words(words: [u64; 8]) -> Radix16 {
     Scalar::from_words_mod_order_wide(&words).as_radix_16()
 }

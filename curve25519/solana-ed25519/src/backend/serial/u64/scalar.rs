@@ -104,12 +104,8 @@ impl Scalar52 {
     /// Reduce a 512-bit scalar mod l, given its eight little-endian 64-bit
     /// words rather than its bytes.
     ///
-    /// [`Self::from_bytes_wide`] is this plus the byte-to-word load. Callers
-    /// that already hold the words -- the AVX-512 batch verifier reads them
-    /// straight out of its SIMD SHA-512 state -- use this to skip a round trip
-    /// through a byte array on the hot path.
-    // Inline so `from_bytes_wide` still lowers to exactly the single function
-    // it was before this was split out of it.
+    /// [`Self::from_bytes_wide`] is this plus the byte-to-word load; callers
+    /// that already hold the words skip that round trip.
     #[inline]
     #[rustfmt::skip] // keep alignment of lo[*] and hi[*] calculations
     pub(crate) fn from_words_wide(words: &[u64; 8]) -> Scalar52 {
