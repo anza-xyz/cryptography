@@ -524,30 +524,17 @@ mod avx512 {
 mod tests {
     use super::*;
 
-    fn hex<const N: usize>(s: &str) -> [u8; N] {
+    fn from_hex<const N: usize>(s: &str) -> [u8; N] {
         let mut out = [0u8; N];
-        let bytes = s.as_bytes();
-        let mut i = 0;
-        while i < N {
-            out[i] = (nibble(bytes[i * 2]) << 4) | nibble(bytes[i * 2 + 1]);
-            i += 1;
-        }
+        hex::decode_to_slice(s, &mut out).expect("test vector is valid hex");
         out
-    }
-
-    fn nibble(b: u8) -> u8 {
-        match b {
-            b'0'..=b'9' => b - b'0',
-            b'a'..=b'f' => b - b'a' + 10,
-            _ => panic!("bad hex"),
-        }
     }
 
     #[test]
     fn empty_hash() {
         assert_eq!(
             hash_slices(&[b""]),
-            hex(
+            from_hex(
                 "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce\
                  47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e"
             )
@@ -558,7 +545,7 @@ mod tests {
     fn abc_hash() {
         assert_eq!(
             hash_slices(&[b"abc"]),
-            hex(
+            from_hex(
                 "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a\
                  2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"
             )
@@ -573,7 +560,7 @@ mod tests {
                 "hijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu"
             )
             .as_bytes()]),
-            hex(
+            from_hex(
                 "8e959b75dae313da8cf4f72814fc143f8f7779c6eb9f7fa17299aeadb688901\
                  8501d289e4900f7e4331b99dec4b5433ac7d329eeb6dd26545e96e55b874be909"
             )

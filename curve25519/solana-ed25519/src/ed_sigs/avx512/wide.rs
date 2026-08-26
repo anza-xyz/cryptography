@@ -15,9 +15,6 @@ pub(crate) mod avx512ifma {
     // time instead of silently corrupting or truncating lanes at runtime.
     const _: () = assert!(LANES == 8, "avx512ifma assumes exactly 8 SIMD lanes");
     const LIMB_MASK: u64 = (1u64 << 51) - 1;
-    #[cfg(test)]
-    const FIELD_P_LIMBS: [u64; LIMB_COUNT] =
-        [LIMB_MASK - 18, LIMB_MASK, LIMB_MASK, LIMB_MASK, LIMB_MASK];
 
     pub(crate) struct WideRPoints(WidePoint);
 
@@ -1162,82 +1159,12 @@ pub(crate) mod avx512ifma {
         core::array::from_fn(|lane| (mask & (1 << lane)) != 0)
     }
 
-    /// Scalar reference for `WideFe::canonical`, kept only as a test check for
-    /// the vectorized path.
+    /// Scalar reference for `WideFe::canonical`, via the crate's canonical byte
+    /// encoding: `to_bytes` fully reduces, and `from_bytes_unchecked` splits a
+    /// canonical value back into its unique canonical limbs.
     #[cfg(test)]
     fn canonicalize_field_limbs(limbs: [u64; LIMB_COUNT]) -> [u64; LIMB_COUNT] {
-        // The partial carry chain below relies on limbs already being < 2^52.
-        debug_assert!(limbs.iter().all(|&l| l < (1u64 << 52)));
-        let mut h = [
-            limbs[0] as u128,
-            limbs[1] as u128,
-            limbs[2] as u128,
-            limbs[3] as u128,
-            limbs[4] as u128,
-        ];
-
-        let mut i = 0;
-        while i < 4 {
-            let carry = h[i] >> 51;
-            h[i] &= LIMB_MASK as u128;
-            h[i + 1] += carry;
-            i += 1;
-        }
-
-        let carry = h[4] >> 51;
-        h[4] &= LIMB_MASK as u128;
-        h[0] += carry * 19;
-
-        let carry = h[0] >> 51;
-        h[0] &= LIMB_MASK as u128;
-        h[1] += carry;
-
-        let carry = h[1] >> 51;
-        h[1] &= LIMB_MASK as u128;
-        h[2] += carry;
-
-        let mut out = [
-            h[0] as u64,
-            h[1] as u64,
-            h[2] as u64,
-            h[3] as u64,
-            h[4] as u64,
-        ];
-        if cmp_field_limbs(&out, &FIELD_P_LIMBS) != core::cmp::Ordering::Less {
-            sub_field_limbs(&mut out, &FIELD_P_LIMBS);
-        }
-        out
-    }
-
-    #[cfg(test)]
-    fn cmp_field_limbs(lhs: &[u64; LIMB_COUNT], rhs: &[u64; LIMB_COUNT]) -> core::cmp::Ordering {
-        let mut i = 5;
-        while i > 0 {
-            i -= 1;
-            match lhs[i].cmp(&rhs[i]) {
-                core::cmp::Ordering::Equal => {}
-                order => return order,
-            }
-        }
-        core::cmp::Ordering::Equal
-    }
-
-    #[cfg(test)]
-    fn sub_field_limbs(lhs: &mut [u64; LIMB_COUNT], rhs: &[u64; LIMB_COUNT]) {
-        let mut borrow = 0i128;
-        let base = 1i128 << 51;
-        let mut i = 0;
-        while i < 5 {
-            let value = lhs[i] as i128 - rhs[i] as i128 - borrow;
-            if value < 0 {
-                lhs[i] = (value + base) as u64;
-                borrow = 1;
-            } else {
-                lhs[i] = value as u64;
-                borrow = 0;
-            }
-            i += 1;
-        }
+        Fe51::from_bytes_unchecked(&Fe51::from_limbs(limbs).to_bytes()).loose_limbs()
     }
 
     #[cfg(test)]
@@ -1301,10 +1228,11 @@ pub(crate) mod avx512ifma {
         #[test]
         fn canonical_matches_references_on_boundary_values() {
             let zero = [0u64; LIMB_COUNT];
-            let p = FIELD_P_LIMBS;
-            let p_minus_1 = {
-                let mut l = p;
-                l[0] -= 1;
+            // `-1` is canonically `p - 1`, so `p` and `p + 1` follow from it.
+            let p_minus_1 = crate::field::FieldElement::MINUS_ONE.0;
+            let p = {
+                let mut l = p_minus_1;
+                l[0] += 1;
                 l
             };
             let p_plus_1 = {
@@ -1312,6 +1240,13 @@ pub(crate) mod avx512ifma {
                 l[0] += 1;
                 l
             };
+            // Guard the derivation: a wrong `p` would silently stop these cases
+            // probing the boundary rather than fail.
+            assert_eq!(
+                canonicalize_field_limbs(p),
+                zero,
+                "derived p is not the modulus"
+            );
             // Every limb at its documented max input bound (2^52 - 1).
             let max_limbs = [(1u64 << 52) - 1; LIMB_COUNT];
             let hand_picked = [zero, p, p_minus_1, p_plus_1, max_limbs];
@@ -1473,13 +1408,14 @@ pub(crate) mod avx512ifma {
             }
         }
 
+        /// An order-8 point's encoding, from the crate's own low-order list.
+        const ORD8A_ENCODING: [u8; 32] =
+            crate::ed_sigs::tests::util::EXCLUDED_POINT_ENCODINGS[2];
+
         fn ord8a() -> EdwardsPoint {
-            let bytes = [
-                0x26, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef,
-                0x98, 0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88,
-                0x6d, 0x53, 0xfc, 0x05,
-            ];
-            CompressedEdwardsY(bytes).decompress().expect("ord8a decodes")
+            CompressedEdwardsY(ORD8A_ENCODING)
+                .decompress()
+                .expect("ord8a decodes")
         }
 
         #[test]
@@ -1543,11 +1479,7 @@ pub(crate) mod avx512ifma {
 
         #[test]
         fn wide_zip215_exact_failing_case() {
-            let r_bytes = [
-                0x26, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef,
-                0x98, 0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88,
-                0x6d, 0x53, 0xfc, 0x05,
-            ];
+            let r_bytes = ORD8A_ENCODING;
             let mut a_bytes = [0u8; 32];
             a_bytes[0] = 1;
             let id = CompressedEdwardsY(a_bytes).decompress().unwrap();
@@ -1578,11 +1510,7 @@ pub(crate) mod avx512ifma {
 
         #[test]
         fn wide_decompress_matches_scalar_on_torsion() {
-            let bytes = [
-                0x26, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef,
-                0x98, 0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88,
-                0x6d, 0x53, 0xfc, 0x05,
-            ];
+            let bytes = ORD8A_ENCODING;
             let scalar = CompressedEdwardsY(bytes).decompress().unwrap();
             let (wide, mask) = decompress_points_wide(&[bytes; LANES]);
             assert_eq!(mask, 0xff, "wide decode must succeed");
