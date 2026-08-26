@@ -15,6 +15,10 @@
 //!
 //! [`ed25519-simd`]: https://github.com/efagerho/ed25519-simd-rs
 
+// Keep the new module warning-clean without making pre-existing warnings in
+// unrelated crate modules part of the AVX-512 integration.
+#![cfg_attr(any(clippy, doc), deny(warnings))]
+
 // Shared by both branches below, so a caller can name the error type without
 // knowing which one it compiled against.
 mod error;

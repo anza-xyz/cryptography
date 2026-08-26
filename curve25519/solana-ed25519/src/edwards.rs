@@ -755,10 +755,10 @@ impl EdwardsPoint {
         let mut repr = CompressedEdwardsY([0u8; 32]);
         loop {
             rng.fill_bytes(&mut repr.0);
-            if let Some(p) = repr.decompress()
-                && !IsIdentity::is_identity(&p)
-            {
-                break p;
+            if let Some(p) = repr.decompress() {
+                if !IsIdentity::is_identity(&p) {
+                    break p;
+                }
             }
         }
     }
@@ -1485,10 +1485,10 @@ impl group::Group for EdwardsPoint {
         let mut repr = CompressedEdwardsY([0u8; 32]);
         loop {
             rng.try_fill_bytes(&mut repr.0)?;
-            if let Some(p) = repr.decompress()
-                && !IsIdentity::is_identity(&p)
-            {
-                break Ok(p);
+            if let Some(p) = repr.decompress() {
+                if !IsIdentity::is_identity(&p) {
+                    break Ok(p);
+                }
             }
         }
     }

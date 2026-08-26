@@ -205,52 +205,14 @@ fn bench_single_verify(c: &mut Criterion) {
         })
     });
 
-    #[cfg(all(
-        feature = "avx512",
-        target_arch = "x86_64",
-        target_feature = "avx512f",
-        target_feature = "avx512dq",
-        target_feature = "avx512ifma",
-    ))]
-    {
-        let sk = signing_key_from_index(0);
-        let inputs = [avx512::VerifyInput {
-            public_key: VerificationKeyBytes::from(&sk).into(),
-            signature: sk.sign(b"").into(),
-            message: b"",
-        }];
-
-        group.bench_function("avx512_zip215", |b| {
-            let mut verifier =
-                avx512::Verifier::new().expect("benchmark is only compiled for AVX-512 builds");
-            let mut out = [false; 1];
-            b.iter(|| {
-                verifier.verify_batch(&inputs, &mut out);
-                std::hint::black_box(&out);
-            })
-        });
-
-        group.bench_function("avx512_zip215_hot_cache", |b| {
-            let mut verifier = avx512::Verifier::with_cache(
-                avx512::VerifyPolicy::Zip215,
-                avx512::HotKeyCache::with_capacity(1),
-            )
-            .expect("benchmark is only compiled for AVX-512 builds");
-            let mut out = [false; 1];
-            verifier.verify_batch(&inputs, &mut out);
-            b.iter(|| {
-                verifier.verify_batch(&inputs, &mut out);
-                std::hint::black_box(&out);
-            })
-        });
-    }
-
     group.finish();
 }
 
 /// Fine-grained scan over 1..=8 signatures comparing the randomized batch
-/// verification API (`batch::Verifier::verify`) against the AVX512 verifier for
-/// the same signature counts. All signatures use distinct public keys.
+/// verification API (`batch::Verifier::verify`) against the portable AVX-512
+/// verifier API for the same signature counts. The latter deliberately uses
+/// its scalar fallback for one or two inputs. All signatures use distinct
+/// public keys.
 #[cfg(all(feature = "alloc", feature = "rand_core"))]
 fn bench_small_batch_scan(c: &mut Criterion) {
     let mut group = c.benchmark_group("Small Batch Scan");

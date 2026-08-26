@@ -255,9 +255,9 @@ constructed).  All secret-operand operations use constant-time logic via the [`s
 Variable-time functions are explicitly marked `vartime`.
 
 The AVX2 curve arithmetic backend and AVX-512 Ed25519 verifier use `unsafe` internally for SIMD
-intrinsics. AVX2 dispatch is guarded by runtime CPU-feature detection. The AVX-512 verifier also
-requires compile-time target features, then checks runtime CPU/OS support when the verifier is
-constructed.
+intrinsics. AVX2 dispatch is guarded by runtime CPU-feature detection. The AVX-512 verifier relies
+on the build's target-feature contract, so such binaries must only run on compatible CPUs and
+operating systems.
 
 ---
 

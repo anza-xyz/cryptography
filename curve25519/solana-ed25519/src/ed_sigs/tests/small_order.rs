@@ -50,13 +50,9 @@ pub static SMALL_ORDER_SIGS: Lazy<Vec<TestCase>> = Lazy::new(|| {
     */
 
     for A_bytes in &encodings {
-        let A = CompressedEdwardsY(*A_bytes)
-            .decompress()
-            .expect("low-order public-key encoding must decode");
+        let A = CompressedEdwardsY(*A_bytes).decompress().unwrap();
         for R_bytes in &encodings {
-            let R = CompressedEdwardsY(*R_bytes)
-                .decompress()
-                .expect("low-order R encoding must decode");
+            let R = CompressedEdwardsY(*R_bytes).decompress().unwrap();
             let sig_bytes = {
                 let mut bytes = [0u8; 64];
                 bytes[0..32].copy_from_slice(&R_bytes[..]);

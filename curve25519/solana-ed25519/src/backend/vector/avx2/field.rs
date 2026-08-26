@@ -531,7 +531,7 @@ impl FieldElement2625x4 {
         // Carry the value from limb i = 0..8 to limb i+1
         let carry = |z: &mut [u64x4; 10], i: usize| {
             debug_assert!(i < 9);
-            if i.is_multiple_of(2) {
+            if i % 2 == 0 {
                 // Even limbs have 26 bits
                 z[i + 1] += z[i].shr::<26>();
                 z[i] &= LOW_26_BITS;
@@ -952,7 +952,7 @@ mod test {
         let x3 = FieldElement51([10300, 10301, 10302, 10303, 10304]);
 
         let vec = FieldElement2625x4::new(&x0, &x1, &x2, &x3);
-        let vecprime = vec;
+        let vecprime = vec.clone();
 
         let result = (&vec * &vecprime).split();
 

@@ -148,7 +148,7 @@ pub fn non_canonical_point_encodings() -> Vec<[u8; 32]> {
             e,
             CompressedEdwardsY(e)
                 .decompress()
-                .expect("encodings were filtered to points that decode")
+                .unwrap()
                 .compress()
                 .to_bytes()
         );
@@ -161,9 +161,7 @@ pub fn non_canonical_point_encodings() -> Vec<[u8; 32]> {
 #[test]
 fn print_non_canonical_points() {
     for encoding in non_canonical_point_encodings().into_iter() {
-        let point = CompressedEdwardsY(encoding)
-            .decompress()
-            .expect("non-canonical point encoding must decode");
+        let point = CompressedEdwardsY(encoding).decompress().unwrap();
         println!(
             "encoding {} has order {}",
             hex::encode(&encoding[..]),
