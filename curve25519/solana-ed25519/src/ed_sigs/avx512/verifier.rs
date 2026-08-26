@@ -1,12 +1,14 @@
 use super::batch::{self, PreparedBatch};
 use super::cache::{CachedPublicKey, KeyCache, NullKeyCache};
 use super::cpuid;
-use super::edwards::{BasepointTable, EdwardsPoint, PointTable};
+use super::edwards::{BasepointTable, PointTable};
 use super::error::UnsupportedError;
 use super::policy::{VerifyPolicy, r_encoding_has_canonical_y};
 use super::scalar::{self, Radix16};
 use super::sha512;
 use super::wide::avx512ifma;
+use crate::edwards::EdwardsPoint;
+use crate::traits::Identity;
 use alloc::vec::Vec;
 use std::sync::LazyLock;
 

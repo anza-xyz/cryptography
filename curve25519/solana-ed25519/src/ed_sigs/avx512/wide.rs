@@ -1,8 +1,10 @@
 pub(crate) mod avx512ifma {
     use crate::ed_sigs::avx512::batch::{PUBLIC_KEY_LEN, PreparedBatch, R_ENCODING_LEN};
-    #[cfg(test)]
-    use crate::ed_sigs::avx512::edwards::EdwardsPoint;
     use crate::ed_sigs::avx512::edwards::{BasepointTable, CachedPoint, PointTable};
+    #[cfg(test)]
+    use crate::edwards::{CompressedEdwardsY, EdwardsPoint};
+    #[cfg(test)]
+    use crate::traits::Identity;
     use crate::ed_sigs::avx512::field::{Fe51, LIMB_COUNT};
     use crate::ed_sigs::avx512::scalar::Radix16;
     use std::arch::x86_64::*;
@@ -1084,10 +1086,10 @@ pub(crate) mod avx512ifma {
 
         #[cfg(test)]
         fn from_points(points: &[EdwardsPoint; LANES]) -> Self {
-            let xs = core::array::from_fn(|lane| *points[lane].coords().0);
-            let ys = core::array::from_fn(|lane| *points[lane].coords().1);
-            let zs = core::array::from_fn(|lane| *points[lane].coords().2);
-            let ts = core::array::from_fn(|lane| *points[lane].coords().3);
+            let xs = core::array::from_fn(|lane| Fe51::from_field(points[lane].X));
+            let ys = core::array::from_fn(|lane| Fe51::from_field(points[lane].Y));
+            let zs = core::array::from_fn(|lane| Fe51::from_field(points[lane].Z));
+            let ts = core::array::from_fn(|lane| Fe51::from_field(points[lane].T));
             Self {
                 x: WideFe::from_fields(&xs),
                 y: WideFe::from_fields(&ys),
@@ -1102,8 +1104,11 @@ pub(crate) mod avx512ifma {
             let ys = self.y.to_fields();
             let zs = self.z.to_fields();
             let ts = self.t.to_fields();
-            core::array::from_fn(|lane| {
-                EdwardsPoint::from_coords_unchecked(xs[lane], ys[lane], zs[lane], ts[lane])
+            core::array::from_fn(|lane| EdwardsPoint {
+                X: xs[lane].into_field(),
+                Y: ys[lane].into_field(),
+                Z: zs[lane].into_field(),
+                T: ts[lane].into_field(),
             })
         }
     }
@@ -1474,14 +1479,14 @@ pub(crate) mod avx512ifma {
                 0x98, 0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88,
                 0x6d, 0x53, 0xfc, 0x05,
             ];
-            EdwardsPoint::decompress(&bytes).expect("ord8a decodes")
+            CompressedEdwardsY(bytes).decompress().expect("ord8a decodes")
         }
 
         #[test]
         fn wide_double_matches_scalar_on_torsion() {
             let p = ord8a();
             let scalar_doubled = p.double();
-            let wide = WidePoint::from_points(&core::array::from_fn(|_| p.clone()));
+            let wide = WidePoint::from_points(&core::array::from_fn(|_| p));
             let wide_doubled = wide.double().to_points();
             assert_eq!(
                 wide_doubled[0].compress(),
@@ -1519,9 +1524,9 @@ pub(crate) mod avx512ifma {
         fn wide_subtract_then_cofactor_on_torsion() {
             let p = ord8a();
             let id = EdwardsPoint::identity();
-            let scalar = id.subtract(&p).double().double().double();
-            let wide_id = WidePoint::from_points(&core::array::from_fn(|_| id.clone()));
-            let wide_p = WidePoint::from_points(&core::array::from_fn(|_| p.clone()));
+            let scalar = (id - p).double().double().double();
+            let wide_id = WidePoint::from_points(&core::array::from_fn(|_| id));
+            let wide_p = WidePoint::from_points(&core::array::from_fn(|_| p));
             let wide_chain = wide_id
                 .subtract(&wide_p)
                 .double()
@@ -1545,7 +1550,7 @@ pub(crate) mod avx512ifma {
             ];
             let mut a_bytes = [0u8; 32];
             a_bytes[0] = 1;
-            let id = EdwardsPoint::decompress(&a_bytes).unwrap();
+            let id = CompressedEdwardsY(a_bytes).decompress().unwrap();
             let table = PointTable::new(&id);
             let base_table = BasepointTable::new();
             let s_digits = [[0i8; 64]; LANES];
@@ -1578,7 +1583,7 @@ pub(crate) mod avx512ifma {
                 0x98, 0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88,
                 0x6d, 0x53, 0xfc, 0x05,
             ];
-            let scalar = EdwardsPoint::decompress(&bytes).unwrap();
+            let scalar = CompressedEdwardsY(bytes).decompress().unwrap();
             let (wide, mask) = decompress_points_wide(&[bytes; LANES]);
             assert_eq!(mask, 0xff, "wide decode must succeed");
             let wide_pts = wide.to_points();

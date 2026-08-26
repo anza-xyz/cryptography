@@ -1,5 +1,6 @@
 use super::batch::PUBLIC_KEY_LEN;
-use super::edwards::{EdwardsPoint, PointTable};
+use super::edwards::PointTable;
+use crate::edwards::CompressedEdwardsY;
 
 pub(crate) mod private {
     pub trait Sealed {}
@@ -16,7 +17,7 @@ pub struct CachedPublicKey {
 impl CachedPublicKey {
     /// Build a cached public key from its encoded bytes.
     pub fn from_encoded(encoded: [u8; PUBLIC_KEY_LEN]) -> Option<Self> {
-        EdwardsPoint::decompress(&encoded).map(|point| {
+        CompressedEdwardsY(encoded).decompress().map(|point| {
             let small_order = point.is_small_order();
             Self {
                 encoded,

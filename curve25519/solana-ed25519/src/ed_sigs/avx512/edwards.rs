@@ -1,12 +1,14 @@
-use super::field::Fe51;
+//! Point tables for the AVX-512 verifier.
+//!
+//! Points themselves are the crate's [`EdwardsPoint`]. `CachedPoint` stays
+//! local because it is the type the IFMA lanes read: the crate's
+//! `ProjectiveNielsPoint` computes `Y+X` with the lazy `Add`, which can leave a
+//! limb above the `< 2^52` bound those lanes require, so the coordinates here
+//! are built with [`Fe51`]'s eagerly reducing operations instead.
 
-#[derive(Clone, Debug)]
-pub(crate) struct EdwardsPoint {
-    x: Fe51,
-    y: Fe51,
-    z: Fe51,
-    t: Fe51,
-}
+use super::field::Fe51;
+use crate::edwards::EdwardsPoint;
+use crate::traits::Identity;
 
 // Signed-indexed layout: digit `d` maps to `entries[d + N]`, avoiding a hot
 // unpredictable branch on the digit sign.
@@ -37,11 +39,15 @@ pub(crate) struct CachedPoint {
 
 impl CachedPoint {
     fn new(point: &EdwardsPoint) -> Self {
+        let x = Fe51::from_field(point.X);
+        let y = Fe51::from_field(point.Y);
+        let z = Fe51::from_field(point.Z);
+        let t = Fe51::from_field(point.T);
         Self {
-            y_plus_x: point.y.add(&point.x),
-            y_minus_x: point.y.subtract(&point.x),
-            z2: point.z.double(),
-            t2d: point.t.multiply(&Fe51::two_d()),
+            y_plus_x: y.add(&x),
+            y_minus_x: y.subtract(&x),
+            z2: z.double(),
+            t2d: t.multiply(&Fe51::two_d()),
         }
     }
 
@@ -108,11 +114,10 @@ impl BasepointTable {
         // Built once per process (see BASE_TABLE in verifier.rs), so there's
         // no reason to special-case even m via double() to save a handful of
         // multiplies: this whole computation runs once ever.
-        let basepoint = EdwardsPoint::basepoint();
-        let mut points: [EdwardsPoint; BASEPOINT_TABLE_SIZE] =
-            core::array::from_fn(|_| basepoint.clone());
+        let basepoint = crate::constants::ED25519_BASEPOINT_POINT;
+        let mut points = [basepoint; BASEPOINT_TABLE_SIZE];
         for i in 1..BASEPOINT_TABLE_SIZE {
-            points[i] = points[i - 1].add(&basepoint);
+            points[i] = points[i - 1] + basepoint;
         }
         let cached_points: [CachedPoint; BASEPOINT_TABLE_SIZE] =
             core::array::from_fn(|i| CachedPoint::new(&points[i]));
@@ -155,133 +160,14 @@ fn signed_cached_entries<const N: usize, const OUT: usize>(
     })
 }
 
-impl EdwardsPoint {
-    pub(crate) fn identity() -> Self {
-        Self {
-            x: Fe51::zero(),
-            y: Fe51::one(),
-            z: Fe51::one(),
-            t: Fe51::zero(),
-        }
-    }
-
-    pub(crate) fn basepoint() -> Self {
-        // Built once per process (see BASE_TABLE in verifier.rs), so a
-        // decompress here (instead of hardcoded limb constants) costs
-        // nothing worth avoiding.
-        Self::decompress(crate::constants::ED25519_BASEPOINT_COMPRESSED.as_bytes())
-            .expect("basepoint encoding is valid")
-    }
-
-    pub(crate) fn decompress(bytes: &[u8; 32]) -> Option<Self> {
-        let x_sign = (bytes[31] >> 7) != 0;
-        let mut y_bytes = *bytes;
-        y_bytes[31] &= 0x7f;
-        // ZIP-215/Dalek decoding treats y modulo p.
-        let y = Fe51::from_bytes_unchecked(&y_bytes);
-
-        let yy = y.square();
-        let u = yy.subtract(&Fe51::one());
-        let v = Fe51::one().add(&Fe51::d().multiply(&yy));
-        let mut x = Fe51::sqrt_ratio(&u, &v)?;
-
-        // For x == 0, negation is a no-op; signed zero is accepted.
-        if x.is_odd() != x_sign {
-            x = x.negate();
-        }
-
-        Some(Self {
-            x,
-            y,
-            z: Fe51::one(),
-            t: x.multiply(&y),
-        })
-    }
-
-    pub(crate) fn add(&self, rhs: &Self) -> Self {
-        let a = self.y.subtract(&self.x).multiply(&rhs.y.subtract(&rhs.x));
-        let b = self.y.add(&self.x).multiply(&rhs.y.add(&rhs.x));
-        let c = self.t.multiply(&rhs.t).multiply(&Fe51::two_d());
-        let d = self.z.multiply(&rhs.z).double();
-        let e = b.subtract(&a);
-        let f = d.subtract(&c);
-        let g = d.add(&c);
-        let h = b.add(&a);
-
-        Self {
-            x: e.multiply(&f),
-            y: g.multiply(&h),
-            t: e.multiply(&h),
-            z: f.multiply(&g),
-        }
-    }
-
-    pub(crate) fn double(&self) -> Self {
-        let a = self.x.square();
-        let b = self.y.square();
-        let c = self.z.square().double();
-        let d = a.negate();
-        let e = self.x.add(&self.y).square().subtract(&a).subtract(&b);
-        let g = d.add(&b);
-        let f = g.subtract(&c);
-        let h = d.subtract(&b);
-
-        Self {
-            x: e.multiply(&f),
-            y: g.multiply(&h),
-            t: e.multiply(&h),
-            z: f.multiply(&g),
-        }
-    }
-
-    pub(crate) fn is_small_order(&self) -> bool {
-        let point8 = self.double().double().double();
-        point8.x.equals(&Fe51::zero()) && point8.y.equals(&point8.z)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn coords(&self) -> (&Fe51, &Fe51, &Fe51, &Fe51) {
-        (&self.x, &self.y, &self.z, &self.t)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn from_coords_unchecked(x: Fe51, y: Fe51, z: Fe51, t: Fe51) -> Self {
-        Self { x, y, z, t }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn subtract(&self, rhs: &Self) -> Self {
-        self.add(&rhs.negate())
-    }
-
-    #[cfg(test)]
-    pub(crate) fn negate(&self) -> Self {
-        Self {
-            x: self.x.negate(),
-            y: self.y,
-            z: self.z,
-            t: self.t.negate(),
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn compress(&self) -> [u8; 32] {
-        let zinv = self.z.invert();
-        let x = self.x.multiply(&zinv);
-        let y = self.y.multiply(&zinv);
-        let mut bytes = y.to_bytes();
-        bytes[31] |= (x.is_odd() as u8) << 7;
-        bytes
-    }
-}
-
 fn multiples_of(point: &EdwardsPoint) -> [EdwardsPoint; POINT_TABLE_SIZE] {
-    let p2 = point.double();
-    let p3 = p2.add(point);
+    let p = *point;
+    let p2 = p.double();
+    let p3 = p2 + p;
     let p4 = p2.double();
-    let p5 = p4.add(point);
+    let p5 = p4 + p;
     let p6 = p3.double();
-    let p7 = p6.add(point);
+    let p7 = p6 + p;
     let p8 = p4.double();
-    [point.clone(), p2, p3, p4, p5, p6, p7, p8]
+    [p, p2, p3, p4, p5, p6, p7, p8]
 }

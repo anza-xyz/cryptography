@@ -6,7 +6,6 @@
 
 use crate::backend::serial::u64::constants::{EDWARDS_D, EDWARDS_D2, SQRT_M1};
 use crate::field::FieldElement;
-use subtle::ConstantTimeEq;
 
 // Number of 51-bit limbs needed to represent a value modulo p = 2^255 - 19.
 pub(crate) const LIMB_COUNT: usize = 5;
@@ -37,14 +36,6 @@ impl Fe51 {
         Self(FieldElement::ZERO)
     }
 
-    pub(crate) fn one() -> Self {
-        Self(FieldElement::ONE)
-    }
-
-    pub(crate) fn d() -> Self {
-        Self(EDWARDS_D)
-    }
-
     pub(crate) fn two_d() -> Self {
         Self(EDWARDS_D2)
     }
@@ -57,6 +48,16 @@ impl Fe51 {
 
     pub(crate) fn to_bytes(self) -> [u8; 32] {
         self.0.to_bytes()
+    }
+
+    /// Adopt a crate field element, reducing it into the `< 2^52` bound.
+    pub(crate) fn from_field(fe: FieldElement) -> Self {
+        Self(FieldElement::reduce(fe.0))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn into_field(self) -> FieldElement {
+        self.0
     }
 
     pub(crate) fn add(&self, rhs: &Self) -> Self {
@@ -79,23 +80,13 @@ impl Fe51 {
         Self(&self.0 * &rhs.0)
     }
 
-    pub(crate) fn square(&self) -> Self {
-        Self(self.0.square())
-    }
-
-    // The root's sign is arbitrary; `EdwardsPoint::decompress` fixes it from
-    // the encoding's sign bit.
-    pub(crate) fn sqrt_ratio(u: &Self, v: &Self) -> Option<Self> {
-        let (is_square, root) = FieldElement::sqrt_ratio_i(&u.0, &v.0);
-        bool::from(is_square).then_some(Self(root))
-    }
-
     pub(crate) fn is_odd(&self) -> bool {
         bool::from(self.0.is_negative())
     }
 
+    #[cfg(test)]
     pub(crate) fn equals(&self, rhs: &Self) -> bool {
-        bool::from(self.0.ct_eq(&rhs.0))
+        self.to_bytes() == rhs.to_bytes()
     }
 
     /// Loosely reduced limbs for AVX-512 IFMA field arithmetic.
@@ -149,15 +140,12 @@ mod tests {
             check(&a.add(&b), "add");
             check(&a.subtract(&b), "subtract");
             check(&a.multiply(&b), "multiply");
-            check(&a.square(), "square");
             check(&a.negate(), "negate");
             check(&a.double(), "double");
             check(&a.pow_p_minus_5_over_8(), "pow_p_minus_5_over_8");
             check(&a.invert(), "invert");
             check(&Fe51::from_bytes_unchecked(&a.to_bytes()), "from_bytes");
-            if let Some(root) = Fe51::sqrt_ratio(&a, &b) {
-                check(&root, "sqrt_ratio");
-            }
+            check(&Fe51::from_field(a.into_field()), "from_field");
 
             // Repeated adds are where a lazy `Add` would silently blow the
             // bound, so chain enough of them to catch it.
@@ -170,8 +158,6 @@ mod tests {
         }
 
         check(&Fe51::zero(), "zero");
-        check(&Fe51::one(), "one");
-        check(&Fe51::d(), "d");
         check(&Fe51::two_d(), "two_d");
         for (limbs, what) in [
             (D_LIMBS, "D_LIMBS"),
@@ -182,26 +168,6 @@ mod tests {
                 limbs.iter().all(|&limb| limb < LOOSE_LIMB_BOUND),
                 "{what} has a limb >= 2^52"
             );
-        }
-    }
-
-    #[test]
-    fn square_matches_multiply_self() {
-        let cases = [
-            [0, 0, 0, 0, 0],
-            [1, 0, 0, 0, 0],
-            [
-                1_234_567_890_123,
-                2_222_222_222_222,
-                987_654_321_987,
-                1_111_111_111_111,
-                333_333_333_333,
-            ],
-        ];
-
-        for limbs in cases {
-            let x = Fe51::from_limbs(limbs);
-            assert!(x.square().equals(&x.multiply(&x)));
         }
     }
 }
