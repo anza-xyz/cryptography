@@ -52,3 +52,69 @@ jobs:
       - name: Check
         run: |
           cargo hack check --each-feature --all-targets
+
+  # The `avx512` feature only compiles its AVX-512 IFMA code when the required
+  # target features are enabled, so `feature-check` above builds nothing but the
+  # unsupported-build shim. GitHub runners have no AVX-512 IFMA, so we cannot
+  # *run* this code here — but we can and must still compile and lint it,
+  # otherwise the whole verifier goes unchecked by CI.
+  avx512-build:
+    name: avx512 (compile + lint only, not executed)
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -C target-feature=+avx512f,+avx512dq,+avx512ifma
+      # Every cargo invocation below MUST pass this. `RUSTFLAGS` without an
+      # explicit `--target` is also applied to host artifacts — build scripts
+      # and proc macros — which cargo then *executes* during the build. The
+      # runner has no AVX-512, so the compiler's own auto-vectorization of, say,
+      # `proc-macro2`'s build script kills it with SIGILL before any of our code
+      # is even compiled. Passing `--target`, even when it equals the host
+      # triple, makes cargo build host artifacts without `RUSTFLAGS`.
+      AVX512_TARGET: x86_64-unknown-linux-gnu
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      # `--all-targets` catches breakage in the cfg-gated test and bench code,
+      # which no other job compiles. Force the unrelated curve backend to
+      # serial; the AVX-512 module itself denies warnings under Clippy.
+      - name: Lint
+        env:
+          RUSTFLAGS: -C target-feature=+avx512f,+avx512dq,+avx512ifma --cfg curve25519_backend="serial"
+        run: |
+          cargo clippy -p solana-ed25519 --target "$AVX512_TARGET" \
+            --features avx512 --all-targets
+
+      - name: Check documentation
+        env:
+          # The AVX-512 module denies its own rustdoc warnings. Do not promote
+          # warnings from unrelated, pre-existing modules.
+          RUSTDOCFLAGS: -C target-feature=+avx512f,+avx512dq,+avx512ifma
+        run: |
+          cargo doc -p solana-ed25519 --target "$AVX512_TARGET" \
+            --features avx512 --no-deps
+
+      # Keep the opt-in verifier independent of unrelated default features,
+      # especially `precomputed-tables` from the curve-arithmetic backend.
+      - name: Check minimal feature set
+        run: |
+          cargo check -p solana-ed25519 --target "$AVX512_TARGET" \
+            --no-default-features --features avx512 --all-targets
+
+      # The verifier must stay reachable when the curve backend is forced to
+      # serial, since it is not one of the curve-arithmetic backends.
+      - name: Check with serial curve backend
+        env:
+          RUSTFLAGS: -C target-feature=+avx512f,+avx512dq,+avx512ifma --cfg curve25519_backend="serial"
+        run: |
+          cargo check -p solana-ed25519 --target "$AVX512_TARGET" \
+            --features avx512 --all-targets

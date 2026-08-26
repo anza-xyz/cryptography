@@ -283,7 +283,7 @@ impl FieldElement51 {
 
     /// Given 64-bit input limbs, reduce to enforce the bound 2^(51 + epsilon).
     #[inline(always)]
-    fn reduce(mut limbs: [u64; 5]) -> FieldElement51 {
+    pub(crate) fn reduce(mut limbs: [u64; 5]) -> FieldElement51 {
         const LOW_51_BIT_MASK: u64 = (1u64 << 51) - 1;
 
         // Since the input limbs are bounded by 2^64, the biggest

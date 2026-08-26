@@ -225,6 +225,31 @@ impl Scalar {
         scalar
     }
 
+    /// Construct a `Scalar` by reducing a 512-bit little-endian integer
+    /// modulo the group order \\( \ell \\), taking the integer as its eight
+    /// 64-bit words rather than its bytes.
+    ///
+    /// Equivalent to [`Self::from_bytes_mod_order_wide`] without the byte load.
+    // Gated to the configuration that compiles the AVX-512 verifier, its only
+    // caller.
+    #[cfg(all(
+        feature = "avx512",
+        target_arch = "x86_64",
+        target_feature = "avx512f",
+        target_feature = "avx512dq",
+        target_feature = "avx512ifma",
+    ))]
+    pub(crate) fn from_words_mod_order_wide(words: &[u64; 8]) -> Scalar {
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
+        let mut unpacked = UnpackedScalar::from_words_wide(words);
+        let scalar = unpacked.pack();
+
+        #[cfg(feature = "zeroize")]
+        unpacked.zeroize();
+
+        scalar
+    }
+
     /// Attempt to construct a `Scalar` from a canonical byte representation.
     ///
     /// # Return
@@ -240,7 +265,16 @@ impl Scalar {
 
     /// Construct a `Scalar` from bytes that are known to be canonical.
     #[inline]
-    #[cfg(curve25519_backend = "simd")]
+    #[cfg(any(
+        curve25519_backend = "simd",
+        all(
+            feature = "avx512",
+            target_arch = "x86_64",
+            target_feature = "avx512f",
+            target_feature = "avx512dq",
+            target_feature = "avx512ifma",
+        )
+    ))]
     pub(crate) const fn from_canonical_bytes_unchecked(bytes: [u8; 32]) -> Scalar {
         Scalar { bytes }
     }

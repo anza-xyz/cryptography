@@ -3,6 +3,14 @@ use core::convert::TryFrom;
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use ed25519::signature::Verifier as _;
 use ed25519_dalek::VerifyingKey as DalekVerifyingKey;
+#[cfg(all(
+    feature = "avx512",
+    target_arch = "x86_64",
+    target_feature = "avx512f",
+    target_feature = "avx512dq",
+    target_feature = "avx512ifma",
+))]
+use solana_ed25519::ed_sigs::avx512;
 use solana_ed25519::ed_sigs::*;
 
 fn signing_key_from_index(index: u64) -> SigningKey {
@@ -39,6 +47,45 @@ fn single_verify_inputs() -> (VerificationKey, Signature, DalekVerifyingKey) {
     let dalek_vk = DalekVerifyingKey::from_bytes(&vk_bytes).expect("dalek verification key");
 
     (vk, sig, dalek_vk)
+}
+
+#[cfg(all(
+    feature = "avx512",
+    target_arch = "x86_64",
+    target_feature = "avx512f",
+    target_feature = "avx512dq",
+    target_feature = "avx512ifma",
+))]
+fn avx512_inputs_with_distinct_pubkeys(n: usize) -> Vec<avx512::VerifyInput<'static>> {
+    (0u64..n as u64)
+        .map(|i| {
+            let sk = signing_key_from_index(i);
+            avx512::VerifyInput {
+                public_key: VerificationKeyBytes::from(&sk).into(),
+                signature: sk.sign(b"").into(),
+                message: b"",
+            }
+        })
+        .collect()
+}
+
+#[cfg(all(
+    feature = "avx512",
+    target_arch = "x86_64",
+    target_feature = "avx512f",
+    target_feature = "avx512dq",
+    target_feature = "avx512ifma",
+))]
+fn avx512_inputs_with_same_pubkey(n: usize) -> Vec<avx512::VerifyInput<'static>> {
+    let sk = signing_key_from_index(0);
+    let public_key = VerificationKeyBytes::from(&sk).into();
+    (0..n)
+        .map(|_| avx512::VerifyInput {
+            public_key,
+            signature: sk.sign(b"").into(),
+            message: b"",
+        })
+        .collect()
 }
 
 fn bench_batch_verify(c: &mut Criterion) {
@@ -88,6 +135,48 @@ fn bench_batch_verify(c: &mut Criterion) {
                 })
             },
         );
+        #[cfg(all(
+            feature = "avx512",
+            target_arch = "x86_64",
+            target_feature = "avx512f",
+            target_feature = "avx512dq",
+            target_feature = "avx512ifma",
+        ))]
+        {
+            let avx512_distinct_inputs = avx512_inputs_with_distinct_pubkeys(*n);
+            group.bench_with_input(
+                BenchmarkId::new("AVX512 Zip215 Distinct Pubkeys", n),
+                &avx512_distinct_inputs,
+                |b, inputs: &Vec<avx512::VerifyInput<'static>>| {
+                    let mut verifier = avx512::Verifier::new()
+                        .expect("benchmark is only compiled for AVX-512 builds");
+                    let mut out = vec![false; inputs.len()];
+                    b.iter(|| {
+                        verifier.verify_batch(inputs, &mut out);
+                        std::hint::black_box(&out);
+                    })
+                },
+            );
+
+            let avx512_same_inputs = avx512_inputs_with_same_pubkey(*n);
+            group.bench_with_input(
+                BenchmarkId::new("AVX512 Zip215 Same Pubkey Hot Cache", n),
+                &avx512_same_inputs,
+                |b, inputs: &Vec<avx512::VerifyInput<'static>>| {
+                    let mut verifier = avx512::Verifier::with_cache(
+                        avx512::VerifyPolicy::Zip215,
+                        avx512::HotKeyCache::with_capacity(1),
+                    )
+                    .expect("benchmark is only compiled for AVX-512 builds");
+                    let mut out = vec![false; inputs.len()];
+                    verifier.verify_batch(inputs, &mut out);
+                    b.iter(|| {
+                        verifier.verify_batch(inputs, &mut out);
+                        std::hint::black_box(&out);
+                    })
+                },
+            );
+        }
     }
     group.finish();
 }
@@ -119,5 +208,65 @@ fn bench_single_verify(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_single_verify, bench_batch_verify,);
+/// Fine-grained scan over 1..=8 signatures comparing the randomized batch
+/// verification API (`batch::Verifier::verify`) against the portable AVX-512
+/// verifier API for the same signature counts. The latter deliberately uses
+/// its scalar fallback for one or two inputs. All signatures use distinct
+/// public keys.
+#[cfg(all(feature = "alloc", feature = "rand_core"))]
+fn bench_small_batch_scan(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Small Batch Scan");
+    for n in 1..=8usize {
+        group.throughput(Throughput::Elements(n as u64));
+
+        // (1) The randomized batch-verification API, same signatures.
+        let sigs = sigs_with_distinct_pubkeys().take(n).collect::<Vec<_>>();
+        group.bench_with_input(
+            BenchmarkId::new("Batch API verify", n),
+            &sigs,
+            |b, sigs: &Vec<(VerificationKeyBytes, Signature)>| {
+                b.iter(|| {
+                    let mut batch = batch::Verifier::new();
+                    for (vk_bytes, sig) in sigs.iter().cloned() {
+                        batch.queue((vk_bytes, sig, b""));
+                    }
+                    batch.verify()
+                })
+            },
+        );
+
+        // (2) The AVX512 verifier for the same signature count.
+        #[cfg(all(
+            feature = "avx512",
+            target_arch = "x86_64",
+            target_feature = "avx512f",
+            target_feature = "avx512dq",
+            target_feature = "avx512ifma",
+        ))]
+        {
+            let inputs = avx512_inputs_with_distinct_pubkeys(n);
+            group.bench_with_input(
+                BenchmarkId::new("AVX512 verify_batch", n),
+                &inputs,
+                |b, inputs: &Vec<avx512::VerifyInput<'static>>| {
+                    let mut verifier = avx512::Verifier::new()
+                        .expect("benchmark is only compiled for AVX-512 builds");
+                    let mut out = vec![false; inputs.len()];
+                    b.iter(|| {
+                        verifier.verify_batch(inputs, &mut out);
+                        std::hint::black_box(&out);
+                    })
+                },
+            );
+        }
+    }
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    bench_single_verify,
+    bench_batch_verify,
+    bench_small_batch_scan,
+);
 criterion_main!(benches);
