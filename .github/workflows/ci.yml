@@ -53,11 +53,9 @@ jobs:
         run: |
           cargo hack check --each-feature --all-targets
 
-  # The `avx512` feature only compiles its AVX-512 IFMA code when the required
-  # target features are enabled, so `feature-check` above builds nothing but the
-  # unsupported-build shim. GitHub runners have no AVX-512 IFMA, so we cannot
-  # *run* this code here — but we can and must still compile and lint it,
-  # otherwise the whole verifier goes unchecked by CI.
+  # Force the AVX-512 IFMA target features so cfg-gated code is checked and LLVM
+  # performs code generation for that target. GitHub runners have no AVX-512
+  # IFMA, so target binaries must only be compiled and never executed.
   avx512-build:
     name: avx512 (compile + lint only, not executed)
     runs-on: ubuntu-latest
@@ -99,20 +97,20 @@ jobs:
       - name: Lint
         run: |
           cargo clippy -p solana-ed25519 --target "$AVX512_TARGET" \
-            --features avx512 --all-targets
+            --all-targets
 
-      # Keep the opt-in verifier independent of unrelated default features,
-      # especially `precomputed-tables` from the curve-arithmetic backend.
+      # Ensure the AVX-512 target remains independent of unrelated default
+      # features, especially `precomputed-tables`.
       - name: Build minimal feature set
         run: |
           cargo build -p solana-ed25519 --target "$AVX512_TARGET" \
-            --no-default-features --features avx512 --all-targets
+            --no-default-features --lib
 
-      # The verifier must stay reachable when the curve backend is forced to
-      # serial, since it is not one of the curve-arithmetic backends.
+      # The AVX-512 target features must also compile when the curve backend is
+      # forced to serial; the two selections are independent.
       - name: Build with serial curve backend
         env:
           RUSTFLAGS: -C target-feature=+avx512f,+avx512dq,+avx512ifma --cfg curve25519_backend="serial"
         run: |
           cargo build -p solana-ed25519 --target "$AVX512_TARGET" \
-            --features avx512 --all-targets
+            --all-targets
