@@ -1498,8 +1498,9 @@ pub(crate) mod avx512ifma {
             let s_digits = [[0i8; 64]; LANES];
             let mut one_bytes = [0u8; 32];
             one_bytes[0] = 1;
-            let k = crate::ed_sigs::avx512::scalar::Scalar::from_canonical_bytes(one_bytes);
-            let k_digits = [k.to_radix16(); LANES];
+            let k = crate::ed_sigs::avx512::scalar::canonical_radix16(one_bytes)
+                .expect("1 is a canonical scalar");
+            let k_digits = [k; LANES];
             let prepared = PreparedBatch {
                 public_key_tables: [&table; LANES],
                 s_digits: &s_digits,
@@ -1553,8 +1554,8 @@ pub(crate) mod avx512ifma {
                 &a_bytes,
                 b"taming the many eddsas",
             ]);
-            let k = crate::ed_sigs::avx512::scalar::Scalar::from_wide_bytes(digest);
-            let k_digits = [k.to_radix16(); LANES];
+            let k = crate::scalar::Scalar::from_bytes_mod_order_wide(&digest).as_radix_16();
+            let k_digits = [k; LANES];
             let prepared = PreparedBatch {
                 public_key_tables: [&table; LANES],
                 s_digits: &s_digits,

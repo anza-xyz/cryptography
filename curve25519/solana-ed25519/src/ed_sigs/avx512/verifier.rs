@@ -4,7 +4,7 @@ use super::cpuid;
 use super::edwards::{BasepointTable, EdwardsPoint, PointTable};
 use super::error::UnsupportedError;
 use super::policy::{VerifyPolicy, r_encoding_has_canonical_y};
-use super::scalar::{self, Radix16, Scalar};
+use super::scalar::{self, Radix16};
 use super::sha512;
 use super::wide::avx512ifma;
 use alloc::vec::Vec;
@@ -385,10 +385,9 @@ fn parse_chunk_inputs<'a>(inputs: &[VerifyInput<'a>; SIMD_LANES]) -> ChunkParts<
 
         let mut s_bytes = [0u8; 32];
         s_bytes.copy_from_slice(&input.signature[R_ENCODING_LEN..]);
-        if scalar::is_canonical(&s_bytes) {
-            s_digits[lane] = Scalar::from_canonical_bytes(s_bytes).to_radix16();
-        } else {
-            valid[lane] = false;
+        match scalar::canonical_radix16(s_bytes) {
+            Some(digits) => s_digits[lane] = digits,
+            None => valid[lane] = false,
         }
         public_keys[lane] = input.public_key;
         messages[lane] = input.message;
@@ -410,7 +409,7 @@ fn challenge_digits(
     messages: [&[u8]; SIMD_LANES],
 ) -> [Radix16; SIMD_LANES] {
     let digests = sha512::hash_ed25519_challenge_words(r_bytes, public_keys, messages);
-    core::array::from_fn(|lane| Scalar::from_wide_words(digests[lane]).to_radix16())
+    core::array::from_fn(|lane| scalar::radix16_from_wide_words(digests[lane]))
 }
 
 fn lane_flags_from_mask(mask: u8) -> [bool; SIMD_LANES] {

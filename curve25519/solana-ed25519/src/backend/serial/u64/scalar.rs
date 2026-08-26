@@ -84,8 +84,8 @@ impl Scalar52 {
     }
 
     /// Reduce a 64 byte / 512 bit scalar mod l
-    #[rustfmt::skip] // keep alignment of lo[*] and hi[*] calculations
     pub fn from_bytes_wide(bytes: &[u8; 64]) -> Scalar52 {
+        #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
         let mut words = [0u64; 8];
         for i in 0..8 {
             for j in 0..8 {
@@ -93,6 +93,26 @@ impl Scalar52 {
             }
         }
 
+        let reduced = Scalar52::from_words_wide(&words);
+
+        #[cfg(feature = "zeroize")]
+        words.zeroize();
+
+        reduced
+    }
+
+    /// Reduce a 512-bit scalar mod l, given its eight little-endian 64-bit
+    /// words rather than its bytes.
+    ///
+    /// [`Self::from_bytes_wide`] is this plus the byte-to-word load. Callers
+    /// that already hold the words -- the AVX-512 batch verifier reads them
+    /// straight out of its SIMD SHA-512 state -- use this to skip a round trip
+    /// through a byte array on the hot path.
+    // Inline so `from_bytes_wide` still lowers to exactly the single function
+    // it was before this was split out of it.
+    #[inline]
+    #[rustfmt::skip] // keep alignment of lo[*] and hi[*] calculations
+    pub(crate) fn from_words_wide(words: &[u64; 8]) -> Scalar52 {
         let mask = (1u64 << 52) - 1;
         let mut lo = Scalar52::ZERO;
         let mut hi = Scalar52::ZERO;
@@ -115,7 +135,6 @@ impl Scalar52 {
 
         #[cfg(feature = "zeroize")]
         {
-            words.zeroize();
             lo.zeroize();
             hi.zeroize();
         }
