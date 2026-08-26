@@ -163,7 +163,7 @@ pub mod spec {
 
                 assert_eq!(subject.compress(), control.compress());
 
-                n = n / 2;
+                n /= 2;
             }
         }
     }

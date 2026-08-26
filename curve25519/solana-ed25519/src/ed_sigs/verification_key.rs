@@ -369,7 +369,7 @@ impl VerificationKey {
     }
 
     /// Verify a signature with the strict, non-cofactored rules of
-    /// [`ed25519_dalek::VerifyingKey::verify_strict`].
+    /// `ed25519_dalek::VerifyingKey::verify_strict`.
     ///
     /// This is the pre-ZIP-215 verification rule and is accept/reject identical
     /// to `verify_strict`:

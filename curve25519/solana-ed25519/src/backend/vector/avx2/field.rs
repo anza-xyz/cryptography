@@ -952,7 +952,7 @@ mod test {
         let x3 = FieldElement51([10300, 10301, 10302, 10303, 10304]);
 
         let vec = FieldElement2625x4::new(&x0, &x1, &x2, &x3);
-        let vecprime = vec.clone();
+        let vecprime = vec;
 
         let result = (&vec * &vecprime).split();
 

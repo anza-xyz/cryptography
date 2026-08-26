@@ -84,18 +84,19 @@ jobs:
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
 
-      # `--all-targets` is what catches breakage in the cfg-gated test and
-      # bench code, which no other job compiles.
-      #
-      # No `-D warnings` yet: enabling these target features also changes which
-      # cfg branches of the pre-existing AVX2/packed_simd code compile, and that
-      # configuration has never been linted — it is already warning-dirty on
-      # upstream master, independently of the avx512 code. Clean that up in its
-      # own change, then add `-- -D warnings` here.
+      # `--all-targets` catches breakage in the cfg-gated test and bench code,
+      # which no other job compiles. Keep this configuration warning-clean.
       - name: Lint
         run: |
           cargo clippy -p solana-ed25519 --target "$AVX512_TARGET" \
-            --features avx512 --all-targets
+            --features avx512 --all-targets -- -D warnings
+
+      - name: Check documentation
+        env:
+          RUSTDOCFLAGS: -D warnings -C target-feature=+avx512f,+avx512dq,+avx512ifma
+        run: |
+          cargo doc -p solana-ed25519 --target "$AVX512_TARGET" \
+            --features avx512 --no-deps
 
       # Keep the opt-in verifier independent of unrelated default features,
       # especially `precomputed-tables` from the curve-arithmetic backend.

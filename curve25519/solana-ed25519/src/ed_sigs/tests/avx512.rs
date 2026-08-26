@@ -33,7 +33,8 @@ fn simd_batch_reports_per_input_results() {
         .verify_batch(&inputs, &mut out);
 
     for (i, input) in inputs.iter().enumerate() {
-        let verification_key = VerificationKey::try_from(input.public_key).unwrap();
+        let verification_key = VerificationKey::try_from(input.public_key)
+            .expect("test signing key must produce a valid verification key");
         let signature = Signature::from(input.signature);
         assert_eq!(
             out[i],
@@ -138,7 +139,8 @@ fn sub_width_batch_matches_scalar_verification() {
             .verify_batch(&inputs, &mut out);
 
         for (i, input) in inputs.iter().enumerate() {
-            let verification_key = VerificationKey::try_from(input.public_key).unwrap();
+            let verification_key = VerificationKey::try_from(input.public_key)
+                .expect("test signing key must produce a valid verification key");
             let signature = Signature::from(input.signature);
             assert_eq!(
                 out[i],

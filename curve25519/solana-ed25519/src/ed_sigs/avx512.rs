@@ -6,7 +6,7 @@
 //! [`UnsupportedError`] so the caller can fall back to another verifier.
 //!
 //! This is deliberately *not* one of the curve-arithmetic backends under
-//! [`crate::backend`]: it is a self-contained Ed25519 verifier that callers
+//! `crate::backend`: it is a self-contained Ed25519 verifier that callers
 //! select explicitly, so it must stay available even when the curve backend is
 //! forced to `serial` via `--cfg curve25519_backend="serial"`.
 //!

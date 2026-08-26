@@ -148,7 +148,8 @@ fn first_undecodable_r() -> [u8; 32] {
 fn test_verify_dalek_matches_legacy_edge_cases() {
     for case in SMALL_ORDER_SIGS.iter() {
         let sig = Signature::from(case.sig_bytes);
-        let vk = VerificationKey::try_from(case.vk_bytes).unwrap();
+        let vk = VerificationKey::try_from(case.vk_bytes)
+            .expect("legacy test case verification key must decode");
         let result = vk.verify_dalek(&sig, b"Zcash");
 
         assert_eq!(

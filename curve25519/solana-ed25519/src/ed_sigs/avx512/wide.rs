@@ -1481,7 +1481,9 @@ pub(crate) mod avx512ifma {
             let r_bytes = ORD8A_ENCODING;
             let mut a_bytes = [0u8; 32];
             a_bytes[0] = 1;
-            let id = CompressedEdwardsY(a_bytes).decompress().unwrap();
+            let id = CompressedEdwardsY(a_bytes)
+                .decompress()
+                .expect("identity encoding must decode");
             let table = PointTable::new(&id);
             let base_table = BasepointTable::new();
             let s_digits = [[0i8; 64]; LANES];
@@ -1510,7 +1512,9 @@ pub(crate) mod avx512ifma {
         #[test]
         fn wide_decompress_matches_scalar_on_torsion() {
             let bytes = ORD8A_ENCODING;
-            let scalar = CompressedEdwardsY(bytes).decompress().unwrap();
+            let scalar = CompressedEdwardsY(bytes)
+                .decompress()
+                .expect("order-8 point encoding must decode");
             let (wide, mask) = decompress_points_wide(&[bytes; LANES]);
             assert_eq!(mask, 0xff, "wide decode must succeed");
             let wide_pts = wide.to_points();

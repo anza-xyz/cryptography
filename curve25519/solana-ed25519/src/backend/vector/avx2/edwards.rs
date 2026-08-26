@@ -372,7 +372,7 @@ mod test {
         print_var!(S1);
         print_var!(S2);
         print_var!(S3);
-        println!("");
+        println!();
 
         let S4 = &S0 * &S2; // R5 = R1 * R2
         let S5 = &S1 * &S3; // R6 = R3 * R4
@@ -382,7 +382,7 @@ mod test {
         print_var!(S5);
         print_var!(S6);
         print_var!(S7);
-        println!("");
+        println!();
 
         let S8  =  &S4 *    &FieldElement51([  121666,0,0,0,0]);  // R5
         let S9  =  &S5 *    &FieldElement51([  121666,0,0,0,0]);  // R6
@@ -392,7 +392,7 @@ mod test {
         print_var!(S9);
         print_var!(S10);
         print_var!(S11);
-        println!("");
+        println!();
 
         let S12 =  &S9 - &S8;  // R1
         let S13 =  &S9 + &S8;  // R4
@@ -402,7 +402,7 @@ mod test {
         print_var!(S13);
         print_var!(S14);
         print_var!(S15);
-        println!("");
+        println!();
 
         let X3 = &S12 * &S14; // R1 * R2
         let Y3 = &S15 * &S13; // R3 * R4
@@ -419,7 +419,7 @@ mod test {
 
     fn addition_test_helper(P: edwards::EdwardsPoint, Q: edwards::EdwardsPoint) {
         // Test the serial implementation of the parallel addition formulas
-        let R_serial: edwards::EdwardsPoint = serial_add(P.into(), Q.into()).into();
+        let R_serial = serial_add(P, Q);
 
         // Test the vector implementation of the parallel readdition formulas
         let cached_Q = CachedPoint::from(ExtendedPoint::from(Q));
@@ -430,14 +430,14 @@ mod test {
         println!("P = {:?}", P);
         println!("Q = {:?}", Q);
         println!("cached Q = {:?}", cached_Q);
-        println!("R = P + Q = {:?}", &P + &Q);
+        println!("R = P + Q = {:?}", P + Q);
         println!("R_serial = {:?}", R_serial);
         println!("R_vector = {:?}", R_vector);
-        println!("S = P - Q = {:?}", &P - &Q);
+        println!("S = P - Q = {:?}", P - Q);
         println!("S_vector = {:?}", S_vector);
-        assert_eq!(R_serial.compress(), (&P + &Q).compress());
-        assert_eq!(R_vector.compress(), (&P + &Q).compress());
-        assert_eq!(S_vector.compress(), (&P - &Q).compress());
+        assert_eq!(R_serial.compress(), (P + Q).compress());
+        assert_eq!(R_vector.compress(), (P + Q).compress());
+        assert_eq!(S_vector.compress(), (P - Q).compress());
         println!("OK!\n");
     }
 
@@ -478,7 +478,7 @@ mod test {
 
         let S0 = &X1 + &Y1; // R1
         print_var!(S0);
-        println!("");
+        println!();
 
         let S1 = X1.square();
         let S2 = Y1.square();
@@ -488,7 +488,7 @@ mod test {
         print_var!(S2);
         print_var!(S3);
         print_var!(S4);
-        println!("");
+        println!();
 
         let S5 = &S1 + &S2;
         let S6 = &S1 - &S2;
@@ -500,7 +500,7 @@ mod test {
         print_var!(S7);
         print_var!(S8);
         print_var!(S9);
-        println!("");
+        println!();
 
         let X3 = &S8 * &S9;
         let Y3 = &S5 * &S6;
@@ -516,15 +516,15 @@ mod test {
     }
 
     fn doubling_test_helper(P: edwards::EdwardsPoint) {
-        let R1: edwards::EdwardsPoint = serial_double(P.into()).into();
+        let R1 = serial_double(P);
         let R2: edwards::EdwardsPoint = ExtendedPoint::from(P).double().into();
         println!("Testing point doubling:");
         println!("P = {:?}", P);
         println!("(serial) R1 = {:?}", R1);
         println!("(vector) R2 = {:?}", R2);
-        println!("P + P = {:?}", &P + &P);
-        assert_eq!(R1.compress(), (&P + &P).compress());
-        assert_eq!(R2.compress(), (&P + &P).compress());
+        println!("P + P = {:?}", P + P);
+        assert_eq!(R1.compress(), (P + P).compress());
+        assert_eq!(R2.compress(), (P + P).compress());
         println!("OK!\n");
     }
 
