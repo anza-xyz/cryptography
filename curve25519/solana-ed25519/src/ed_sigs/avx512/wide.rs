@@ -1,12 +1,12 @@
 pub(crate) mod avx512ifma {
     use crate::ed_sigs::avx512::batch::{PUBLIC_KEY_LEN, PreparedBatch, R_ENCODING_LEN};
     use crate::ed_sigs::avx512::edwards::{BasepointTable, CachedPoint, PointTable};
+    use crate::ed_sigs::avx512::field::{Fe51, LIMB_COUNT};
+    use crate::ed_sigs::avx512::scalar::Radix16;
     #[cfg(test)]
     use crate::edwards::{CompressedEdwardsY, EdwardsPoint};
     #[cfg(test)]
     use crate::traits::Identity;
-    use crate::ed_sigs::avx512::field::{Fe51, LIMB_COUNT};
-    use crate::ed_sigs::avx512::scalar::Radix16;
     use std::arch::x86_64::*;
 
     const LANES: usize = crate::ed_sigs::avx512::batch::SIMD_LANES;
@@ -1409,8 +1409,7 @@ pub(crate) mod avx512ifma {
         }
 
         /// An order-8 point's encoding, from the crate's own low-order list.
-        const ORD8A_ENCODING: [u8; 32] =
-            crate::ed_sigs::tests::util::EXCLUDED_POINT_ENCODINGS[2];
+        const ORD8A_ENCODING: [u8; 32] = crate::ed_sigs::tests::util::EXCLUDED_POINT_ENCODINGS[2];
 
         fn ord8a() -> EdwardsPoint {
             CompressedEdwardsY(ORD8A_ENCODING)

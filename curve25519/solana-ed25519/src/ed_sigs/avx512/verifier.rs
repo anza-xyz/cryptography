@@ -1,6 +1,5 @@
 use super::batch::{self, PreparedBatch};
 use super::cache::{CachedPublicKey, KeyCache, NullKeyCache};
-use super::cpuid;
 use super::edwards::{BasepointTable, PointTable};
 use super::error::UnsupportedError;
 use super::policy::{VerifyPolicy, r_encoding_has_canonical_y};
@@ -62,65 +61,22 @@ pub struct Verifier<C: KeyCache = NullKeyCache> {
     cache: C,
 }
 
-impl Default for Verifier<NullKeyCache> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Verifier<NullKeyCache> {
     /// Create a verifier with the default policy and no retained-key cache.
-    ///
-    /// # Panics
-    ///
-    /// Panics if required AVX-512 support is unavailable. Use
-    /// [`try_new`](Self::try_new) to handle that case instead.
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self, UnsupportedError> {
         Self::with_policy(VerifyPolicy::default())
     }
 
-    /// Fallible [`new`](Self::new): returns [`UnsupportedError`] instead of
-    /// panicking when required AVX-512 support is unavailable.
-    pub fn try_new() -> Result<Self, UnsupportedError> {
-        Self::try_with_policy(VerifyPolicy::default())
-    }
-
     /// Create a verifier with a specific policy and no retained-key cache.
-    ///
-    /// # Panics
-    ///
-    /// Panics under the same condition as [`Verifier::new`].
-    pub fn with_policy(policy: VerifyPolicy) -> Self {
+    pub fn with_policy(policy: VerifyPolicy) -> Result<Self, UnsupportedError> {
         Self::with_cache(policy, NullKeyCache::new())
-    }
-
-    /// Fallible [`with_policy`](Self::with_policy).
-    pub fn try_with_policy(policy: VerifyPolicy) -> Result<Self, UnsupportedError> {
-        Self::try_with_cache(policy, NullKeyCache::new())
     }
 }
 
 impl<C: KeyCache> Verifier<C> {
     /// Create a verifier backed by a caller-provided cache. For a bounded cache:
     /// `Verifier::with_cache(policy, HotKeyCache::with_capacity(n))`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if required AVX-512 support is unavailable. Use
-    /// [`try_with_cache`](Self::try_with_cache) to handle that case instead.
-    pub fn with_cache(policy: VerifyPolicy, cache: C) -> Self {
-        match Self::try_with_cache(policy, cache) {
-            Ok(verifier) => verifier,
-            Err(error) => panic!(
-                "{error}; build and run on an AVX-512 IFMA capable CPU with OS \
-                 AVX-512 state support enabled"
-            ),
-        }
-    }
-
-    /// Fallible [`with_cache`](Self::with_cache).
-    pub fn try_with_cache(policy: VerifyPolicy, cache: C) -> Result<Self, UnsupportedError> {
-        cpuid::check_required_avx512_runtime_support()?;
+    pub fn with_cache(policy: VerifyPolicy, cache: C) -> Result<Self, UnsupportedError> {
         Ok(Self {
             policy,
             base_table: &*BASE_TABLE,

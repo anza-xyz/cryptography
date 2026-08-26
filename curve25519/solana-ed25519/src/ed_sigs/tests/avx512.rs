@@ -28,7 +28,9 @@ fn simd_batch_reports_per_input_results() {
     inputs[3].signature[40] ^= 1;
 
     let mut out = [false; 8];
-    Verifier::new().verify_batch(&inputs, &mut out);
+    Verifier::new()
+        .expect("test is only compiled for AVX-512 builds")
+        .verify_batch(&inputs, &mut out);
 
     for (i, input) in inputs.iter().enumerate() {
         let verification_key = VerificationKey::try_from(input.public_key).unwrap();
@@ -82,13 +84,16 @@ fn simd_dalek_rejects_small_order_forgery_with_and_without_cache() {
         let inputs = [input; 8];
 
         let mut out = [false; 8];
-        Verifier::with_policy(VerifyPolicy::Dalek).verify_batch(&inputs, &mut out);
+        Verifier::with_policy(VerifyPolicy::Dalek)
+            .expect("test is only compiled for AVX-512 builds")
+            .verify_batch(&inputs, &mut out);
         assert_eq!(out, [false; 8]);
 
         let mut cached = Verifier::with_cache(
             VerifyPolicy::Dalek,
             HotKeyCache::with_capacity(low_order_encodings().len()),
-        );
+        )
+        .expect("test is only compiled for AVX-512 builds");
         cached.verify_batch(&inputs, &mut out);
         assert_eq!(out, [false; 8]);
         cached.verify_batch(&inputs, &mut out);
@@ -96,7 +101,9 @@ fn simd_dalek_rejects_small_order_forgery_with_and_without_cache() {
 
         // ZIP-215 intentionally accepts the cofactored equation, proving the
         // key was not rejected globally before policy dispatch.
-        Verifier::with_policy(VerifyPolicy::Zip215).verify_batch(&inputs, &mut out);
+        Verifier::with_policy(VerifyPolicy::Zip215)
+            .expect("test is only compiled for AVX-512 builds")
+            .verify_batch(&inputs, &mut out);
         assert_eq!(out, [true; 8]);
     }
 }
@@ -126,7 +133,9 @@ fn sub_width_batch_matches_scalar_verification() {
         }
 
         let mut out = vec![false; len];
-        Verifier::new().verify_batch(&inputs, &mut out);
+        Verifier::new()
+            .expect("test is only compiled for AVX-512 builds")
+            .verify_batch(&inputs, &mut out);
 
         for (i, input) in inputs.iter().enumerate() {
             let verification_key = VerificationKey::try_from(input.public_key).unwrap();

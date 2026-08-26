@@ -2,9 +2,8 @@
 //!
 //! Enable it with the `avx512` feature and build for `x86_64` with `avx512f`,
 //! `avx512dq`, and `avx512ifma` target features. Without those target features
-//! the public API still compiles, but constructing a [`Verifier`] panics; use
-//! [`Verifier::try_new`] and its siblings to get an [`UnsupportedError`]
-//! instead and fall back to another verifier.
+//! the public API still compiles, but the [`Verifier`] constructors return an
+//! [`UnsupportedError`] so the caller can fall back to another verifier.
 //!
 //! This is deliberately *not* one of the curve-arithmetic backends under
 //! [`crate::backend`]: it is a self-contained Ed25519 verifier that callers
@@ -31,7 +30,6 @@ cfg_if::cfg_if! {
     ))] {
         mod batch;
         mod cache;
-        mod cpuid;
         mod edwards;
         mod field;
         mod hot_key_cache;

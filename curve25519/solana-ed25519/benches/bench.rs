@@ -148,7 +148,8 @@ fn bench_batch_verify(c: &mut Criterion) {
                 BenchmarkId::new("AVX512 Zip215 Distinct Pubkeys", n),
                 &avx512_distinct_inputs,
                 |b, inputs: &Vec<avx512::VerifyInput<'static>>| {
-                    let mut verifier = avx512::Verifier::new();
+                    let mut verifier = avx512::Verifier::new()
+                        .expect("benchmark is only compiled for AVX-512 builds");
                     let mut out = vec![false; inputs.len()];
                     b.iter(|| {
                         verifier.verify_batch(inputs, &mut out);
@@ -165,7 +166,8 @@ fn bench_batch_verify(c: &mut Criterion) {
                     let mut verifier = avx512::Verifier::with_cache(
                         avx512::VerifyPolicy::Zip215,
                         avx512::HotKeyCache::with_capacity(1),
-                    );
+                    )
+                    .expect("benchmark is only compiled for AVX-512 builds");
                     let mut out = vec![false; inputs.len()];
                     verifier.verify_batch(inputs, &mut out);
                     b.iter(|| {
@@ -219,7 +221,8 @@ fn bench_single_verify(c: &mut Criterion) {
         }];
 
         group.bench_function("avx512_zip215", |b| {
-            let mut verifier = avx512::Verifier::new();
+            let mut verifier =
+                avx512::Verifier::new().expect("benchmark is only compiled for AVX-512 builds");
             let mut out = [false; 1];
             b.iter(|| {
                 verifier.verify_batch(&inputs, &mut out);
@@ -231,7 +234,8 @@ fn bench_single_verify(c: &mut Criterion) {
             let mut verifier = avx512::Verifier::with_cache(
                 avx512::VerifyPolicy::Zip215,
                 avx512::HotKeyCache::with_capacity(1),
-            );
+            )
+            .expect("benchmark is only compiled for AVX-512 builds");
             let mut out = [false; 1];
             verifier.verify_batch(&inputs, &mut out);
             b.iter(|| {
@@ -283,7 +287,8 @@ fn bench_small_batch_scan(c: &mut Criterion) {
                 BenchmarkId::new("AVX512 verify_batch", n),
                 &inputs,
                 |b, inputs: &Vec<avx512::VerifyInput<'static>>| {
-                    let mut verifier = avx512::Verifier::new();
+                    let mut verifier = avx512::Verifier::new()
+                        .expect("benchmark is only compiled for AVX-512 builds");
                     let mut out = vec![false; inputs.len()];
                     b.iter(|| {
                         verifier.verify_batch(inputs, &mut out);

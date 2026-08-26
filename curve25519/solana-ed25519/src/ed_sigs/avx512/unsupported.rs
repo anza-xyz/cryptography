@@ -2,7 +2,7 @@
 
 use super::error::UnsupportedError;
 
-/// Reason reported by every constructor in this shim.
+/// Reason reported by every verifier constructor in this shim.
 const UNSUPPORTED_BUILD: &str = "this crate was not built for x86_64 with the \
                                  avx512f, avx512dq, and avx512ifma target features";
 
@@ -118,64 +118,21 @@ pub struct Verifier<C: KeyCache = NullKeyCache> {
     cache: C,
 }
 
-impl Default for Verifier<NullKeyCache> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Verifier<NullKeyCache> {
-    /// Create a verifier with the default policy and no retained-key cache.
-    ///
-    /// # Panics
-    ///
-    /// Always panics unless this crate was compiled for `x86_64` with
-    /// `avx512f`, `avx512dq`, and `avx512ifma` target features. Use
-    /// [`try_new`](Self::try_new) to handle that case instead.
-    pub fn new() -> Self {
+    /// Report that this build cannot create a verifier with the default policy.
+    pub fn new() -> Result<Self, UnsupportedError> {
         Self::with_policy(VerifyPolicy::default())
     }
 
-    /// Fallible [`new`](Self::new). Always returns [`UnsupportedError`] in this
-    /// build.
-    pub fn try_new() -> Result<Self, UnsupportedError> {
-        Self::try_with_policy(VerifyPolicy::default())
-    }
-
-    /// Create a verifier with a specific policy and no retained-key cache.
-    ///
-    /// # Panics
-    ///
-    /// Always panics under the same condition as [`Verifier::new`].
-    pub fn with_policy(policy: VerifyPolicy) -> Self {
+    /// Report that this build cannot create a verifier with the given policy.
+    pub fn with_policy(policy: VerifyPolicy) -> Result<Self, UnsupportedError> {
         Self::with_cache(policy, NullKeyCache::new())
-    }
-
-    /// Fallible [`with_policy`](Self::with_policy). Always returns
-    /// [`UnsupportedError`] in this build.
-    pub fn try_with_policy(policy: VerifyPolicy) -> Result<Self, UnsupportedError> {
-        Self::try_with_cache(policy, NullKeyCache::new())
     }
 }
 
 impl<C: KeyCache> Verifier<C> {
-    /// Create a verifier backed by a caller-provided cache.
-    ///
-    /// # Panics
-    ///
-    /// Always panics unless this crate was compiled for `x86_64` with
-    /// `avx512f`, `avx512dq`, and `avx512ifma` target features. Use
-    /// [`try_with_cache`](Self::try_with_cache) to handle that case instead.
-    pub fn with_cache(policy: VerifyPolicy, cache: C) -> Self {
-        match Self::try_with_cache(policy, cache) {
-            Ok(verifier) => verifier,
-            Err(error) => panic!("{error}"),
-        }
-    }
-
-    /// Fallible [`with_cache`](Self::with_cache). Always returns
-    /// [`UnsupportedError`] in this build.
-    pub fn try_with_cache(policy: VerifyPolicy, cache: C) -> Result<Self, UnsupportedError> {
+    /// Report that this build cannot create a verifier with the given cache.
+    pub fn with_cache(policy: VerifyPolicy, cache: C) -> Result<Self, UnsupportedError> {
         let _ = (policy, cache);
         Err(UnsupportedError::new(UNSUPPORTED_BUILD))
     }

@@ -78,8 +78,16 @@ mod tests {
             }
 
             let expected = bool::from(Scalar::from_canonical_bytes(bytes).is_some());
-            assert_eq!(is_canonical(&bytes), expected, "round {round}: {bytes:02x?}");
-            assert_eq!(canonical_radix16(bytes).is_some(), expected, "round {round}");
+            assert_eq!(
+                is_canonical(&bytes),
+                expected,
+                "round {round}: {bytes:02x?}"
+            );
+            assert_eq!(
+                canonical_radix16(bytes).is_some(),
+                expected,
+                "round {round}"
+            );
             round += 1;
         }
     }

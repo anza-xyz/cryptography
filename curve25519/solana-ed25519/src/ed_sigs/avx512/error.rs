@@ -1,26 +1,23 @@
-//! Error returned by the fallible verifier constructors.
+//! Error returned when the AVX-512 verifier was not compiled into this build.
 
 use core::fmt;
 
 /// The AVX-512 verifier cannot be constructed.
 ///
-/// Returned by `Verifier::try_new` and friends, in two situations:
-///
-/// * the crate was not built for `x86_64` with the `avx512f`, `avx512dq`, and
-///   `avx512ifma` target features, so only the unsupported-build shim exists;
-/// * it was, but the host CPU or OS does not actually provide those features.
-///
-/// Note that the second case is best-effort. A binary compiled with those
-/// target features may execute AVX-512 instructions emitted anywhere, so it can
-/// die with `SIGILL` before it ever reaches a verifier constructor. Handling
-/// this error gracefully is only sound for a build that reaches the constructor
-/// at all.
+/// Returned by the portable constructors when the crate was not built for
+/// `x86_64` with the `avx512f`, `avx512dq`, and `avx512ifma` target features.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UnsupportedError {
     reason: &'static str,
 }
 
 impl UnsupportedError {
+    #[cfg(not(all(
+        target_arch = "x86_64",
+        target_feature = "avx512f",
+        target_feature = "avx512dq",
+        target_feature = "avx512ifma",
+    )))]
     pub(crate) const fn new(reason: &'static str) -> Self {
         Self { reason }
     }

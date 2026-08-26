@@ -222,23 +222,20 @@ RUSTFLAGS='-C target-feature=+avx512f,+avx512dq,+avx512ifma' \
 > in an unrelated dependency's build script, long before any of this crate is compiled. Passing
 > `--target` makes cargo build host artifacts without `RUSTFLAGS`.
 
-`Verifier` construction also performs a runtime CPU/OS feature check before using the hot path.
-Builds without those target features still compile the public API, but constructing the verifier
-panics with a clear unsupported-build message. `Verifier::try_new`, `try_with_policy`, and
-`try_with_cache` return `Result<_, avx512::UnsupportedError>` instead, so one code path can compile
-for every target and fall back to another verifier:
+The `Verifier` constructors return `Result<_, avx512::UnsupportedError>` in every build. Builds
+with all three target features return a verifier; other builds compile the same public API but
+return an error, so one code path can fall back to another verifier:
 
 ```rust,ignore
-match avx512::Verifier::try_new() {
+match avx512::Verifier::new() {
     Ok(mut verifier) => verifier.verify_batch(&inputs, &mut out),
     Err(_) => { /* fall back to `ed_sigs::batch` */ }
 }
 ```
 
-Note that this fallback is best-effort. A binary compiled with the AVX-512 target features may
-execute AVX-512 instructions emitted anywhere in it, so on a machine without them it can die with
-`SIGILL` before reaching a constructor at all. The `Result` is useful for gating within a build
-that does reach it, not as a substitute for shipping the right binary.
+This reports which implementation was selected at compile time; it is not a runtime CPU check. A
+binary compiled with the AVX-512 target features may execute AVX-512 instructions anywhere, so it
+must only run on a CPU and OS that support them.
 
 To compare the AVX2 and AVX-512 Ed25519 verification paths on an AVX-512 IFMA-capable host, run
 [`scripts/bench-ed25519-backends.sh`](../../scripts/bench-ed25519-backends.sh) from the workspace
