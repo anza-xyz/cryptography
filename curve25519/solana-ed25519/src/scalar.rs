@@ -265,7 +265,16 @@ impl Scalar {
 
     /// Construct a `Scalar` from bytes that are known to be canonical.
     #[inline]
-    #[cfg(any(curve25519_backend = "simd", feature = "avx512"))]
+    #[cfg(any(
+        curve25519_backend = "simd",
+        all(
+            feature = "avx512",
+            target_arch = "x86_64",
+            target_feature = "avx512f",
+            target_feature = "avx512dq",
+            target_feature = "avx512ifma",
+        )
+    ))]
     pub(crate) const fn from_canonical_bytes_unchecked(bytes: [u8; 32]) -> Scalar {
         Scalar { bytes }
     }
