@@ -32,14 +32,6 @@
     unused_qualifications
 )]
 
-// TEMPORARY CI PROBE: remove after the AVX-512-only job fails as expected.
-#[cfg(all(
-    target_feature = "avx512f",
-    target_feature = "avx512dq",
-    target_feature = "avx512ifma"
-))]
-compile_error!("intentional AVX-512 CI probe: AVX-512 target code was compiled");
-
 //------------------------------------------------------------------------
 // External dependencies:
 //------------------------------------------------------------------------
