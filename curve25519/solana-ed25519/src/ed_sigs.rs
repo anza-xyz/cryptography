@@ -8,6 +8,8 @@ use zeroize::Zeroize;
 #[cfg(test)]
 mod tests;
 
+#[cfg(feature = "avx512")]
+pub mod avx512;
 #[cfg(feature = "alloc")]
 pub mod batch;
 mod bip32;

@@ -2,7 +2,10 @@
 name = "solana-ed25519"
 version = "0.2.4"
 edition = "2024"
-rust-version = "1.85.0"
+# The `avx512` feature needs AVX-512 intrinsics (stable in 1.89) and
+# `slice::as_chunks` (1.88), so this crate can no longer claim 1.85. Inherit the
+# workspace value instead of pinning a second, lower number here.
+rust-version = { workspace = true }
 authors = [
     "Isis Lovecruft <isis@patternsinthevoid.net>",
     "Henry de Valence <hdevalence@hdevalence.ca>",
@@ -38,6 +41,11 @@ rand.workspace = true
 
 [build-dependencies]
 rustc_version.workspace = true
+
+[[bench]]
+name = "bench"
+harness = false
+required-features = ["alloc", "rand_core"]
 
 [[bench]]
 name = "dalek_benchmarks"
@@ -80,7 +88,6 @@ serde = ["dep:serde", "serde/derive"]
 lizard = ["digest"]
 pkcs8 = ["dep:pkcs8", "pkcs8/alloc", "ed25519/pkcs8", "alloc"]
 pem = ["pkcs8", "dep:der", "ed25519/pem", "zeroize"]
-# TEMPORARY: mirrors the feature gate the incoming AVX-512 verifier will use.
 avx512 = ["std"]
 
 [lints.rust.unexpected_cfgs]
