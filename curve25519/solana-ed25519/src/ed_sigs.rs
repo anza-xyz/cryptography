@@ -8,10 +8,6 @@ use zeroize::Zeroize;
 #[cfg(test)]
 mod tests;
 
-// TEMPORARY CI coverage probe. Remove before merge.
-#[cfg(feature = "avx512")]
-mod avx512_probe;
-
 #[cfg(feature = "alloc")]
 pub mod batch;
 mod bip32;
