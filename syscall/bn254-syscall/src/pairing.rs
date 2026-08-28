@@ -46,7 +46,7 @@ pub fn alt_bn128_versioned_pairing(
         return None;
     }
 
-    let chunks = input.chunks_exact(ALT_BN128_PAIRING_ELEMENT_SIZE);
+    let (chunks, _) = input.as_chunks::<ALT_BN128_PAIRING_ELEMENT_SIZE>();
     let mut vec_pairs: Vec<(G1, G2)> = Vec::with_capacity(chunks.len());
 
     for chunk in chunks {

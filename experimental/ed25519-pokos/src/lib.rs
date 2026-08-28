@@ -286,8 +286,8 @@ pub(crate) fn fixed_single_block(domain: &[u8; DOMAIN_LEN], payload: &[u8]) -> [
 /// Parses a 128-byte SHA-512 block into 16 big-endian 64-bit words.
 pub(crate) fn block_words(block: [u8; 128]) -> [u64; FIXED_BLOCK_WORDS] {
     let mut words = [0_u64; FIXED_BLOCK_WORDS];
-    for (i, chunk) in block.chunks_exact(8).enumerate() {
-        words[i] = u64::from_be_bytes(chunk.try_into().expect("chunk size"));
+    for (i, chunk) in block.as_chunks::<8>().0.iter().enumerate() {
+        words[i] = u64::from_be_bytes(*chunk);
     }
     words
 }

@@ -41,8 +41,8 @@ impl Sha512Circuit {
     /// [`build_plonky3_air_trace`](Sha512Circuit::build_plonky3_air_trace).
     pub fn compress_block(state: &[u64; 8], block: &[u8; 128]) -> BlockTrace {
         let mut words = [0_u64; 80];
-        for (i, chunk) in block.chunks_exact(8).enumerate() {
-            words[i] = u64::from_be_bytes(chunk.try_into().expect("word size is 8"));
+        for (i, chunk) in block.as_chunks::<8>().0.iter().enumerate() {
+            words[i] = u64::from_be_bytes(*chunk);
         }
         for i in 16..80 {
             words[i] = small_sigma1(words[i - 2])

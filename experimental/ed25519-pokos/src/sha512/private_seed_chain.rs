@@ -175,12 +175,26 @@ pub(crate) fn public_values_from_statement(
     // The proof exposes the pre-feed-forward SHA-512 round state at row 80, while the public
     // statement exposes the post-feed-forward digest. Reconstruct the former by subtracting the
     // standard initial chaining value word-by-word modulo 2^64.
-    for (i, chunk) in public.commit_of_seed.chunks_exact(8).take(8).enumerate() {
-        let digest_word = u64::from_be_bytes(chunk.try_into().expect("commit digest word"));
+    for (i, chunk) in public
+        .commit_of_seed
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .take(8)
+        .enumerate()
+    {
+        let digest_word = u64::from_be_bytes(*chunk);
         values[i] = super::ops::bb(digest_word.wrapping_sub(INITIAL_STATE[i]));
     }
-    for (i, chunk) in public.hash_of_sk.chunks_exact(8).take(8).enumerate() {
-        let digest_word = u64::from_be_bytes(chunk.try_into().expect("hash-of-sk digest word"));
+    for (i, chunk) in public
+        .hash_of_sk
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .take(8)
+        .enumerate()
+    {
+        let digest_word = u64::from_be_bytes(*chunk);
         values[8 + i] = super::ops::bb(digest_word.wrapping_sub(INITIAL_STATE[i]));
     }
     values
@@ -269,9 +283,10 @@ mod tests {
         let bundle = build_private_seed_chain_bundle(sample_seed());
         let trace = Sha512Circuit::compress_block(&INITIAL_STATE, &bundle.blocks.hash_sk);
         let mut digest = [0_u8; 64];
-        for (i, chunk) in digest.chunks_exact_mut(8).enumerate() {
-            let word = INITIAL_STATE[i].wrapping_add(trace.round_states[80][i]);
-            chunk.copy_from_slice(&word.to_be_bytes());
+        for (i, chunk) in digest.as_chunks_mut::<8>().0.iter_mut().enumerate() {
+            *chunk = INITIAL_STATE[i]
+                .wrapping_add(trace.round_states[80][i])
+                .to_be_bytes();
         }
 
         assert_eq!(digest, bundle.public.hash_of_sk);
@@ -374,8 +389,8 @@ mod tests {
         let row = main.row_slice(0).unwrap();
 
         let seed = sample_seed();
-        for (word_idx, bytes) in seed.chunks_exact(8).enumerate() {
-            let expected_seed = u64::from_be_bytes(bytes.try_into().unwrap());
+        for (word_idx, bytes) in seed.as_chunks::<8>().0.iter().enumerate() {
+            let expected_seed = u64::from_be_bytes(*bytes);
             let expected_sk = u64::from_be_bytes(
                 bundle.blocks.hash_sk[32 + word_idx * 8..40 + word_idx * 8]
                     .try_into()
