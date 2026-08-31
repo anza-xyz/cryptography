@@ -112,7 +112,7 @@ impl<P: VerificationPolicy, C: KeyCache> Verifier<P, C> {
                 .all(|input| self.simd.cache().get(&input.public_key).is_none());
 
         if use_scalar {
-            verify_scalar(inputs, out, P::POLICY);
+            verify_scalar::<P>(inputs, out);
         } else {
             self.simd.verify_batch(inputs, out);
         }
@@ -179,11 +179,17 @@ impl<C: KeyCache> RuntimeVerifier<C> {
     }
 }
 
-fn verify_scalar(inputs: &[VerifyInput<'_>], out: &mut [bool], policy: VerifyPolicy) {
+/// Verify `inputs` one at a time with the crate's scalar verifier.
+///
+/// The policy is a type parameter rather than an argument so that `P::POLICY` is
+/// a constant here and the match below folds away at monomorphization, instead
+/// of branching once per signature on a value the caller already knew at compile
+/// time.
+fn verify_scalar<P: VerificationPolicy>(inputs: &[VerifyInput<'_>], out: &mut [bool]) {
     for (input, valid) in inputs.iter().zip(out) {
         let signature = Signature::from(input.signature);
         *valid = VerificationKey::try_from(input.public_key)
-            .and_then(|key| match policy {
+            .and_then(|key| match P::POLICY {
                 VerifyPolicy::Zip215 => key.verify_zebra(&signature, input.message),
                 VerifyPolicy::Dalek => key.verify_dalek(&signature, input.message),
             })
