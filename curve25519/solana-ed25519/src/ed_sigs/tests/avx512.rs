@@ -121,10 +121,8 @@ fn scalar_fallback_matches_current_small_order_rules() {
     }
 }
 
-/// Both sides of the cutoff, through the runtime facade: batches just below it
-/// take the scalar path and batches at it take the SIMD path, and every prefix
-/// length in between agrees with scalar verification. A valid and a tampered
-/// signature per length keep both verdicts covered.
+/// Check both sides of the cutoff through the runtime facade, including valid
+/// and invalid signatures.
 #[test]
 fn simd_cutoff_and_runtime_facade_match_scalar_verification() {
     let cases: Vec<Case> = (0..SIMD_MIN_BATCH_SIZE as u8 + 1)
@@ -154,8 +152,7 @@ fn simd_cutoff_and_runtime_facade_match_scalar_verification() {
         })
         .collect();
 
-    // Guard the premise: tampering must actually have invalidated something,
-    // or every length below would only ever cover the accepting verdict.
+    // Confirm the cases cover both verdicts.
     let all = expected(&inputs, false);
     assert!(all.iter().any(|valid| *valid) && all.iter().any(|valid| !*valid));
 
@@ -182,10 +179,7 @@ fn simd_cutoff_and_runtime_facade_match_scalar_verification() {
     }
 }
 
-/// The scalar fallback builds no SIMD table, so it leaves a `HotKeyCache`
-/// unpopulated; the SIMD path retains every key it decodes. That difference is
-/// the only publicly observable consequence of the dispatch decision, so it is
-/// what pins the fallback in place.
+/// Pin the dispatch decision through its observable cache behavior.
 #[test]
 fn scalar_fallback_does_not_populate_the_key_cache() {
     let signing_keys: Vec<SigningKey> = (0..2u8)
@@ -237,13 +231,7 @@ fn scalar_fallback_does_not_populate_the_key_cache() {
     }
 }
 
-/// Verifying a cached singleton must leave its key the MRU, so a later insert
-/// does not evict it.
-///
-/// This pins the cache probe in `verify_batch`, not the SIMD dispatch it feeds:
-/// routing a cached singleton to the SIMD path rather than the scalar one is a
-/// performance choice with no publicly observable effect, since both leave the
-/// already-cached key present and freshly touched.
+/// A cached singleton refreshes its key to MRU before a later insertion.
 #[test]
 fn cached_singleton_refreshes_hot_key_recency() {
     let signing_keys: Vec<SigningKey> = (0..3u8)

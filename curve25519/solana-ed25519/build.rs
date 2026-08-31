@@ -17,13 +17,8 @@ fn main() {
         println!("cargo:rustc-cfg=allow_unused_unsafe");
     }
 
-    // The `avx512` feature's dependency is selected by a
-    // `cfg(target_feature = "avx512f", ...)` target table, and rustc only
-    // reports those cfgs once the target features are stable, in 1.89. On an
-    // earlier toolchain the cfg is never set, so `ed25519-simd` and
-    // `ed_sigs::avx512` are omitted even when the documented
-    // `-C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma` is passed:
-    // the build succeeds and the API is simply absent. Fail loudly instead.
+    // These target-feature cfgs stabilized in Rust 1.89. Older compilers would
+    // silently omit the dependency and public API.
     if std::env::var_os("CARGO_FEATURE_AVX512").is_some()
         && rustc_version.major == 1
         && rustc_version.minor < 89
@@ -63,12 +58,7 @@ fn main() {
     println!("cargo:rustc-cfg=curve25519_bits=\"64\"");
     println!("cargo:rustc-cfg=curve25519_backend=\"{curve25519_backend}\"");
 
-    // Single source of truth for the AVX-512 gate. `ed_sigs::avx512` needs both
-    // the Cargo feature and every target feature `ed25519-simd` requires, which
-    // is the same predicate that selects the dependency in `Cargo.toml`. Emit it
-    // as one cfg so the modules that gate on it cannot drift out of sync — an
-    // earlier revision had to fix a missing `avx512bw` in several copies at
-    // once.
+    // Keep the public module gate aligned with the dependency's target cfg.
     if std::env::var_os("CARGO_FEATURE_AVX512").is_some()
         && target_arch == "x86_64"
         && has_target_features(AVX512_TARGET_FEATURES)
@@ -77,13 +67,10 @@ fn main() {
     }
 }
 
-/// The target features `ed25519-simd` refuses to compile without.
+/// Target features required by `ed25519-simd`.
 const AVX512_TARGET_FEATURES: &[&str] = &["avx512f", "avx512bw", "avx512dq", "avx512ifma"];
 
-/// Are all of `features` enabled for the target being compiled?
-///
-/// `CARGO_CFG_TARGET_FEATURE` reflects `-C target-feature` from `RUSTFLAGS`, so
-/// this sees the same feature set as `cfg(target_feature = ...)` in the crate.
+/// Return whether every requested target feature is enabled.
 fn has_target_features(features: &[&str]) -> bool {
     let enabled = std::env::var("CARGO_CFG_TARGET_FEATURE").unwrap_or_default();
     features

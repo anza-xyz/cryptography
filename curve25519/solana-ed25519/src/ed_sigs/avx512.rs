@@ -1,19 +1,14 @@
 //! AVX-512 Ed25519 batch verification with a scalar small-batch fallback.
 //!
-//! This module mirrors the main user-facing [`ed25519_simd`] verifier API while
-//! adding a scalar fallback for small uncached batches.
+//! This module wraps [`ed25519_simd`] with a scalar small-batch fallback.
 //!
-//! Everything re-exported below is `ed25519-simd`'s own type, so this module's
-//! API tracks that crate's semver: a breaking change there is a breaking change
-//! for this crate.
+//! Re-exported types follow `ed25519-simd`'s semver contract.
 //!
 //! [`Verifier`](crate::ed_sigs::avx512::Verifier) is a distinct wrapper type and
 //! is not type-compatible with [`ed25519_simd::Verifier`].
 //!
-//! The crate's scalar verifier is used when an uncached batch contains fewer than
-//! [`SIMD_MIN_BATCH_SIZE`](crate::ed_sigs::avx512::SIMD_MIN_BATCH_SIZE)
-//! signatures. A cached singleton stays on the SIMD path so the configured
-//! cache is used and its recency state is refreshed.
+//! Uncached singletons use scalar verification. Cached singletons use SIMD to
+//! preserve cache behavior.
 
 use super::{Signature, VerificationKey};
 
@@ -29,12 +24,8 @@ pub use ed25519_simd::{
 /// was measured on an AMD EPYC 9555P with AVX-512 enabled: scalar won for one
 /// uncached signature under both policies, while SIMD won starting at two.
 ///
-/// This describes where the crossover sits; it is not a tuning knob. Only the
-/// one-signature case was measured, and
-/// [`verify_batch`](Verifier::verify_batch) dispatches on that case directly, so
-/// changing this value alone moves nothing. Sending larger batches to the scalar
-/// path needs both a measurement that supports it and a decision about how to
-/// weigh cache hits across several keys.
+/// This documents the measured crossover; dispatch handles the singleton case
+/// explicitly. Moving larger batches to scalar requires revisiting cache policy.
 pub const SIMD_MIN_BATCH_SIZE: usize = 2;
 
 /// Batch Ed25519 verifier for a compile-time [`VerificationPolicy`] and
@@ -117,14 +108,8 @@ impl<P: VerificationPolicy, C: KeyCache> Verifier<P, C> {
     pub fn verify_batch(&mut self, inputs: &[VerifyInput<'_>], out: &mut [bool]) {
         assert_eq!(inputs.len(), out.len());
 
-        // Spelled out as the two cases the measurement behind
-        // `SIMD_MIN_BATCH_SIZE` actually covers, rather than as a comparison
-        // against it. A comparison invites raising the constant, which would
-        // silently hand multi-signature batches to the serial loop, turn the
-        // cache check into an all-or-nothing decision over several keys, and
-        // widen the cache-warming gap below from singletons to whole batches.
-        // Delegating more than one signature to the scalar path is a design
-        // change; make it deliberately here, not by editing a number.
+        // Keep multi-signature dispatch independent of the documented cutoff;
+        // moving it to scalar also requires a cache-policy decision.
         let use_scalar = match inputs {
             [] => true,
             [input] => self.simd.cache().get(&input.public_key).is_none(),
@@ -201,10 +186,7 @@ impl<C: KeyCache> RuntimeVerifier<C> {
 
 /// Verify `inputs` one at a time with the crate's scalar verifier.
 ///
-/// The policy is a type parameter rather than an argument so that `P::POLICY` is
-/// a constant here and the match below folds away at monomorphization, instead
-/// of branching once per signature on a value the caller already knew at compile
-/// time.
+/// The type-selected policy lets the match fold away at monomorphization.
 fn verify_scalar<P: VerificationPolicy>(inputs: &[VerifyInput<'_>], out: &mut [bool]) {
     for (input, valid) in inputs.iter().zip(out) {
         let signature = Signature::from(input.signature);

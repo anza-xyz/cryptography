@@ -18,18 +18,8 @@ repository = { workspace = true }
 homepage = { workspace = true }
 
 [package.metadata.docs.rs]
-# The AVX-512 target features have to be given twice: `rustc-args` is what makes
-# cargo select the target-specific `ed25519-simd` dependency and what the build
-# script reads to emit `ed25519_avx512`, while `rustdoc-args` is what puts the
-# same cfgs in front of rustdoc. Neither substitutes for the other, because
-# cargo does not pass `RUSTFLAGS` to rustdoc invocations.
-#
-# Both sets of flags apply to every target docs.rs builds, and outside x86_64
-# rustc only warns that the features are unknown while the cfg-gated module stays
-# absent, so extra targets would document nothing new and add per-target noise.
-# `targets` therefore stays empty and documentation is built for `default-target`
-# alone. Restoring the target picker means making these flags target-conditional
-# first, which docs.rs metadata cannot express.
+# `rustc-args` selects the dependency; `rustdoc-args` exposes its API in docs.
+# docs.rs cannot make these flags target-specific, so build only x86_64 docs.
 default-target = "x86_64-unknown-linux-gnu"
 targets = []
 rustc-args = [
@@ -91,10 +81,7 @@ zeroize = { workspace = true, optional = true }
 cpufeatures = { workspace = true }
 curve25519-dalek-derive = { workspace = true }
 
-# `ed25519-simd` has no portable implementation and deliberately fails to
-# compile unless all of its required target features are enabled. Keeping it a
-# target-specific optional dependency lets `--features avx512` remain a valid
-# unsupported-build configuration without compiling the dependency.
+# Keep the non-portable dependency out of unsupported target configurations.
 [target.'cfg(all(target_arch = "x86_64", target_feature = "avx512f", target_feature = "avx512bw", target_feature = "avx512dq", target_feature = "avx512ifma"))'.dependencies]
 ed25519-simd = { workspace = true, optional = true }
 

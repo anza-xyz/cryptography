@@ -53,36 +53,23 @@ jobs:
         run: |
           cargo hack check --each-feature --all-targets
 
-      # The Cargo feature can be enabled without the matching target features;
-      # in that configuration the target-specific dependency and API are
-      # omitted while the rest of the crate remains usable.
+      # The Cargo feature must also build without matching target features.
       - name: Test avx512 fallback
         run: |
           cargo test -p solana-ed25519 --features avx512 --lib
 
-  # Enable both gates for the optimized implementation: the `avx512` Cargo
-  # feature exposes the verifier, while these target features select its IFMA
-  # implementation and make LLVM generate AVX-512 code. GitHub runners do not
-  # guarantee AVX-512 IFMA, so the gated tests execute only when the host
-  # reports every required CPU feature.
+  # Compile the feature and IFMA target configuration. Execute it only on
+  # runners that report every required CPU feature.
   avx512-build:
     name: avx512 (compile, lint + native tests when supported)
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: -C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma
-      # Every cargo invocation below MUST pass this. `RUSTFLAGS` without an
-      # explicit `--target` is also applied to host artifacts — build scripts
-      # and proc macros — which cargo then *executes* during the build. The
-      # runner may have no AVX-512, so the compiler's own auto-vectorization of,
-      # say, `proc-macro2`'s build script can kill it with SIGILL before any of
-      # our code is even compiled. Passing `--target`, even when it equals the
-      # host triple, makes cargo build host artifacts without `RUSTFLAGS`.
+      # `--target` keeps AVX-512 RUSTFLAGS off executable host artifacts such as
+      # build scripts and proc macros.
       AVX512_TARGET: x86_64-unknown-linux-gnu
-      # Fail safely if a step that is only meant to compile ever tries to run a
-      # target binary on a host without AVX-512. Cargo does not use the target
-      # runner for host build scripts or proc macros, so this does not cover the
-      # SIGILL above. The one step that legitimately runs target binaries opts
-      # out explicitly with `env -u`.
+      # Prevent compile-only steps from running AVX-512 target binaries. The
+      # native test step unsets this runner.
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: /bin/false
     steps:
       - name: Checkout
@@ -115,18 +102,14 @@ jobs:
             echo "**AVX-512 IFMA available** on this runner; the native test" \
               "suite ran." >> "${GITHUB_STEP_SUMMARY}"
           else
-            # A warning, not a notice: this reduces what the job actually
-            # verifies, so it has to be visible in the checks UI.
+            # Make reduced test coverage visible in the checks UI.
             echo "::warning::Host lacks AVX-512 IFMA; the native test suite is skipped."
             echo "**AVX-512 IFMA unavailable** on this runner; the native test" \
               "suite was **skipped** and only compilation was checked." \
               >> "${GITHUB_STEP_SUMMARY}"
           fi
 
-      # These target features change codegen for the whole crate, including the
-      # pre-existing curve backend that the steps below only ever compile, so
-      # run the entire library suite rather than just the AVX-512 module's own
-      # tests.
+      # Target features affect the whole crate, so run the complete library suite.
       - name: Test natively with AVX-512 target features
         if: steps.avx512-host.outputs.supported == 'true'
         run: |
@@ -134,12 +117,7 @@ jobs:
             cargo test -p solana-ed25519 --target "${AVX512_TARGET}" \
               --features avx512 --lib
 
-      # `ubuntu-latest` is a mixed fleet, so on a pull request an unsupported
-      # runner is bad luck and the step above simply does not run. On the default
-      # branch it is a coverage regression: a green job would be indistinguishable
-      # from one that actually verified the AVX-512 code. Fail instead, so a
-      # change in the runner fleet is noticed rather than silently dropping the
-      # suite.
+      # Do not silently lose native AVX-512 coverage on the default branch.
       - name: Require AVX-512 coverage on the default branch
         if: >-
           github.event_name == 'push'
