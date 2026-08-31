@@ -17,6 +17,24 @@ fn main() {
         println!("cargo:rustc-cfg=allow_unused_unsafe");
     }
 
+    // The `avx512` feature's dependency is selected by a
+    // `cfg(target_feature = "avx512f", ...)` target table, and rustc only
+    // reports those cfgs once the target features are stable, in 1.89. On an
+    // earlier toolchain the cfg is never set, so `ed25519-simd` and
+    // `ed_sigs::avx512` are omitted even when the documented
+    // `-C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma` is passed:
+    // the build succeeds and the API is simply absent. Fail loudly instead.
+    if std::env::var_os("CARGO_FEATURE_AVX512").is_some()
+        && rustc_version.major == 1
+        && rustc_version.minor < 89
+    {
+        panic!(
+            "the `avx512` feature requires Rust 1.89.0 or newer, found {rustc_version}. \
+             Earlier toolchains never set `cfg(target_feature = \"avx512f\")`, which would \
+             silently omit the `ed_sigs::avx512` API instead of failing to build."
+        );
+    }
+
     // Backend override / default.
     //
     // `simd` compiles in the AVX2 vector backend and picks between it and the
