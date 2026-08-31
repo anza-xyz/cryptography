@@ -62,25 +62,22 @@ jobs:
 
   # Enable both gates for the optimized implementation: the `avx512` Cargo
   # feature exposes the verifier, while these target features select its IFMA
-  # implementation and make LLVM generate AVX-512 code. GitHub runners have no
-  # AVX-512 IFMA, so target binaries must only be compiled and never executed.
+  # implementation and make LLVM generate AVX-512 code. GitHub runners do not
+  # guarantee AVX-512 IFMA, so the gated tests execute only when the host
+  # reports every required CPU feature.
   avx512-build:
-    name: avx512 (compile + lint only, not executed)
+    name: avx512 (compile, lint + native tests when supported)
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: -C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma
       # Every cargo invocation below MUST pass this. `RUSTFLAGS` without an
       # explicit `--target` is also applied to host artifacts — build scripts
       # and proc macros — which cargo then *executes* during the build. The
-      # runner has no AVX-512, so the compiler's own auto-vectorization of, say,
-      # `proc-macro2`'s build script kills it with SIGILL before any of our code
-      # is even compiled. Passing `--target`, even when it equals the host
-      # triple, makes cargo build host artifacts without `RUSTFLAGS`.
+      # runner may have no AVX-512, so the compiler's own auto-vectorization of,
+      # say, `proc-macro2`'s build script can kill it with SIGILL before any of
+      # our code is even compiled. Passing `--target`, even when it equals the
+      # host triple, makes cargo build host artifacts without `RUSTFLAGS`.
       AVX512_TARGET: x86_64-unknown-linux-gnu
-      # Fail safely if a future change accidentally tries to run a target
-      # binary. Cargo does not use the target runner for host build scripts or
-      # proc macros.
-      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: /bin/false
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -93,6 +90,31 @@ jobs:
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
+
+      - name: Detect AVX-512 IFMA support
+        id: avx512-host
+        run: |
+          supported=true
+          for feature in avx512f avx512bw avx512dq avx512ifma
+          do
+            if ! grep --quiet --word-regexp "${feature}" /proc/cpuinfo
+            then
+              supported=false
+            fi
+          done
+          echo "supported=${supported}" >> "${GITHUB_OUTPUT}"
+          if [ "${supported}" = true ]
+          then
+            echo "Host supports AVX-512F/BW/DQ/IFMA; native tests will run."
+          else
+            echo "::notice::Host lacks AVX-512 IFMA; native tests are skipped."
+          fi
+
+      - name: Test AVX-512 verifier natively
+        if: steps.avx512-host.outputs.supported == 'true'
+        run: |
+          cargo test -p solana-ed25519 --target "${AVX512_TARGET}" \
+            --features avx512 --lib ed_sigs::tests::avx512
 
       # `--all-targets` also catches breakage in eligible cfg-gated test and
       # bench code.
