@@ -110,11 +110,15 @@ jobs:
             echo "::notice::Host lacks AVX-512 IFMA; native tests are skipped."
           fi
 
-      - name: Test AVX-512 verifier natively
+      # These target features change codegen for the whole crate, including the
+      # pre-existing curve backend that the steps below only ever compile, so
+      # run the entire library suite rather than just the AVX-512 module's own
+      # tests.
+      - name: Test natively with AVX-512 target features
         if: steps.avx512-host.outputs.supported == 'true'
         run: |
           cargo test -p solana-ed25519 --target "${AVX512_TARGET}" \
-            --features avx512 --lib ed_sigs::tests::avx512
+            --features avx512 --lib
 
       # `--all-targets` also catches breakage in eligible cfg-gated test and
       # bench code.
