@@ -28,6 +28,13 @@ pub use ed25519_simd::{
 /// A singleton already present in the configured cache uses SIMD. This cutoff
 /// was measured on an AMD EPYC 9555P with AVX-512 enabled: scalar won for one
 /// uncached signature under both policies, while SIMD won starting at two.
+///
+/// This describes where the crossover sits; it is not a tuning knob. Only the
+/// one-signature case was measured, and
+/// [`verify_batch`](Verifier::verify_batch) dispatches on that case directly, so
+/// changing this value alone moves nothing. Sending larger batches to the scalar
+/// path needs both a measurement that supports it and a decision about how to
+/// weigh cache hits across several keys.
 pub const SIMD_MIN_BATCH_SIZE: usize = 2;
 
 /// Batch Ed25519 verifier for a compile-time [`VerificationPolicy`] and
@@ -110,10 +117,19 @@ impl<P: VerificationPolicy, C: KeyCache> Verifier<P, C> {
     pub fn verify_batch(&mut self, inputs: &[VerifyInput<'_>], out: &mut [bool]) {
         assert_eq!(inputs.len(), out.len());
 
-        let use_scalar = inputs.len() < SIMD_MIN_BATCH_SIZE
-            && inputs
-                .iter()
-                .all(|input| self.simd.cache().get(&input.public_key).is_none());
+        // Spelled out as the two cases the measurement behind
+        // `SIMD_MIN_BATCH_SIZE` actually covers, rather than as a comparison
+        // against it. A comparison invites raising the constant, which would
+        // silently hand multi-signature batches to the serial loop, turn the
+        // cache check into an all-or-nothing decision over several keys, and
+        // widen the cache-warming gap below from singletons to whole batches.
+        // Delegating more than one signature to the scalar path is a design
+        // change; make it deliberately here, not by editing a number.
+        let use_scalar = match inputs {
+            [] => true,
+            [input] => self.simd.cache().get(&input.public_key).is_none(),
+            _ => false,
+        };
 
         if use_scalar {
             verify_scalar::<P>(inputs, out);
