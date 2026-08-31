@@ -53,32 +53,23 @@ jobs:
         run: |
           cargo hack check --each-feature --all-targets
 
-      # The public AVX-512 API deliberately supports builds without the target
-      # features through its unsupported-build fallback.
+      # The Cargo feature must also build without matching target features.
       - name: Test avx512 fallback
         run: |
           cargo test -p solana-ed25519 --features avx512 --lib
 
-  # Enable both gates for the optimized implementation: the `avx512` Cargo
-  # feature exposes the verifier, while these target features select its IFMA
-  # implementation and make LLVM generate AVX-512 code. GitHub runners have no
-  # AVX-512 IFMA, so target binaries must only be compiled and never executed.
+  # Compile the feature and IFMA target configuration. Execute it only on
+  # runners that report every required CPU feature.
   avx512-build:
-    name: avx512 (compile + lint only, not executed)
+    name: avx512 (compile, lint + native tests when supported)
     runs-on: ubuntu-latest
     env:
-      RUSTFLAGS: -C target-feature=+avx512f,+avx512dq,+avx512ifma
-      # Every cargo invocation below MUST pass this. `RUSTFLAGS` without an
-      # explicit `--target` is also applied to host artifacts — build scripts
-      # and proc macros — which cargo then *executes* during the build. The
-      # runner has no AVX-512, so the compiler's own auto-vectorization of, say,
-      # `proc-macro2`'s build script kills it with SIGILL before any of our code
-      # is even compiled. Passing `--target`, even when it equals the host
-      # triple, makes cargo build host artifacts without `RUSTFLAGS`.
+      RUSTFLAGS: -C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma
+      # `--target` keeps AVX-512 RUSTFLAGS off executable host artifacts such as
+      # build scripts and proc macros.
       AVX512_TARGET: x86_64-unknown-linux-gnu
-      # Fail safely if a future change accidentally tries to run a target
-      # binary. Cargo does not use the target runner for host build scripts or
-      # proc macros.
+      # Prevent compile-only steps from running AVX-512 target binaries. The
+      # native test step unsets this runner.
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: /bin/false
     steps:
       - name: Checkout
@@ -92,6 +83,50 @@ jobs:
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
+
+      - name: Detect AVX-512 IFMA support
+        id: avx512-host
+        run: |
+          supported=true
+          for feature in avx512f avx512bw avx512dq avx512ifma
+          do
+            if ! grep --quiet --word-regexp "${feature}" /proc/cpuinfo
+            then
+              supported=false
+            fi
+          done
+          echo "supported=${supported}" >> "${GITHUB_OUTPUT}"
+          if [ "${supported}" = true ]
+          then
+            echo "Host supports AVX-512F/BW/DQ/IFMA; native tests will run."
+            echo "**AVX-512 IFMA available** on this runner; the native test" \
+              "suite ran." >> "${GITHUB_STEP_SUMMARY}"
+          else
+            # Make reduced test coverage visible in the checks UI.
+            echo "::warning::Host lacks AVX-512 IFMA; the native test suite is skipped."
+            echo "**AVX-512 IFMA unavailable** on this runner; the native test" \
+              "suite was **skipped** and only compilation was checked." \
+              >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+      # Target features affect the whole crate, so run the complete library suite.
+      - name: Test natively with AVX-512 target features
+        if: steps.avx512-host.outputs.supported == 'true'
+        run: |
+          env -u CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER \
+            cargo test -p solana-ed25519 --target "${AVX512_TARGET}" \
+              --features avx512 --lib
+
+      # Do not silently lose native AVX-512 coverage on the default branch.
+      - name: Require AVX-512 coverage on the default branch
+        if: >-
+          github.event_name == 'push'
+          && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+          && steps.avx512-host.outputs.supported != 'true'
+        run: |
+          echo "::error::No AVX-512 IFMA runner was available, so the native" \
+            "test suite never ran on the default branch."
+          exit 1
 
       # `--all-targets` also catches breakage in eligible cfg-gated test and
       # bench code.
@@ -116,8 +151,7 @@ jobs:
       # The AVX-512 target features must also compile when the curve backend is
       # forced to serial; the two selections are independent.
       - name: Build with serial curve backend
-        env:
-          RUSTFLAGS: -C target-feature=+avx512f,+avx512dq,+avx512ifma --cfg curve25519_backend="serial"
         run: |
-          cargo build -p solana-ed25519 --target "$AVX512_TARGET" \
-            --features avx512 --all-targets
+          RUSTFLAGS="${RUSTFLAGS} --cfg curve25519_backend=\"serial\"" \
+            cargo build -p solana-ed25519 --target "$AVX512_TARGET" \
+              --features avx512 --all-targets

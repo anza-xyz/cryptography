@@ -128,6 +128,31 @@ for (vk_bytes, sig, msg) in items {
 verifier.verify().expect("all valid");
 ```
 
+### AVX-512 batch verification
+
+The optional `avx512` feature exposes `ed_sigs::avx512`, a compatibility facade
+over the [`ed25519-simd`] verification-only batch API. It is compiled only for
+`x86_64` targets with AVX-512F, AVX-512BW, AVX-512DQ, and AVX-512IFMA enabled:
+
+```sh
+RUSTFLAGS='-C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma' \
+  cargo build --release --target x86_64-unknown-linux-gnu --features avx512
+```
+
+These target features apply to the entire binary, which must only be deployed
+on hosts that provide all four features and OS support for AVX-512 register
+state. There is no runtime CPU-feature dispatch. Uncached batches with fewer
+than two signatures use the corresponding scalar verification loop; cached
+singletons and batches of two or more use AVX-512. Without both the Cargo
+feature and target features, the `ed_sigs::avx512` module is not exposed and
+the existing Ed25519 verification APIs remain available.
+
+Note that the scalar path builds no SIMD multiplication table, so it never
+populates a `HotKeyCache`. A caller that verifies one signature at a time with
+a cache configured stays on the scalar path indefinitely and the cache stays
+empty: it only fills from batches of two or more. Submit signatures in batches
+if you want key reuse to pay off.
+
 ### HEEA decomposition example
 
 ```rust,ignore
@@ -163,6 +188,7 @@ let (rho, tau, flip_h) = h.heea_decompose();
 | `group` | | `group` and `ff` crate trait impls. |
 | `group-bits` | | `ff::PrimeFieldBits` for `Scalar`. |
 | `lizard` | | Bytestring-to-Ristretto-point injection. |
+| `avx512` | | AVX-512 IFMA batch verification on compatible `x86_64` compilation targets; requires `std`. |
 
 ---
 
@@ -197,14 +223,15 @@ All point types enforce validity invariants at the type level (no invalid `Edwar
 constructed).  All secret-operand operations use constant-time logic via the [`subtle`] crate.
 Variable-time functions are explicitly marked `vartime`.
 
-The SIMD backend uses `unsafe` internally for SIMD intrinsics, guarded by runtime CPU-feature
-checks.
+The AVX2 curve backend uses `unsafe` internally for SIMD intrinsics, guarded by
+runtime CPU-feature checks. The optional AVX-512 batch verifier instead relies
+on the compile-time and deployment requirements described above.
 
 ---
 
 ## MSRV
 
-Rust **1.85.0** (Edition 2024).
+Rust **1.85.0** (Edition 2024). Enabling `avx512` requires Rust **1.89.0**.
 
 ---
 
@@ -223,3 +250,4 @@ Rust **1.85.0** (Edition 2024).
 [ZIP 215]: https://zips.z.cash/zip-0215
 [SPPARK]: https://github.com/supranational/sppark
 [subtle]: https://docs.rs/subtle
+[`ed25519-simd`]: https://github.com/efagerho/ed25519-simd-rs

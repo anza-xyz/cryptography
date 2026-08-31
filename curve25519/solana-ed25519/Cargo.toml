@@ -18,7 +18,17 @@ repository = { workspace = true }
 homepage = { workspace = true }
 
 [package.metadata.docs.rs]
+# `rustc-args` selects the dependency; `rustdoc-args` exposes its API in docs.
+# docs.rs cannot make these flags target-specific, so build only x86_64 docs.
+default-target = "x86_64-unknown-linux-gnu"
+targets = []
+rustc-args = [
+    "-C",
+    "target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma",
+]
 rustdoc-args = [
+    "-C",
+    "target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma",
     "--html-in-header",
     "docs/assets/rustdoc-include-katex-header.html",
     "--cfg",
@@ -44,6 +54,11 @@ name = "dalek_benchmarks"
 harness = false
 required-features = ["alloc", "digest", "group", "rand_core"]
 
+[[bench]]
+name = "avx512_small_batch"
+harness = false
+required-features = ["avx512", "rand_core"]
+
 [dependencies]
 cfg-if.workspace = true
 ed25519.workspace = true
@@ -66,6 +81,10 @@ zeroize = { workspace = true, optional = true }
 cpufeatures = { workspace = true }
 curve25519-dalek-derive = { workspace = true }
 
+# Keep the non-portable dependency out of unsupported target configurations.
+[target.'cfg(all(target_arch = "x86_64", target_feature = "avx512f", target_feature = "avx512bw", target_feature = "avx512dq", target_feature = "avx512ifma"))'.dependencies]
+ed25519-simd = { workspace = true, optional = true }
+
 [features]
 default = ["alloc", "precomputed-tables", "zeroize", "rand_core", "digest"]
 alloc = ["zeroize?/alloc"]
@@ -80,8 +99,8 @@ serde = ["dep:serde", "serde/derive"]
 lizard = ["digest"]
 pkcs8 = ["dep:pkcs8", "pkcs8/alloc", "ed25519/pkcs8", "alloc"]
 pem = ["pkcs8", "dep:der", "ed25519/pem", "zeroize"]
-# TEMPORARY: mirrors the feature gate the incoming AVX-512 verifier will use.
-avx512 = ["std"]
+# Exposes the verifier when its AVX-512 target requirements also match.
+avx512 = ["std", "dep:ed25519-simd"]
 
 [lints.rust.unexpected_cfgs]
 level = "warn"
@@ -90,4 +109,5 @@ check-cfg = [
     'cfg(curve25519_backend, values("simd", "serial"))',
     'cfg(curve25519_diagnostics, values("build"))',
     'cfg(curve25519_bits, values("64"))',
+    'cfg(ed25519_avx512)',
 ]
