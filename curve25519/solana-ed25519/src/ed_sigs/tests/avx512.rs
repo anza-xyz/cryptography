@@ -155,6 +155,68 @@ fn simd_cutoff_and_runtime_facade_match_scalar_verification() {
     assert_eq!(dalek_out, expected(&inputs, true));
 }
 
+/// The scalar fallback builds no SIMD table, so it leaves a `HotKeyCache`
+/// unpopulated; the SIMD path retains every key it decodes. That difference is
+/// the only publicly observable consequence of the dispatch decision, so it is
+/// what pins the fallback in place.
+#[test]
+fn scalar_fallback_does_not_populate_the_key_cache() {
+    let signing_keys: Vec<SigningKey> = (0..2u8)
+        .map(|index| {
+            let mut seed = [0u8; 32];
+            seed[0] = index;
+            SigningKey::from(seed)
+        })
+        .collect();
+    let public_keys: Vec<[u8; 32]> = signing_keys
+        .iter()
+        .map(|key| VerificationKeyBytes::from(key).into())
+        .collect();
+    let signatures: Vec<[u8; 64]> = signing_keys
+        .iter()
+        .map(|key| key.sign(b"cache population").into())
+        .collect();
+    let inputs: Vec<VerifyInput<'_>> = public_keys
+        .iter()
+        .zip(&signatures)
+        .map(|(public_key, signature)| VerifyInput {
+            public_key: *public_key,
+            signature: *signature,
+            message: b"cache population",
+        })
+        .collect();
+
+    let mut verifier = Zip215Verifier::with_cache(HotKeyCache::with_capacity(8));
+
+    // One uncached signature is below the cutoff, so it takes the scalar path
+    // and retains nothing.
+    let mut out = [false];
+    verifier.verify_batch(&inputs[..1], &mut out);
+    assert_eq!(out, [true]);
+    assert!(
+        verifier.cache().get(&public_keys[0]).is_none(),
+        "the scalar fallback must not build or retain a SIMD table"
+    );
+
+    // A batch at the cutoff takes the SIMD path, which does retain its keys.
+    let mut out = [false; SIMD_MIN_BATCH_SIZE];
+    verifier.verify_batch(&inputs, &mut out);
+    assert_eq!(out, [true; SIMD_MIN_BATCH_SIZE]);
+    for public_key in &public_keys {
+        assert!(
+            verifier.cache().get(public_key).is_some(),
+            "the SIMD path retains every key it decodes"
+        );
+    }
+}
+
+/// Verifying a cached singleton must leave its key the MRU, so a later insert
+/// does not evict it.
+///
+/// This pins the cache probe in `verify_batch`, not the SIMD dispatch it feeds:
+/// routing a cached singleton to the SIMD path rather than the scalar one is a
+/// performance choice with no publicly observable effect, since both leave the
+/// already-cached key present and freshly touched.
 #[test]
 fn cached_singleton_refreshes_hot_key_recency() {
     let signing_keys: Vec<SigningKey> = (0..3u8)
