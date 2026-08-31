@@ -66,6 +66,13 @@ zeroize = { workspace = true, optional = true }
 cpufeatures = { workspace = true }
 curve25519-dalek-derive = { workspace = true }
 
+# `ed25519-simd` has no portable implementation and deliberately fails to
+# compile unless all of its required target features are enabled. Keeping it a
+# target-specific optional dependency lets `--features avx512` remain a valid
+# unsupported-build configuration without compiling the dependency.
+[target.'cfg(all(target_arch = "x86_64", target_feature = "avx512f", target_feature = "avx512bw", target_feature = "avx512dq", target_feature = "avx512ifma"))'.dependencies]
+ed25519-simd = { workspace = true, optional = true }
+
 [features]
 default = ["alloc", "precomputed-tables", "zeroize", "rand_core", "digest"]
 alloc = ["zeroize?/alloc"]
@@ -80,8 +87,8 @@ serde = ["dep:serde", "serde/derive"]
 lizard = ["digest"]
 pkcs8 = ["dep:pkcs8", "pkcs8/alloc", "ed25519/pkcs8", "alloc"]
 pem = ["pkcs8", "dep:der", "ed25519/pem", "zeroize"]
-# TEMPORARY: mirrors the feature gate the incoming AVX-512 verifier will use.
-avx512 = ["std"]
+# Exposes the verifier when its AVX-512 target requirements also match.
+avx512 = ["std", "dep:ed25519-simd"]
 
 [lints.rust.unexpected_cfgs]
 level = "warn"

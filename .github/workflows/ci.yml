@@ -53,8 +53,9 @@ jobs:
         run: |
           cargo hack check --each-feature --all-targets
 
-      # The public AVX-512 API deliberately supports builds without the target
-      # features through its unsupported-build fallback.
+      # The Cargo feature can be enabled without the matching target features;
+      # in that configuration the target-specific dependency and API are
+      # omitted while the rest of the crate remains usable.
       - name: Test avx512 fallback
         run: |
           cargo test -p solana-ed25519 --features avx512 --lib
@@ -67,7 +68,7 @@ jobs:
     name: avx512 (compile + lint only, not executed)
     runs-on: ubuntu-latest
     env:
-      RUSTFLAGS: -C target-feature=+avx512f,+avx512dq,+avx512ifma
+      RUSTFLAGS: -C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma
       # Every cargo invocation below MUST pass this. `RUSTFLAGS` without an
       # explicit `--target` is also applied to host artifacts — build scripts
       # and proc macros — which cargo then *executes* during the build. The
@@ -117,7 +118,7 @@ jobs:
       # forced to serial; the two selections are independent.
       - name: Build with serial curve backend
         env:
-          RUSTFLAGS: -C target-feature=+avx512f,+avx512dq,+avx512ifma --cfg curve25519_backend="serial"
+          RUSTFLAGS: -C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma --cfg curve25519_backend="serial"
         run: |
           cargo build -p solana-ed25519 --target "$AVX512_TARGET" \
             --features avx512 --all-targets

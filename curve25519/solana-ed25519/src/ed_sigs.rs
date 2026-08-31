@@ -23,6 +23,22 @@ pub use error::Error;
 pub use signing_key::SigningKey;
 pub use verification_key::{VerificationKey, VerificationKeyBytes};
 
+/// AVX-512 IFMA Ed25519 batch verification.
+///
+/// This API is available only when the `avx512` Cargo feature is enabled and
+/// the compilation target provides AVX-512F, AVX-512BW, AVX-512DQ, and
+/// AVX-512IFMA. The resulting binary requires those CPU features at runtime;
+/// this module does not perform runtime dispatch or provide a scalar fallback.
+#[cfg(all(
+    feature = "avx512",
+    target_arch = "x86_64",
+    target_feature = "avx512f",
+    target_feature = "avx512bw",
+    target_feature = "avx512dq",
+    target_feature = "avx512ifma",
+))]
+pub use ed25519_simd as avx512;
+
 pub(crate) fn scalar_from_sha512(hash: Sha512) -> Scalar {
     #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
     let mut output = hash.finalize();
