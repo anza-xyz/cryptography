@@ -18,7 +18,17 @@ repository = { workspace = true }
 homepage = { workspace = true }
 
 [package.metadata.docs.rs]
+# Select the target-specific dependency with rustc and expose its cfg-gated
+# module with rustdoc. Documentation only builds the compatible target.
+default-target = "x86_64-unknown-linux-gnu"
+targets = []
+rustc-args = [
+    "-C",
+    "target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma",
+]
 rustdoc-args = [
+    "-C",
+    "target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma",
     "--html-in-header",
     "docs/assets/rustdoc-include-katex-header.html",
     "--cfg",

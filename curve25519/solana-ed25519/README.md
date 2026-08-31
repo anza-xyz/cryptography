@@ -136,16 +136,16 @@ over the [`ed25519-simd`] verification-only batch API. It is compiled only for
 
 ```sh
 RUSTFLAGS='-C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma' \
-  cargo build --release --features avx512
+  cargo build --release --target x86_64-unknown-linux-gnu --features avx512
 ```
 
 These target features apply to the entire binary, which must only be deployed
 on hosts that provide all four features and OS support for AVX-512 register
-state. There is no runtime CPU-feature dispatch. Batches with fewer than two
-signatures use the corresponding scalar verification loop; batches of two or
-more use AVX-512. Without both the Cargo feature and target features, the
-`ed_sigs::avx512` module is not exposed and the existing Ed25519 verification
-APIs remain available.
+state. There is no runtime CPU-feature dispatch. Uncached batches with fewer
+than two signatures use the corresponding scalar verification loop; cached
+singletons and batches of two or more use AVX-512. Without both the Cargo
+feature and target features, the `ed_sigs::avx512` module is not exposed and
+the existing Ed25519 verification APIs remain available.
 
 ### HEEA decomposition example
 

@@ -2,8 +2,8 @@ use super::small_order::SMALL_ORDER_SIGS;
 use crate::ed_sigs::{
     Signature, SigningKey, VerificationKey, VerificationKeyBytes,
     avx512::{
-        DalekVerifier, RuntimeVerifier, SIMD_MIN_BATCH_SIZE, VerifyInput, VerifyPolicy,
-        Zip215Verifier,
+        CachedPublicKey, DalekVerifier, HotKeyCache, KeyCache, RuntimeVerifier,
+        SIMD_MIN_BATCH_SIZE, VerifyInput, VerifyPolicy, Zip215Verifier,
     },
 };
 use core::convert::TryFrom;
@@ -153,4 +153,42 @@ fn simd_cutoff_and_runtime_facade_match_scalar_verification() {
     let mut dalek_out = vec![false; inputs.len()];
     dalek.verify_batch(&inputs, &mut dalek_out);
     assert_eq!(dalek_out, expected(&inputs, true));
+}
+
+#[test]
+fn cached_singleton_refreshes_hot_key_recency() {
+    let signing_keys: Vec<SigningKey> = (0..3u8)
+        .map(|index| {
+            let mut seed = [0u8; 32];
+            seed[0] = index;
+            SigningKey::from(seed)
+        })
+        .collect();
+    let public_keys: Vec<[u8; 32]> = signing_keys
+        .iter()
+        .map(|key| VerificationKeyBytes::from(key).into())
+        .collect();
+
+    let mut cache = HotKeyCache::with_capacity(2);
+    cache.insert(CachedPublicKey::from_encoded(public_keys[0]).expect("valid public key"));
+    cache.insert(CachedPublicKey::from_encoded(public_keys[1]).expect("valid public key"));
+    let mut verifier = Zip215Verifier::with_cache(cache);
+
+    let inputs = [VerifyInput {
+        public_key: public_keys[0],
+        signature: signing_keys[0].sign(b"cached singleton").into(),
+        message: b"cached singleton",
+    }];
+    let mut out = [false];
+    verifier.verify_batch(&inputs, &mut out);
+    assert_eq!(out, [true]);
+
+    // Key 0 was the LRU before verification. Consulting the cache must make it
+    // the MRU, so inserting key 2 evicts key 1 instead.
+    verifier
+        .cache_mut()
+        .insert(CachedPublicKey::from_encoded(public_keys[2]).expect("valid public key"));
+    assert!(verifier.cache().get(&public_keys[1]).is_none());
+    assert!(verifier.cache().get(&public_keys[0]).is_some());
+    assert!(verifier.cache().get(&public_keys[2]).is_some());
 }

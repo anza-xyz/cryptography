@@ -1,8 +1,10 @@
 //! AVX-512 Ed25519 batch verification with a scalar small-batch fallback.
 //!
 //! This module preserves the [`ed25519_simd`] verifier API while using the
-//! crate's scalar verifier when a batch contains fewer than
-//! [`SIMD_MIN_BATCH_SIZE`] signatures.
+//! crate's scalar verifier when an uncached batch contains fewer than
+//! [`SIMD_MIN_BATCH_SIZE`](crate::ed_sigs::avx512::SIMD_MIN_BATCH_SIZE)
+//! signatures. A cached singleton stays on the SIMD path so the configured
+//! cache is used and its recency state is refreshed.
 
 use super::{Signature, VerificationKey};
 
@@ -13,17 +15,20 @@ pub use ed25519_simd::{
 
 /// The smallest batch delegated to the AVX-512 verifier.
 ///
-/// Batches containing zero or one signature use scalar verification. This
-/// cutoff was measured on an AMD EPYC 9555P with AVX-512 enabled: scalar won
-/// for one signature under both policies, while SIMD won starting at two.
+/// Uncached batches containing zero or one signature use scalar verification.
+/// A singleton already present in the configured cache uses SIMD. This cutoff
+/// was measured on an AMD EPYC 9555P with AVX-512 enabled: scalar won for one
+/// uncached signature under both policies, while SIMD won starting at two.
 pub const SIMD_MIN_BATCH_SIZE: usize = 2;
 
 /// Batch Ed25519 verifier for a compile-time [`VerificationPolicy`] and
 /// [`KeyCache`].
 ///
-/// Reuse one across [`verify_batch`](Self::verify_batch) calls. Batches smaller
-/// than [`SIMD_MIN_BATCH_SIZE`] use the corresponding scalar verification
-/// method; all larger batches are passed to [`ed25519_simd::Verifier`].
+/// Reuse one across [`verify_batch`](Self::verify_batch) calls. Uncached
+/// batches smaller than [`SIMD_MIN_BATCH_SIZE`] use the corresponding scalar
+/// verification method. Cached singletons and all larger batches are passed to
+/// [`ed25519_simd::Verifier`]. A cold scalar verification does not build a SIMD
+/// table or populate [`HotKeyCache`].
 #[derive(Debug)]
 pub struct Verifier<P: VerificationPolicy = Zip215Policy, C: KeyCache = NullKeyCache> {
     simd: ed25519_simd::Verifier<P, C>,
@@ -94,7 +99,12 @@ impl<P: VerificationPolicy, C: KeyCache> Verifier<P, C> {
     pub fn verify_batch(&mut self, inputs: &[VerifyInput<'_>], out: &mut [bool]) {
         assert_eq!(inputs.len(), out.len());
 
-        if inputs.len() < SIMD_MIN_BATCH_SIZE {
+        let use_scalar = inputs.len() < SIMD_MIN_BATCH_SIZE
+            && inputs
+                .iter()
+                .all(|input| self.simd.cache().get(&input.public_key).is_none());
+
+        if use_scalar {
             verify_scalar(inputs, out, P::POLICY);
         } else {
             self.simd.verify_batch(inputs, out);
