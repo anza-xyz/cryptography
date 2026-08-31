@@ -78,6 +78,12 @@ jobs:
       # our code is even compiled. Passing `--target`, even when it equals the
       # host triple, makes cargo build host artifacts without `RUSTFLAGS`.
       AVX512_TARGET: x86_64-unknown-linux-gnu
+      # Fail safely if a step that is only meant to compile ever tries to run a
+      # target binary on a host without AVX-512. Cargo does not use the target
+      # runner for host build scripts or proc macros, so this does not cover the
+      # SIGILL above. The one step that legitimately runs target binaries opts
+      # out explicitly with `env -u`.
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: /bin/false
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -117,8 +123,9 @@ jobs:
       - name: Test natively with AVX-512 target features
         if: steps.avx512-host.outputs.supported == 'true'
         run: |
-          cargo test -p solana-ed25519 --target "${AVX512_TARGET}" \
-            --features avx512 --lib
+          env -u CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER \
+            cargo test -p solana-ed25519 --target "${AVX512_TARGET}" \
+              --features avx512 --lib
 
       # `--all-targets` also catches breakage in eligible cfg-gated test and
       # bench code.
