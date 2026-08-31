@@ -3,6 +3,10 @@
 //! This module mirrors the main user-facing [`ed25519_simd`] verifier API while
 //! adding a scalar fallback for small uncached batches.
 //!
+//! Everything re-exported below is `ed25519-simd`'s own type, so this module's
+//! API tracks that crate's semver: a breaking change there is a breaking change
+//! for this crate.
+//!
 //! [`Verifier`](crate::ed_sigs::avx512::Verifier) is a distinct wrapper type and
 //! is not type-compatible with [`ed25519_simd::Verifier`].
 //!
