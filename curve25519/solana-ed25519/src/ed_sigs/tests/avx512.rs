@@ -96,39 +96,51 @@ fn simd_verifiers_match_current_small_order_rules() {
     assert!(dalek_out.iter().all(|valid| !*valid));
 }
 
+/// Every small-order `(A, R)` pair, one signature at a time, so each case goes
+/// through the scalar fallback rather than a SIMD chunk.
 #[test]
 fn scalar_fallback_matches_current_small_order_rules() {
     assert_eq!(SIMD_MIN_BATCH_SIZE, 2);
 
-    let case = &SMALL_ORDER_SIGS[0];
-    let inputs = [VerifyInput {
-        public_key: case.vk_bytes,
-        signature: case.sig_bytes,
-        message: b"Zcash",
-    }];
+    for (index, case) in SMALL_ORDER_SIGS.iter().enumerate() {
+        let inputs = [VerifyInput {
+            public_key: case.vk_bytes,
+            signature: case.sig_bytes,
+            message: b"Zcash",
+        }];
 
-    let mut zip215 = Zip215Verifier::new();
-    let mut zip215_out = [false];
-    zip215.verify_batch(&inputs, &mut zip215_out);
-    assert_eq!(zip215_out, [true]);
+        let mut zip215 = Zip215Verifier::new();
+        let mut zip215_out = [false];
+        zip215.verify_batch(&inputs, &mut zip215_out);
+        assert_eq!(zip215_out, [true], "zip215 case {index}: {case:?}");
 
-    let mut dalek = DalekVerifier::new();
-    let mut dalek_out = [true];
-    dalek.verify_batch(&inputs, &mut dalek_out);
-    assert_eq!(dalek_out, [false]);
+        let mut dalek = DalekVerifier::new();
+        let mut dalek_out = [true];
+        dalek.verify_batch(&inputs, &mut dalek_out);
+        assert_eq!(dalek_out, [false], "dalek case {index}: {case:?}");
+    }
 }
 
+/// Both sides of the cutoff, through the runtime facade: batches just below it
+/// take the scalar path and batches at it take the SIMD path, and every prefix
+/// length in between agrees with scalar verification. A valid and a tampered
+/// signature per length keep both verdicts covered.
 #[test]
 fn simd_cutoff_and_runtime_facade_match_scalar_verification() {
-    let cases: Vec<Case> = (0..SIMD_MIN_BATCH_SIZE as u8)
+    let cases: Vec<Case> = (0..SIMD_MIN_BATCH_SIZE as u8 + 1)
         .map(|index| {
             let mut seed = [0u8; 32];
             seed[0] = index;
             let signing_key = SigningKey::from(seed);
             let message = format!("AVX-512 cutoff case {index}").into_bytes();
+            let mut signature: [u8; 64] = signing_key.sign(&message).into();
+            // Tamper with every other case so no length is all-valid.
+            if index % 2 == 1 {
+                signature[index as usize % 64] ^= 1;
+            }
             Case {
                 public_key: VerificationKeyBytes::from(&signing_key).into(),
-                signature: signing_key.sign(&message).into(),
+                signature,
                 message,
             }
         })
@@ -142,17 +154,32 @@ fn simd_cutoff_and_runtime_facade_match_scalar_verification() {
         })
         .collect();
 
-    let mut zip215 = RuntimeVerifier::new();
-    assert_eq!(zip215.policy(), VerifyPolicy::Zip215);
-    let mut zip215_out = vec![false; inputs.len()];
-    zip215.verify_batch(&inputs, &mut zip215_out);
-    assert_eq!(zip215_out, expected(&inputs, false));
+    // Guard the premise: tampering must actually have invalidated something,
+    // or every length below would only ever cover the accepting verdict.
+    let all = expected(&inputs, false);
+    assert!(all.iter().any(|valid| *valid) && all.iter().any(|valid| !*valid));
 
-    let mut dalek = RuntimeVerifier::with_policy(VerifyPolicy::Dalek);
-    assert_eq!(dalek.policy(), VerifyPolicy::Dalek);
-    let mut dalek_out = vec![false; inputs.len()];
-    dalek.verify_batch(&inputs, &mut dalek_out);
-    assert_eq!(dalek_out, expected(&inputs, true));
+    // `0` is the empty batch, `1` the scalar fallback, `SIMD_MIN_BATCH_SIZE`
+    // the first length delegated to AVX-512.
+    for length in 0..=inputs.len() {
+        let inputs = &inputs[..length];
+
+        let mut zip215 = RuntimeVerifier::new();
+        assert_eq!(zip215.policy(), VerifyPolicy::Zip215);
+        let mut zip215_out = vec![false; length];
+        zip215.verify_batch(inputs, &mut zip215_out);
+        assert_eq!(
+            zip215_out,
+            expected(inputs, false),
+            "zip215, {length} inputs"
+        );
+
+        let mut dalek = RuntimeVerifier::with_policy(VerifyPolicy::Dalek);
+        assert_eq!(dalek.policy(), VerifyPolicy::Dalek);
+        let mut dalek_out = vec![false; length];
+        dalek.verify_batch(inputs, &mut dalek_out);
+        assert_eq!(dalek_out, expected(inputs, true), "dalek, {length} inputs");
+    }
 }
 
 /// The scalar fallback builds no SIMD table, so it leaves a `HotKeyCache`
