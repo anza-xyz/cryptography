@@ -130,9 +130,9 @@ verifier.verify().expect("all valid");
 
 ### AVX-512 batch verification
 
-The optional `avx512` feature exposes `ed_sigs::avx512`, a re-export of the
-[`ed25519-simd`] verification-only batch API. It is compiled only for `x86_64`
-targets with AVX-512F, AVX-512BW, AVX-512DQ, and AVX-512IFMA enabled:
+The optional `avx512` feature exposes `ed_sigs::avx512`, a compatibility facade
+over the [`ed25519-simd`] verification-only batch API. It is compiled only for
+`x86_64` targets with AVX-512F, AVX-512BW, AVX-512DQ, and AVX-512IFMA enabled:
 
 ```sh
 RUSTFLAGS='-C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma' \
@@ -141,9 +141,11 @@ RUSTFLAGS='-C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma' \
 
 These target features apply to the entire binary, which must only be deployed
 on hosts that provide all four features and OS support for AVX-512 register
-state. There is no runtime dispatch. Without both the Cargo feature and target
-features, the `ed_sigs::avx512` module is not exposed and the existing Ed25519
-verification APIs remain available.
+state. There is no runtime CPU-feature dispatch. Batches with fewer than two
+signatures use the corresponding scalar verification loop; batches of two or
+more use AVX-512. Without both the Cargo feature and target features, the
+`ed_sigs::avx512` module is not exposed and the existing Ed25519 verification
+APIs remain available.
 
 ### HEEA decomposition example
 

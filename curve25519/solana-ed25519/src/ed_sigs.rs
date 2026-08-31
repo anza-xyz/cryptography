@@ -28,7 +28,8 @@ pub use verification_key::{VerificationKey, VerificationKeyBytes};
 /// This API is available only when the `avx512` Cargo feature is enabled and
 /// the compilation target provides AVX-512F, AVX-512BW, AVX-512DQ, and
 /// AVX-512IFMA. The resulting binary requires those CPU features at runtime;
-/// this module does not perform runtime dispatch or provide a scalar fallback.
+/// this module does not perform runtime CPU-feature dispatch. Small batches
+/// use scalar verification before switching to the AVX-512 implementation.
 #[cfg(all(
     feature = "avx512",
     target_arch = "x86_64",
@@ -37,7 +38,7 @@ pub use verification_key::{VerificationKey, VerificationKeyBytes};
     target_feature = "avx512dq",
     target_feature = "avx512ifma",
 ))]
-pub use ed25519_simd as avx512;
+pub mod avx512;
 
 pub(crate) fn scalar_from_sha512(hash: Sha512) -> Scalar {
     #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
