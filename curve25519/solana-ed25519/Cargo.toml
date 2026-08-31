@@ -64,6 +64,11 @@ name = "dalek_benchmarks"
 harness = false
 required-features = ["alloc", "digest", "group", "rand_core"]
 
+[[bench]]
+name = "avx512_small_batch"
+harness = false
+required-features = ["avx512", "rand_core"]
+
 [dependencies]
 cfg-if.workspace = true
 ed25519.workspace = true
