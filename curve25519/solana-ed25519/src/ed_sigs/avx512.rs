@@ -33,7 +33,9 @@ pub const SIMD_MIN_BATCH_SIZE: usize = 2;
 /// batches smaller than [`SIMD_MIN_BATCH_SIZE`] use the corresponding scalar
 /// verification method. Cached singletons and all larger batches are passed to
 /// [`ed25519_simd::Verifier`]. A cold scalar verification does not build a SIMD
-/// table or populate [`HotKeyCache`].
+/// table or populate [`HotKeyCache`], so a caller that only ever submits single
+/// signatures never warms the cache and stays on the scalar path; a
+/// [`HotKeyCache`] pays off across batches of [`SIMD_MIN_BATCH_SIZE`] or more.
 #[derive(Debug)]
 pub struct Verifier<P: VerificationPolicy = Zip215Policy, C: KeyCache = NullKeyCache> {
     simd: ed25519_simd::Verifier<P, C>,

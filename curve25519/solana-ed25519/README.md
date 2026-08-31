@@ -147,6 +147,12 @@ singletons and batches of two or more use AVX-512. Without both the Cargo
 feature and target features, the `ed_sigs::avx512` module is not exposed and
 the existing Ed25519 verification APIs remain available.
 
+Note that the scalar path builds no SIMD multiplication table, so it never
+populates a `HotKeyCache`. A caller that verifies one signature at a time with
+a cache configured stays on the scalar path indefinitely and the cache stays
+empty: it only fills from batches of two or more. Submit signatures in batches
+if you want key reuse to pay off.
+
 ### HEEA decomposition example
 
 ```rust,ignore
