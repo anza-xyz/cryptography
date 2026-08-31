@@ -112,8 +112,15 @@ jobs:
           if [ "${supported}" = true ]
           then
             echo "Host supports AVX-512F/BW/DQ/IFMA; native tests will run."
+            echo "**AVX-512 IFMA available** on this runner; the native test" \
+              "suite ran." >> "${GITHUB_STEP_SUMMARY}"
           else
-            echo "::notice::Host lacks AVX-512 IFMA; native tests are skipped."
+            # A warning, not a notice: this reduces what the job actually
+            # verifies, so it has to be visible in the checks UI.
+            echo "::warning::Host lacks AVX-512 IFMA; the native test suite is skipped."
+            echo "**AVX-512 IFMA unavailable** on this runner; the native test" \
+              "suite was **skipped** and only compilation was checked." \
+              >> "${GITHUB_STEP_SUMMARY}"
           fi
 
       # These target features change codegen for the whole crate, including the
@@ -126,6 +133,22 @@ jobs:
           env -u CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER \
             cargo test -p solana-ed25519 --target "${AVX512_TARGET}" \
               --features avx512 --lib
+
+      # `ubuntu-latest` is a mixed fleet, so on a pull request an unsupported
+      # runner is bad luck and the step above simply does not run. On the default
+      # branch it is a coverage regression: a green job would be indistinguishable
+      # from one that actually verified the AVX-512 code. Fail instead, so a
+      # change in the runner fleet is noticed rather than silently dropping the
+      # suite.
+      - name: Require AVX-512 coverage on the default branch
+        if: >-
+          github.event_name == 'push'
+          && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+          && steps.avx512-host.outputs.supported != 'true'
+        run: |
+          echo "::error::No AVX-512 IFMA runner was available, so the native" \
+            "test suite never ran on the default branch."
+          exit 1
 
       # `--all-targets` also catches breakage in eligible cfg-gated test and
       # bench code.
