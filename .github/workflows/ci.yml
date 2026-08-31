@@ -150,8 +150,7 @@ jobs:
       # The AVX-512 target features must also compile when the curve backend is
       # forced to serial; the two selections are independent.
       - name: Build with serial curve backend
-        env:
-          RUSTFLAGS: -C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma --cfg curve25519_backend="serial"
         run: |
-          cargo build -p solana-ed25519 --target "$AVX512_TARGET" \
-            --features avx512 --all-targets
+          RUSTFLAGS="${RUSTFLAGS} --cfg curve25519_backend=\"serial\"" \
+            cargo build -p solana-ed25519 --target "$AVX512_TARGET" \
+              --features avx512 --all-targets

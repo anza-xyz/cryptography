@@ -62,6 +62,33 @@ fn main() {
 
     println!("cargo:rustc-cfg=curve25519_bits=\"64\"");
     println!("cargo:rustc-cfg=curve25519_backend=\"{curve25519_backend}\"");
+
+    // Single source of truth for the AVX-512 gate. `ed_sigs::avx512` needs both
+    // the Cargo feature and every target feature `ed25519-simd` requires, which
+    // is the same predicate that selects the dependency in `Cargo.toml`. Emit it
+    // as one cfg so the modules that gate on it cannot drift out of sync — an
+    // earlier revision had to fix a missing `avx512bw` in several copies at
+    // once.
+    if std::env::var_os("CARGO_FEATURE_AVX512").is_some()
+        && target_arch == "x86_64"
+        && has_target_features(AVX512_TARGET_FEATURES)
+    {
+        println!("cargo:rustc-cfg=ed25519_avx512");
+    }
+}
+
+/// The target features `ed25519-simd` refuses to compile without.
+const AVX512_TARGET_FEATURES: &[&str] = &["avx512f", "avx512bw", "avx512dq", "avx512ifma"];
+
+/// Are all of `features` enabled for the target being compiled?
+///
+/// `CARGO_CFG_TARGET_FEATURE` reflects `-C target-feature` from `RUSTFLAGS`, so
+/// this sees the same feature set as `cfg(target_feature = ...)` in the crate.
+fn has_target_features(features: &[&str]) -> bool {
+    let enabled = std::env::var("CARGO_CFG_TARGET_FEATURE").unwrap_or_default();
+    features
+        .iter()
+        .all(|feature| enabled.split(',').any(|enabled| enabled == *feature))
 }
 
 // Is the target arch potentially simd capable?

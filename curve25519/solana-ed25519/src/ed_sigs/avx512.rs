@@ -3,8 +3,8 @@
 //! This module mirrors the main user-facing [`ed25519_simd`] verifier API while
 //! adding a scalar fallback for small uncached batches.
 //!
-//! [`Verifier`] is a distinct wrapper type and is not type-compatible with
-//! [`ed25519_simd::Verifier`].
+//! [`Verifier`](crate::ed_sigs::avx512::Verifier) is a distinct wrapper type and
+//! is not type-compatible with [`ed25519_simd::Verifier`].
 //!
 //! The crate's scalar verifier is used when an uncached batch contains fewer than
 //! [`SIMD_MIN_BATCH_SIZE`](crate::ed_sigs::avx512::SIMD_MIN_BATCH_SIZE)

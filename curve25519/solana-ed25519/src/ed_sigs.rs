@@ -31,14 +31,7 @@ pub use verification_key::{VerificationKey, VerificationKeyBytes};
 /// this module does not perform runtime CPU-feature dispatch. Uncached small
 /// batches use scalar verification before switching to the AVX-512
 /// implementation.
-#[cfg(all(
-    feature = "avx512",
-    target_arch = "x86_64",
-    target_feature = "avx512f",
-    target_feature = "avx512bw",
-    target_feature = "avx512dq",
-    target_feature = "avx512ifma",
-))]
+#[cfg(ed25519_avx512)]
 pub mod avx512;
 
 pub(crate) fn scalar_from_sha512(hash: Sha512) -> Scalar {

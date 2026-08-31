@@ -107,4 +107,5 @@ check-cfg = [
     'cfg(curve25519_backend, values("simd", "serial"))',
     'cfg(curve25519_diagnostics, values("build"))',
     'cfg(curve25519_bits, values("64"))',
+    'cfg(ed25519_avx512)',
 ]
