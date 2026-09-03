@@ -47,12 +47,18 @@ use secp256r1::group::{AffinePoint, ProjectivePoint};
 
 let scalar = [7u8; 32];
 
-let fixed_base = ProjectivePoint::fixed_base_scalar_mul_vartime(scalar);
+let fixed_base = ProjectivePoint::fixed_base_scalar_mul_vartime(scalar).unwrap();
 let variable_base = ProjectivePoint::from_affine(AffinePoint::generator())
-    .mul_scalar_vartime(scalar);
+    .mul_scalar_vartime(scalar)
+    .unwrap();
 
 assert_eq!(fixed_base.to_affine(), variable_base.to_affine());
 ```
+
+The checked scalar-multiplication APIs return `None` for non-canonical scalar
+encodings (values greater than or equal to the P-256 group order). Explicit
+`*_unchecked` variants retain reduction modulo the group order for callers that
+need that behavior.
 
 ### Multiscalar Multiplication
 
@@ -63,8 +69,12 @@ let points = [AffinePoint::generator(), ProjectivePoint::generator().double().to
 let scalars = [[7u8; 32], [11u8; 32]];
 
 let msm = ProjectivePoint::multi_scalar_mul_vartime(&points, &scalars).unwrap();
-let separate = ProjectivePoint::from_affine(points[0]).mul_scalar_vartime(scalars[0])
-    + ProjectivePoint::from_affine(points[1]).mul_scalar_vartime(scalars[1]);
+let separate = ProjectivePoint::from_affine(points[0])
+    .mul_scalar_vartime(scalars[0])
+    .unwrap()
+    + ProjectivePoint::from_affine(points[1])
+        .mul_scalar_vartime(scalars[1])
+        .unwrap();
 
 assert_eq!(msm.to_affine(), separate.to_affine());
 ```
