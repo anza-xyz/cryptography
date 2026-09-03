@@ -14,8 +14,7 @@
 use core::ops::{Add, Neg, Sub};
 use std::sync::OnceLock;
 
-use crate::Endianness;
-use crate::field::FieldElement;
+use crate::{Endianness, field::FieldElement, scalar::Scalar};
 
 const BASE_WINDOWS: usize = 32;
 const BASE_WINDOW_POINTS: usize = 256;
@@ -390,8 +389,24 @@ impl ProjectivePoint {
         Self { x, y, z }
     }
 
+    /// Multiplies this point by a canonical, big-endian scalar.
+    ///
+    /// Returns `None` when `scalar` is greater than or equal to the P-256
+    /// group order. This routine is variable time and must only be used with
+    /// public scalars.
     #[inline]
-    pub fn mul_scalar_vartime(self, scalar: [u8; 32]) -> Self {
+    pub fn mul_scalar_vartime(self, scalar: [u8; 32]) -> Option<Self> {
+        let scalar = canonical_scalar_bytes(scalar)?;
+        Some(self.mul_scalar_vartime_unchecked(scalar))
+    }
+
+    /// Multiplies this point by arbitrary big-endian scalar bytes.
+    ///
+    /// Scalars greater than or equal to the P-256 group order are accepted;
+    /// group arithmetic implicitly reduces them modulo the group order. This
+    /// routine is variable time and must only be used with public scalars.
+    #[inline]
+    pub fn mul_scalar_vartime_unchecked(self, scalar: [u8; 32]) -> Self {
         let mut table = [Self::IDENTITY; 16];
         table[1] = self;
 
@@ -412,13 +427,55 @@ impl ProjectivePoint {
         out
     }
 
+    /// Multiplies the generator by a canonical, big-endian scalar.
+    ///
+    /// Returns `None` when `scalar` is greater than or equal to the P-256
+    /// group order. This routine is variable time and must only be used with
+    /// public scalars.
     #[inline]
-    pub fn fixed_base_scalar_mul_vartime(scalar: [u8; 32]) -> Self {
+    pub fn fixed_base_scalar_mul_vartime(scalar: [u8; 32]) -> Option<Self> {
+        let scalar = canonical_scalar_bytes(scalar)?;
+        Some(Self::fixed_base_scalar_mul_vartime_unchecked(scalar))
+    }
+
+    /// Multiplies the generator by arbitrary big-endian scalar bytes.
+    ///
+    /// Scalars greater than or equal to the P-256 group order are accepted;
+    /// group arithmetic implicitly reduces them modulo the group order. This
+    /// routine is variable time and must only be used with public scalars.
+    #[inline]
+    pub fn fixed_base_scalar_mul_vartime_unchecked(scalar: [u8; 32]) -> Self {
         mul_window8_vartime(generator_window8_table(), &scalar)
     }
 
+    /// Computes a double-scalar multiplication with canonical, big-endian
+    /// scalars.
+    ///
+    /// Returns `None` when either scalar is greater than or equal to the P-256
+    /// group order. Both scalars are validated before group computation begins.
     #[inline]
     pub fn double_scalar_mul_vartime(
+        generator_scalar: [u8; 32],
+        point: AffinePoint,
+        point_scalar: [u8; 32],
+    ) -> Option<Self> {
+        let generator_scalar = canonical_scalar_bytes(generator_scalar)?;
+        let point_scalar = canonical_scalar_bytes(point_scalar)?;
+        Some(Self::double_scalar_mul_vartime_unchecked(
+            generator_scalar,
+            point,
+            point_scalar,
+        ))
+    }
+
+    /// Computes a double-scalar multiplication with arbitrary big-endian
+    /// scalar bytes.
+    ///
+    /// Scalars greater than or equal to the P-256 group order are accepted;
+    /// group arithmetic implicitly reduces them modulo the group order. This
+    /// routine is variable time and must only be used with public scalars.
+    #[inline]
+    pub fn double_scalar_mul_vartime_unchecked(
         generator_scalar: [u8; 32],
         point: AffinePoint,
         point_scalar: [u8; 32],
@@ -442,11 +499,38 @@ impl ProjectivePoint {
     /// Computes `sum(scalars[i] * points[i])` using variable-time table
     /// lookups.
     ///
-    /// Returns `None` when `points` and `scalars` have different lengths.
+    /// Returns `None` when `points` and `scalars` have different lengths or a
+    /// scalar is greater than or equal to the P-256 group order. All scalars
+    /// are validated before group computation begins.
     /// This routine is intended for public inputs, such as syscall MSM
     /// plumbing; do not use it with secret scalars.
     #[inline]
     pub fn multi_scalar_mul_vartime(points: &[AffinePoint], scalars: &[[u8; 32]]) -> Option<Self> {
+        if points.len() != scalars.len() {
+            return None;
+        }
+
+        let scalars = scalars
+            .iter()
+            .copied()
+            .map(canonical_scalar_bytes)
+            .collect::<Option<Vec<_>>>()?;
+
+        Self::multi_scalar_mul_vartime_unchecked(points, &scalars)
+    }
+
+    /// Computes `sum(scalars[i] * points[i])` using variable-time table
+    /// lookups and arbitrary big-endian scalar bytes.
+    ///
+    /// Returns `None` when `points` and `scalars` have different lengths.
+    /// Scalars greater than or equal to the P-256 group order are accepted;
+    /// group arithmetic implicitly reduces them modulo the group order. This
+    /// routine is intended for public inputs only.
+    #[inline]
+    pub fn multi_scalar_mul_vartime_unchecked(
+        points: &[AffinePoint],
+        scalars: &[[u8; 32]],
+    ) -> Option<Self> {
         if points.len() != scalars.len() {
             return None;
         }
@@ -468,6 +552,11 @@ impl ProjectivePoint {
 
         Some(out)
     }
+}
+
+#[inline]
+fn canonical_scalar_bytes(scalar: [u8; 32]) -> Option<[u8; 32]> {
+    Scalar::from_bytes(&scalar, Endianness::Big).map(Scalar::to_be_bytes)
 }
 
 impl Add for ProjectivePoint {
@@ -673,6 +762,11 @@ mod tests {
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 5,
     ];
+    const GROUP_ORDER: [u8; 32] = [
+        0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xbc, 0xe6, 0xfa, 0xad, 0xa7, 0x17, 0x9e, 0x84, 0xf3, 0xb9, 0xca, 0xc2, 0xfc, 0x63,
+        0x25, 0x51,
+    ];
 
     fn assert_matches_p256(rust: ProjectivePoint, p256: P256ProjectivePoint) {
         let rust_bytes = rust.to_uncompressed(Endianness::Big);
@@ -748,7 +842,9 @@ mod tests {
     fn scalar_mul_matches_p256() {
         let scalar = Option::<Scalar>::from(Scalar::from_repr(SCALAR.into())).unwrap();
         assert_matches_p256(
-            ProjectivePoint::generator().mul_scalar_vartime(SCALAR),
+            ProjectivePoint::generator()
+                .mul_scalar_vartime(SCALAR)
+                .unwrap(),
             P256ProjectivePoint::generator() * scalar,
         );
     }
@@ -757,7 +853,7 @@ mod tests {
     fn fixed_base_scalar_mul_matches_p256() {
         let scalar = Option::<Scalar>::from(Scalar::from_repr(SCALAR.into())).unwrap();
         assert_matches_p256(
-            ProjectivePoint::fixed_base_scalar_mul_vartime(SCALAR),
+            ProjectivePoint::fixed_base_scalar_mul_vartime(SCALAR).unwrap(),
             P256ProjectivePoint::generator() * scalar,
         );
     }
@@ -769,7 +865,7 @@ mod tests {
         let p256_point = P256ProjectivePoint::generator().double();
 
         assert_matches_p256(
-            ProjectivePoint::double_scalar_mul_vartime(SCALAR, point, SCALAR),
+            ProjectivePoint::double_scalar_mul_vartime(SCALAR, point, SCALAR).unwrap(),
             (P256ProjectivePoint::generator() * scalar) + (p256_point * scalar),
         );
     }
@@ -795,6 +891,58 @@ mod tests {
     fn multi_scalar_mul_rejects_length_mismatch() {
         assert!(
             ProjectivePoint::multi_scalar_mul_vartime(&[AffinePoint::generator()], &[]).is_none()
+        );
+    }
+
+    #[test]
+    fn scalar_multiplication_rejects_non_canonical_scalars() {
+        let generator = ProjectivePoint::generator();
+        let affine_generator = AffinePoint::generator();
+
+        assert!(generator.mul_scalar_vartime(GROUP_ORDER).is_none());
+        assert!(ProjectivePoint::fixed_base_scalar_mul_vartime(GROUP_ORDER).is_none());
+        assert!(
+            ProjectivePoint::double_scalar_mul_vartime(GROUP_ORDER, affine_generator, SCALAR)
+                .is_none()
+        );
+        assert!(
+            ProjectivePoint::double_scalar_mul_vartime(SCALAR, affine_generator, GROUP_ORDER)
+                .is_none()
+        );
+        assert!(
+            ProjectivePoint::multi_scalar_mul_vartime(&[affine_generator], &[GROUP_ORDER])
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn unchecked_scalar_multiplication_accepts_non_canonical_scalars() {
+        let generator = ProjectivePoint::generator();
+        let affine_generator = AffinePoint::generator();
+
+        assert_eq!(
+            generator.mul_scalar_vartime_unchecked(GROUP_ORDER),
+            ProjectivePoint::identity()
+        );
+        assert_eq!(
+            ProjectivePoint::fixed_base_scalar_mul_vartime_unchecked(GROUP_ORDER),
+            ProjectivePoint::identity()
+        );
+        assert_eq!(
+            ProjectivePoint::double_scalar_mul_vartime_unchecked(
+                GROUP_ORDER,
+                affine_generator,
+                GROUP_ORDER,
+            ),
+            ProjectivePoint::identity()
+        );
+        assert_eq!(
+            ProjectivePoint::multi_scalar_mul_vartime_unchecked(
+                &[affine_generator],
+                &[GROUP_ORDER],
+            )
+            .unwrap(),
+            ProjectivePoint::identity()
         );
     }
 

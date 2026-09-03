@@ -183,11 +183,11 @@ fn bench_group_base_scalar_mul(c: &mut Criterion) {
     let mut group = c.benchmark_group("solana_secp256r1_group_base_scalar_mul");
 
     group.bench_function("rust_variable_base", |b| {
-        b.iter(|| black_box(fixture.rust_g).mul_scalar_vartime(black_box(SCALAR)));
+        b.iter(|| black_box(fixture.rust_g).mul_scalar_vartime_unchecked(black_box(SCALAR)));
     });
 
     group.bench_function("rust_fixed_base", |b| {
-        b.iter(|| ProjectivePoint::fixed_base_scalar_mul_vartime(black_box(SCALAR)));
+        b.iter(|| ProjectivePoint::fixed_base_scalar_mul_vartime_unchecked(black_box(SCALAR)));
     });
 
     group.bench_function("p256", |b| {
@@ -222,15 +222,15 @@ fn bench_group_double_scalar_mul(c: &mut Criterion) {
 
     group.bench_function("rust_separate_projective_q", |b| {
         b.iter(|| {
-            ProjectivePoint::fixed_base_scalar_mul_vartime(black_box(SCALAR))
+            ProjectivePoint::fixed_base_scalar_mul_vartime_unchecked(black_box(SCALAR))
                 + ProjectivePoint::from_affine(black_box(rust_q))
-                    .mul_scalar_vartime(black_box(SCALAR))
+                    .mul_scalar_vartime_unchecked(black_box(SCALAR))
         });
     });
 
     group.bench_function("rust_msm_window4", |b| {
         b.iter(|| {
-            ProjectivePoint::multi_scalar_mul_vartime(
+            ProjectivePoint::multi_scalar_mul_vartime_unchecked(
                 black_box(&rust_msm_points),
                 black_box(&rust_msm_scalars),
             )
@@ -240,7 +240,7 @@ fn bench_group_double_scalar_mul(c: &mut Criterion) {
 
     group.bench_function("rust_double_scalar", |b| {
         b.iter(|| {
-            ProjectivePoint::double_scalar_mul_vartime(
+            ProjectivePoint::double_scalar_mul_vartime_unchecked(
                 black_box(SCALAR),
                 black_box(rust_q),
                 black_box(SCALAR),
@@ -282,7 +282,7 @@ fn bench_group_multi_scalar_mul(c: &mut Criterion) {
 
         group.bench_function("rust_msm_window4", |b| {
             b.iter(|| {
-                ProjectivePoint::multi_scalar_mul_vartime(
+                ProjectivePoint::multi_scalar_mul_vartime_unchecked(
                     black_box(rust_points.as_slice()),
                     black_box(rust_scalars.as_slice()),
                 )
@@ -297,7 +297,7 @@ fn bench_group_multi_scalar_mul(c: &mut Criterion) {
                 for (point, scalar) in rust_points.iter().zip(rust_scalars.iter()) {
                     out = out
                         + ProjectivePoint::from_affine(black_box(*point))
-                            .mul_scalar_vartime(black_box(*scalar));
+                            .mul_scalar_vartime_unchecked(black_box(*scalar));
                 }
 
                 out
