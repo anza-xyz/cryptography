@@ -91,40 +91,176 @@ pub(crate) fn curve25519_heea_vartime(v: I256) -> (I256, I256) {
     (r1, t1)
 }
 
-/// Lehmer-batched variant of [`curve25519_heea_vartime`].
-///
-/// The same shift-subtract iteration on 128-bit approximations of the leading
-/// bits, accumulating steps into a signed 2x2 matrix applied to the full-width
-/// values once the approximation runs out of trustworthy bits. Every matrix
-/// application preserves `r_i == t_i * v (mod L)`, so an approximate branch
-/// decision costs efficiency, never correctness, and a final size check falls
-/// back to the exact iteration.
+/// Radix-2^64 limbs of a two's-complement 256-bit value.
+type Limbs = [u64; 4];
+
+/// Bits of approximant kept above the shift headroom.
+const WINDOW: u32 = 54;
+/// Bits a batch matrix may grow to before it is applied.
+const MAT_CAP_BITS: u32 = 34;
+/// Shifts the approximant can absorb, larger ones take an exact step.
+const MAX_SHIFT: u32 = 8;
+
+const ORDER_LIMBS: Limbs = [
+    0x5812631a5cf5d3ed,
+    0x14def9dea2f79cd6,
+    0,
+    0x1000000000000000,
+];
+
+#[inline(always)]
+fn negate_limbs(v: &Limbs) -> Limbs {
+    let mut out = [0u64; 4];
+    let mut carry = 1u64;
+    for (o, &x) in out.iter_mut().zip(v.iter()) {
+        let (r, c) = (!x).overflowing_add(carry);
+        *o = r;
+        carry = c as u64;
+    }
+    out
+}
+
+/// Magnitude and sign of a two's-complement value, without a branch.
+#[inline(always)]
+fn magnitude(v: &Limbs) -> (Limbs, bool) {
+    let neg = (v[3] as i64) < 0;
+    let mask = (neg as u64).wrapping_neg();
+    let mut out = [0u64; 4];
+    let mut carry = neg as u64;
+    for (o, &x) in out.iter_mut().zip(v.iter()) {
+        let (r, c) = (x ^ mask).overflowing_add(carry);
+        *o = r;
+        carry = c as u64;
+    }
+    (out, neg)
+}
+
+#[inline(always)]
+fn bit_length(mag: &Limbs) -> u32 {
+    let mut bl = 0u32;
+    for (i, &limb) in mag.iter().enumerate() {
+        let here = 64 * (i as u32) + 64 - limb.leading_zeros();
+        bl = if limb != 0 { here } else { bl };
+    }
+    bl
+}
+
+/// Bits e.. of a magnitude as a signed 64-bit approximant.
+#[inline(always)]
+fn approx(mag: &Limbs, neg: bool, e: u32) -> i64 {
+    let limb = (e / 64) as usize;
+    let bit = e % 64;
+    let get = |i: usize| -> u64 { if i < 4 { mag[i] } else { 0 } };
+    let lo = get(limb);
+    let hi = get(limb + 1);
+    // the double shift keeps bit == 0 from shifting by 64
+    let m = ((lo >> bit) | ((hi << (63 - bit)) << 1)) as i64;
+    if neg { -m } else { m }
+}
+
+/// c * v mod 2^256 for a signed c and a two's-complement v.
+#[inline(always)]
+fn scale(c: i64, v: &Limbs) -> Limbs {
+    let cu = c as u64;
+    let mut out = [0u64; 4];
+    let mut carry = 0u64;
+    for (o, &x) in out.iter_mut().zip(v.iter()) {
+        let p = (x as u128) * (cu as u128) + carry as u128;
+        *o = p as u64;
+        carry = (p >> 64) as u64;
+    }
+    // a negative c as u64 contributed an extra 2^64 v
+    let mask = ((c < 0) as u64).wrapping_neg();
+    let shifted = [0u64, v[0] & mask, v[1] & mask, v[2] & mask];
+    let mut borrow = 0u64;
+    for (o, &x) in out.iter_mut().zip(shifted.iter()) {
+        let (r, b1) = o.overflowing_sub(x);
+        let (r, b2) = r.overflowing_sub(borrow);
+        *o = r;
+        borrow = (b1 | b2) as u64;
+    }
+    out
+}
+
+#[inline(always)]
+fn add_wrapping(a: &Limbs, b: &Limbs) -> Limbs {
+    let mut out = [0u64; 4];
+    let mut carry = 0u64;
+    for i in 0..4 {
+        let (r, c1) = a[i].overflowing_add(b[i]);
+        let (r, c2) = r.overflowing_add(carry);
+        out[i] = r;
+        carry = (c1 | c2) as u64;
+    }
+    out
+}
+
+/// Signed linear combination c0 a + c1 b, which every call site keeps below 2^255.
+#[inline(always)]
+fn linear(c0: i64, a: &Limbs, c1: i64, b: &Limbs) -> Limbs {
+    add_wrapping(&scale(c0, a), &scale(c1, b))
+}
+
+/// Left shift by any amount below 256.
+fn shl_limbs(v: &Limbs, s: u32) -> Limbs {
+    let words = (s / 64) as usize;
+    let bits = s % 64;
+    let mut out = [0u64; 4];
+    for i in words..4 {
+        out[i] = v[i - words] << bits;
+        if bits != 0 && i > words {
+            out[i] |= v[i - words - 1] >> (64 - bits);
+        }
+    }
+    out
+}
+
+fn limbs_from_i256(v: I256) -> Limbs {
+    let bytes = v.to_le_bytes();
+    let mut out = [0u64; 4];
+    for (i, limb) in out.iter_mut().enumerate() {
+        let mut word = [0u8; 8];
+        word.copy_from_slice(&bytes[8 * i..8 * i + 8]);
+        *limb = u64::from_le_bytes(word);
+    }
+    if v < I256::ZERO {
+        negate_limbs(&out)
+    } else {
+        out
+    }
+}
+
+fn limbs_to_i256(v: &Limbs) -> I256 {
+    let (mag, neg) = magnitude(v);
+    let mut bytes = [0u8; 32];
+    for (i, limb) in mag.iter().enumerate() {
+        bytes[8 * i..8 * i + 8].copy_from_slice(&limb.to_le_bytes());
+    }
+    let out = I256::from_le_bytes(bytes);
+    if neg { -out } else { out }
+}
+
+/// Lehmer-batched variant of [`curve25519_heea_vartime`]: 64-bit approximants drive a
+/// 2x2 matrix over the exact values, a stale decision costs a step, never the invariant
 pub(crate) fn curve25519_heea_vartime_lehmer(v: I256) -> (I256, I256) {
-    let mut r0: I256 = (&constants::BASEPOINT_ORDER).into();
-    let mut r1 = v;
-    let mut t0 = I256::ZERO;
-    let mut t1 = I256::ONE;
+    let mut r0 = ORDER_LIMBS;
+    let mut r1 = limbs_from_i256(v);
+    let mut t0: Limbs = [0; 4];
+    let mut t1: Limbs = [1, 0, 0, 0];
 
-    let mut bl_r0 = 253u32;
-    let mut bl_r1 = bit_length_i256(r1);
-
-    // Approximation window inside i128, matrix magnitude cap, and the
-    // trust margin for bit lengths derived from approximations.
-    const WINDOW: u32 = 96;
-    const MAT_CAP_BITS: u32 = 40;
-    const TRUST_BITS: u32 = MAT_CAP_BITS + 4;
-    const MAX_SHIFT: u32 = 30;
+    let (mut m0, mut n0) = magnitude(&r0);
+    let (mut m1, mut n1) = magnitude(&r1);
+    let mut bl_r0 = bit_length(&m0);
+    let mut bl_r1 = bit_length(&m1);
 
     'outer: while bl_r1 > 127 {
-        // Set up an approximation batch at a common exponent.
         let e = bl_r0.saturating_sub(WINDOW);
-        let mut a0 = r0.approx_signed(e);
-        let mut a1 = r1.approx_signed(e);
+        let mut a0 = approx(&m0, n0, e);
+        let mut a1 = approx(&m1, n1, e);
         let mut ab0 = bl_r0;
         let mut ab1 = bl_r1;
-        // Matrix rows: current (r0, r1) = m_i0 * R0 + m_i1 * R1.
-        let mut m = [[1i64, 0i64], [0i64, 1i64]];
-        let mut mat_mag: u64 = 1;
+        let mut m = [1i64, 0, 0, 1];
+        let mut mat_bits: u32 = 1;
         let mut progressed = false;
 
         loop {
@@ -132,173 +268,103 @@ pub(crate) fn curve25519_heea_vartime_lehmer(v: I256) -> (I256, I256) {
                 break;
             }
             let s = ab0 - ab1;
-            let mat_bits = 64 - mat_mag.leading_zeros();
             if s > MAX_SHIFT || mat_bits + s + 1 > MAT_CAP_BITS {
                 break;
             }
+            // all ones when the signs differ, so the shifted term flips sign
+            let flip = (a0 ^ a1) >> 63;
             let shifted = a1 << s;
-            let a = if (a0 < 0) == (a1 < 0) {
-                a0 - shifted
-            } else {
-                a0 + shifted
-            };
-            // Bit length of the approximate result is only trustworthy well
-            // above the accumulated uncertainty.
-            let mag = a.unsigned_abs();
-            let bl_a = 128 - mag.leading_zeros();
-            if bl_a <= TRUST_BITS {
+            let a = a0 - ((shifted ^ flip) - flip);
+            let bl_a = 64 - a.unsigned_abs().leading_zeros();
+            if bl_a <= mat_bits + 4 {
                 break;
             }
             let bl_new = e + bl_a;
-
-            // Commit the step to the matrix.
-            let row = [
-                m[0][0] - (m[1][0] << s) * if (a0 < 0) == (a1 < 0) { 1 } else { -1 },
-                m[0][1] - (m[1][1] << s) * if (a0 < 0) == (a1 < 0) { 1 } else { -1 },
-            ];
-            mat_mag <<= s + 1;
+            let row0 = m[0] - (((m[2] << s) ^ flip) - flip);
+            let row1 = m[1] - (((m[3] << s) ^ flip) - flip);
+            mat_bits += s + 1;
             progressed = true;
 
-            if bl_new > ab1 {
-                a0 = a;
-                ab0 = bl_new;
-                m[0] = row;
+            // the result grew past the smaller term, otherwise the pair rotates
+            let grew = bl_new > ab1;
+            let na0 = if grew { a } else { a1 };
+            let na1 = if grew { a1 } else { a };
+            let nb0 = if grew { bl_new } else { ab1 };
+            let nb1 = if grew { ab1 } else { bl_new };
+            m = if grew {
+                [row0, row1, m[2], m[3]]
             } else {
-                a0 = a1;
-                a1 = a;
-                ab0 = ab1;
-                ab1 = bl_new;
-                m[0] = m[1];
-                m[1] = row;
-            }
+                [m[2], m[3], row0, row1]
+            };
+            a0 = na0;
+            a1 = na1;
+            ab0 = nb0;
+            ab1 = nb1;
         }
 
         if progressed {
-            // Apply the batch to the exact values (r and t sequences).
-            let new_r0 = linear_comb(m[0][0], &r0, m[0][1], &r1);
-            let new_r1 = linear_comb(m[1][0], &r0, m[1][1], &r1);
-            let new_t0 = linear_comb(m[0][0], &t0, m[0][1], &t1);
-            let new_t1 = linear_comb(m[1][0], &t0, m[1][1], &t1);
-            r0 = new_r0;
-            r1 = new_r1;
-            t0 = new_t0;
-            t1 = new_t1;
-            bl_r0 = bit_length_i256(r0);
-            bl_r1 = bit_length_i256(r1);
-            // Keep the loop invariant bl(r0) >= bl(r1).
+            let nr0 = linear(m[0], &r0, m[1], &r1);
+            let nr1 = linear(m[2], &r0, m[3], &r1);
+            let nt0 = linear(m[0], &t0, m[1], &t1);
+            let nt1 = linear(m[2], &t0, m[3], &t1);
+            r0 = nr0;
+            r1 = nr1;
+            t0 = nt0;
+            t1 = nt1;
+            (m0, n0) = magnitude(&r0);
+            (m1, n1) = magnitude(&r1);
+            bl_r0 = bit_length(&m0);
+            bl_r1 = bit_length(&m1);
             if bl_r1 > bl_r0 {
                 core::mem::swap(&mut r0, &mut r1);
                 core::mem::swap(&mut t0, &mut t1);
+                core::mem::swap(&mut m0, &mut m1);
+                core::mem::swap(&mut n0, &mut n1);
                 core::mem::swap(&mut bl_r0, &mut bl_r1);
             }
             continue 'outer;
         }
 
-        // No approximate progress possible (huge shift or immediate
-        // uncertainty): take one exact step.
+        // One exact step when the approximation cannot decide.
         let s = bl_r0 - bl_r1;
-        let (r, t) = if r0.is_negative() == r1.is_negative() {
-            (r0.wrapping_sub(r1 << s), t0.wrapping_sub(t1 << s))
+        let sr1 = shl_limbs(&r1, s);
+        let st1 = shl_limbs(&t1, s);
+        let (r, t) = if n0 == n1 {
+            (
+                add_wrapping(&r0, &negate_limbs(&sr1)),
+                add_wrapping(&t0, &negate_limbs(&st1)),
+            )
         } else {
-            (r0.wrapping_add(r1 << s), t0.wrapping_add(t1 << s))
+            (add_wrapping(&r0, &sr1), add_wrapping(&t0, &st1))
         };
-        let bl_r = bit_length_i256(r);
+        let (mr, nr) = magnitude(&r);
+        let bl_r = bit_length(&mr);
         if bl_r > bl_r1 {
             r0 = r;
             t0 = t;
+            m0 = mr;
+            n0 = nr;
             bl_r0 = bl_r;
         } else {
             r0 = r1;
-            r1 = r;
             t0 = t1;
-            t1 = t;
+            m0 = m1;
+            n0 = n1;
             bl_r0 = bl_r1;
+            r1 = r;
+            t1 = t;
+            m1 = mr;
+            n1 = nr;
             bl_r1 = bl_r;
         }
     }
 
+    let (rho, tau) = (limbs_to_i256(&r1), limbs_to_i256(&t1));
     // Degenerate-trajectory guard: sizes must be the usual half-size shape.
-    if bit_length_i256(r1) > 127 || bit_length_i256(t1) > 130 || t1.is_zero() {
+    if bit_length_i256(rho) > 127 || bit_length_i256(tau) > 130 || tau.is_zero() {
         return curve25519_heea_vartime(v);
     }
-
-    (r1, t1)
-}
-
-/// Signed linear combination `ca * a + cb * b` with i64 coefficients. Every
-/// call site's result fits in 256 bits; intermediates use a 320-bit scratch.
-fn linear_comb(ca: i64, a: &I256, cb: i64, b: &I256) -> I256 {
-    // 5-limb signed-magnitude accumulator.
-    fn scaled(c: i64, v: &I256) -> ([u64; 5], bool) {
-        let mag = c.unsigned_abs();
-        let neg = (c < 0) != v.is_negative();
-        let mut out = [0u64; 5];
-        let mut carry = 0u128;
-        let vl = v.magnitude_limbs();
-        for i in 0..4 {
-            let prod = (vl[i] as u128) * (mag as u128) + carry;
-            out[i] = prod as u64;
-            carry = prod >> 64;
-        }
-        out[4] = carry as u64;
-        (out, neg && vl != [0; 4])
-    }
-
-    fn add5(a: &[u64; 5], b: &[u64; 5]) -> [u64; 5] {
-        let mut out = [0u64; 5];
-        let mut carry = 0u64;
-        for i in 0..5 {
-            let (r1, c1) = a[i].overflowing_add(b[i]);
-            let (r2, c2) = r1.overflowing_add(carry);
-            out[i] = r2;
-            carry = (c1 as u64) + (c2 as u64);
-        }
-        debug_assert_eq!(carry, 0);
-        out
-    }
-
-    fn sub5(a: &[u64; 5], b: &[u64; 5]) -> ([u64; 5], bool) {
-        let mut out = [0u64; 5];
-        let mut borrow = 0u64;
-        for i in 0..5 {
-            let (r1, b1) = a[i].overflowing_sub(b[i]);
-            let (r2, b2) = r1.overflowing_sub(borrow);
-            out[i] = r2;
-            borrow = (b1 as u64) + (b2 as u64);
-        }
-        (out, borrow != 0)
-    }
-
-    fn cmp5(a: &[u64; 5], b: &[u64; 5]) -> core::cmp::Ordering {
-        for i in (0..5).rev() {
-            match a[i].cmp(&b[i]) {
-                core::cmp::Ordering::Equal => continue,
-                other => return other,
-            }
-        }
-        core::cmp::Ordering::Equal
-    }
-
-    let (ma, na) = scaled(ca, a);
-    let (mb, nb) = scaled(cb, b);
-
-    let (mag, neg) = if na == nb {
-        (add5(&ma, &mb), na)
-    } else {
-        match cmp5(&ma, &mb) {
-            core::cmp::Ordering::Greater => {
-                let (m, _) = sub5(&ma, &mb);
-                (m, na)
-            }
-            core::cmp::Ordering::Less => {
-                let (m, _) = sub5(&mb, &ma);
-                (m, nb)
-            }
-            core::cmp::Ordering::Equal => ([0u64; 5], false),
-        }
-    };
-    debug_assert_eq!(mag[4], 0, "linear combination exceeded 256 bits");
-    I256::from_magnitude_limbs([mag[0], mag[1], mag[2], mag[3]], neg)
+    (rho, tau)
 }
 
 /// Compute bit length of I256 (magnitude, not including sign)
@@ -403,48 +469,6 @@ impl I256 {
             (l[3] >> 48) as u8,
             (l[3] >> 56) as u8,
         ]
-    }
-
-    /// The magnitude limbs, little-endian.
-    #[inline(always)]
-    fn magnitude_limbs(&self) -> [u64; 4] {
-        self.limbs
-    }
-
-    /// Build from magnitude limbs and a sign.
-    #[inline(always)]
-    fn from_magnitude_limbs(limbs: [u64; 4], negative: bool) -> I256 {
-        let zero = limbs == [0; 4];
-        I256 {
-            limbs,
-            negative: negative && !zero,
-        }
-    }
-
-    /// The top bits from position `e` upward as a signed 128-bit value.
-    ///
-    /// Callers guarantee the magnitude above `e` fits inside `i128`.
-    #[inline(always)]
-    fn approx_signed(&self, e: u32) -> i128 {
-        let l = &self.limbs;
-        let limb = (e / 64) as usize;
-        let bit = e % 64;
-        let get = |i: usize| -> u64 { if i < 4 { l[i] } else { 0 } };
-        let (lo, hi) = if bit == 0 {
-            (get(limb), get(limb + 1))
-        } else {
-            (
-                (get(limb) >> bit) | (get(limb + 1) << (64 - bit)),
-                (get(limb + 1) >> bit) | (get(limb + 2) << (64 - bit)),
-            )
-        };
-        let mag = (lo as u128) | ((hi as u128) << 64);
-        debug_assert!(mag < 1 << 100, "approximation window overflow");
-        if self.is_negative() {
-            -(mag as i128)
-        } else {
-            mag as i128
-        }
     }
 
     /// Check if zero

@@ -120,7 +120,23 @@ fn bench_post_hash_steps(c: &mut Criterion) {
         b.iter(|| Scalar::from_bytes_mod_order_wide(&wide))
     });
 
-    group.bench_function("heea_decompose", |b| b.iter(|| h.heea_decompose()));
+    // Distinct challenges per call, so the branch predictor cannot learn one trajectory.
+    let challenges: Vec<Scalar> = (0..1024u32)
+        .map(|i| {
+            let mut wide = [0u8; 64];
+            for (j, byte) in wide.iter_mut().enumerate() {
+                *byte = (i.wrapping_mul(2654435761).wrapping_add(j as u32 * 40503) >> 7) as u8;
+            }
+            Scalar::from_bytes_mod_order_wide(&wide)
+        })
+        .collect();
+    let mut next = 0usize;
+    group.bench_function("heea_decompose", |b| {
+        b.iter(|| {
+            next = (next + 1) & 1023;
+            challenges[next].heea_decompose()
+        })
+    });
 
     group.bench_function("Scalar::from_canonical_bytes", |b| {
         b.iter(|| Option::<Scalar>::from(Scalar::from_canonical_bytes(*sig.s_bytes())))
@@ -240,9 +256,7 @@ fn bench_field_mul(c: &mut Criterion) {
         ("neon x4", lanes::Engine::Neon(4)),
         ("neon x8", lanes::Engine::Neon(8)),
     ] {
-        group.bench_function(label, |b| {
-            b.iter(|| lanes::field_mul_probe(engine, 1000))
-        });
+        group.bench_function(label, |b| b.iter(|| lanes::field_mul_probe(engine, 1000)));
     }
     group.finish();
 }
