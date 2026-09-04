@@ -898,60 +898,172 @@ pub(crate) mod fused {
         }
     );
 
+    tf!(
+        /// The square-root chain of a decompression: (y, u, v, r) with r the
+        /// candidate root of u / v
+        fn sqrt_chain(encodings: &[[u8; 32]; LANES]) -> [V; 4] {
+            unsafe {
+                let y_fe = FieldElementX8::from_lanes(&core::array::from_fn(|l| {
+                    FieldElement51::from_bytes(&encodings[l])
+                }));
+                let y = load(&y_fe);
+                let one = load(&FieldElementX8::ONE);
+                let yy = fsquare(y);
+                let u = fsub(yy, one); // y^2 - 1
+                let v = fadd(fmul(yy, load(&FieldElementX8::splat(EDWARDS_D))), one); // dy^2 + 1
+
+                // sqrt_ratio_i, fused: r = (u v^3)(u v^7)^((p-5)/8), check = v r^2.
+                let v3 = fmul(fsquare(v), v);
+                let v7 = fmul(fsquare(v3), v);
+                let r = fmul(fmul(u, v3), fpow_p58(fmul(u, v7)));
+                [y, u, v, r]
+            }
+        }
+    );
+
+    tf!(
+        /// Two square-root chains advanced together, so their latencies overlap.
+        fn sqrt_chain_x2(a: &[[u8; 32]; LANES], b: &[[u8; 32]; LANES]) -> [[V; 4]; 2] {
+            unsafe {
+                let ys = [a, b].map(|encodings| {
+                    load(&FieldElementX8::from_lanes(&core::array::from_fn(|l| {
+                        FieldElement51::from_bytes(&encodings[l])
+                    })))
+                });
+                let one = load(&FieldElementX8::ONE);
+                let d = load(&FieldElementX8::splat(EDWARDS_D));
+                let yy = [fsquare(ys[0]), fsquare(ys[1])];
+                let u = [fsub(yy[0], one), fsub(yy[1], one)];
+                let v = [fadd(fmul(yy[0], d), one), fadd(fmul(yy[1], d), one)];
+                let v3 = [fmul(fsquare(v[0]), v[0]), fmul(fsquare(v[1]), v[1])];
+                let v7 = [fmul(fsquare(v3[0]), v[0]), fmul(fsquare(v3[1]), v[1])];
+                let base = [fmul(u[0], v7[0]), fmul(u[1], v7[1])];
+                let pow = fpow_p58_x2(base);
+                let r = [
+                    fmul(fmul(u[0], v3[0]), pow[0]),
+                    fmul(fmul(u[1], v3[1]), pow[1]),
+                ];
+                [[ys[0], u[0], v[0], r[0]], [ys[1], u[1], v[1], r[1]]]
+            }
+        }
+    );
+
+    tf!(
+        fn fpow2k_x2(a: [V; 2], k: u32) -> [V; 2] {
+            unsafe {
+                let mut x = a;
+                for _ in 0..k {
+                    x = [square_waves(x[0]), square_waves(x[1])];
+                }
+                x
+            }
+        }
+    );
+
+    tf!(
+        fn fmul_x2(a: [V; 2], b: [V; 2]) -> [V; 2] {
+            unsafe { [fmul(a[0], b[0]), fmul(a[1], b[1])] }
+        }
+    );
+
+    tf!(
+        /// `fpow22501` on two elements in lockstep.
+        fn fpow22501_x2(a: [V; 2]) -> [V; 2] {
+            unsafe {
+                let t0 = fpow2k_x2(a, 1);
+                let t1 = fpow2k_x2(t0, 2);
+                let t2 = fmul_x2(a, t1);
+                let t3 = fmul_x2(t0, t2);
+                let t4 = fpow2k_x2(t3, 1);
+                let t5 = fmul_x2(t2, t4);
+                let t6 = fpow2k_x2(t5, 5);
+                let t7 = fmul_x2(t6, t5);
+                let t8 = fpow2k_x2(t7, 10);
+                let t9 = fmul_x2(t8, t7);
+                let t10 = fpow2k_x2(t9, 20);
+                let t11 = fmul_x2(t10, t9);
+                let t12 = fpow2k_x2(t11, 10);
+                let t13 = fmul_x2(t12, t7);
+                let t14 = fpow2k_x2(t13, 50);
+                let t15 = fmul_x2(t14, t13);
+                let t16 = fpow2k_x2(t15, 100);
+                let t17 = fmul_x2(t16, t15);
+                let t18 = fpow2k_x2(t17, 50);
+                fmul_x2(t18, t13)
+            }
+        }
+    );
+
+    tf!(
+        fn fpow_p58_x2(a: [V; 2]) -> [V; 2] {
+            unsafe {
+                let t19 = fpow22501_x2(a);
+                let t20 = fpow2k_x2(t19, 2);
+                fmul_x2(a, t20)
+            }
+        }
+    );
+
+    tf!(
+        /// Finish a decompression from its chain: pick the root, apply the sign,
+        /// park invalid lanes at the identity
+        fn finish_decompress(chain: [V; 4], encodings: &[[u8; 32]; LANES]) -> (ExtV, u8) {
+            unsafe {
+                use core::arch::x86_64::_mm512_test_epi64_mask;
+
+                let [y, u, v, r] = chain;
+                let one = load(&FieldElementX8::ONE);
+                let check = fmul(v, fsquare(r));
+
+                let sqrt_m1 = load(&FieldElementX8::splat(SQRT_M1));
+                let zero = [splat(0); 5];
+                let u_neg = fsub(zero, u);
+
+                let c = fcanon(check);
+                let correct_sign = fcanon_eq(c, fcanon(u));
+                let flipped_sign = fcanon_eq(c, fcanon(u_neg));
+                let flipped_sign_i = fcanon_eq(c, fcanon(fmul(u_neg, sqrt_m1)));
+
+                let take_prime = flipped_sign | flipped_sign_i;
+                let was_square = correct_sign | flipped_sign;
+
+                let mut x = fblend(take_prime, r, fmul(r, sqrt_m1));
+                // A canonical encoding is negative when its low bit is set.
+                let x_negative = _mm512_test_epi64_mask(fcanon(x)[0], splat(1));
+                x = fblend(x_negative, x, fsub(zero, x));
+
+                let mut sign_bits: u8 = 0;
+                for (l, e) in encodings.iter().enumerate() {
+                    sign_bits |= (e[31] >> 7) << l;
+                }
+                x = fblend(sign_bits, x, fsub(zero, x));
+
+                // Invalid lanes park at the identity.
+                let out = ExtV {
+                    x: fblend(was_square, zero, x),
+                    y: fblend(was_square, one, y),
+                    z: one,
+                    t: fblend(was_square, zero, fmul(x, y)),
+                };
+
+                (out, was_square)
+            }
+        }
+    );
+
     /// Decompress eight encodings as `decompress_x8` does, with the square-root
     /// power chain fused and every lane fixup a mask over canonical limbs.
     #[target_feature(enable = "avx512ifma")]
     unsafe fn decompress_fused(encodings: &[[u8; 32]; LANES]) -> (ExtV, u8) {
+        unsafe { finish_decompress(sqrt_chain(encodings), encodings) }
+    }
+
+    /// Two decompressions with their chains interleaved.
+    #[target_feature(enable = "avx512ifma")]
+    unsafe fn decompress_fused_x2(a: &[[u8; 32]; LANES], b: &[[u8; 32]; LANES]) -> [(ExtV, u8); 2] {
         unsafe {
-            use core::arch::x86_64::_mm512_test_epi64_mask;
-
-            let y_fe = FieldElementX8::from_lanes(&core::array::from_fn(|l| {
-                FieldElement51::from_bytes(&encodings[l])
-            }));
-            let y = load(&y_fe);
-            let one = load(&FieldElementX8::ONE);
-            let yy = fsquare(y);
-            let u = fsub(yy, one); // y^2 - 1
-            let v = fadd(fmul(yy, load(&FieldElementX8::splat(EDWARDS_D))), one); // dy^2 + 1
-
-            // sqrt_ratio_i, fused: r = (u v^3)(u v^7)^((p-5)/8), check = v r^2.
-            let v3 = fmul(fsquare(v), v);
-            let v7 = fmul(fsquare(v3), v);
-            let r = fmul(fmul(u, v3), fpow_p58(fmul(u, v7)));
-            let check = fmul(v, fsquare(r));
-
-            let sqrt_m1 = load(&FieldElementX8::splat(SQRT_M1));
-            let zero = [splat(0); 5];
-            let u_neg = fsub(zero, u);
-
-            let c = fcanon(check);
-            let correct_sign = fcanon_eq(c, fcanon(u));
-            let flipped_sign = fcanon_eq(c, fcanon(u_neg));
-            let flipped_sign_i = fcanon_eq(c, fcanon(fmul(u_neg, sqrt_m1)));
-
-            let take_prime = flipped_sign | flipped_sign_i;
-            let was_square = correct_sign | flipped_sign;
-
-            let mut x = fblend(take_prime, r, fmul(r, sqrt_m1));
-            // A canonical encoding is negative when its low bit is set.
-            let x_negative = _mm512_test_epi64_mask(fcanon(x)[0], splat(1));
-            x = fblend(x_negative, x, fsub(zero, x));
-
-            let mut sign_bits: u8 = 0;
-            for (l, e) in encodings.iter().enumerate() {
-                sign_bits |= (e[31] >> 7) << l;
-            }
-            x = fblend(sign_bits, x, fsub(zero, x));
-
-            // Invalid lanes park at the identity.
-            let out = ExtV {
-                x: fblend(was_square, zero, x),
-                y: fblend(was_square, one, y),
-                z: one,
-                t: fblend(was_square, zero, fmul(x, y)),
-            };
-
-            (out, was_square)
+            let [ca, cb] = sqrt_chain_x2(a, b);
+            [finish_decompress(ca, a), finish_decompress(cb, b)]
         }
     }
 
@@ -982,6 +1094,26 @@ pub(crate) mod fused {
                 entries[j] = to_niels_mem(&sum, d2);
             }
             LookupTableX8(entries)
+        }
+    }
+
+    /// Two tables built together, so the two chains of additions overlap.
+    #[target_feature(enable = "avx512ifma")]
+    unsafe fn build_table_x2(p: &ExtV, q: &ExtV) -> [LookupTableX8; 2] {
+        unsafe {
+            let d2 = load(&FieldElementX8::splat(EDWARDS_D2));
+
+            let mut ep = [to_niels_mem(p, d2); 8];
+            let mut eq = [to_niels_mem(q, d2); 8];
+            for j in 1..8 {
+                let np = load_niels(&ep[j - 1]);
+                let nq = load_niels(&eq[j - 1]);
+                let sp = compl_to_ext(&readd(p, &np));
+                let sq = compl_to_ext(&readd(q, &nq));
+                ep[j] = to_niels_mem(&sp, d2);
+                eq[j] = to_niels_mem(&sq, d2);
+            }
+            [LookupTableX8(ep), LookupTableX8(eq)]
         }
     }
 
@@ -1257,24 +1389,26 @@ pub(crate) mod fused {
             // A prepared table carries known-valid affine `A` multiples;
             // otherwise decompress `A` and build its table here.
             let owned_a: LookupTableX8;
+            let table_r: LookupTableX8;
             let (table_a, affine_a): (&LookupTableX8, bool) = match prepared_a {
-                Some(t) => (t, true),
-                None => {
-                    let (A, a_valid) = decompress_fused(a_encodings);
+                Some(t) => {
+                    let (R, r_valid) = decompress_fused(r_encodings);
                     for (l, ok) in alive.iter_mut().enumerate() {
-                        *ok &= a_valid >> l & 1 == 1;
+                        *ok &= r_valid >> l & 1 == 1;
                     }
-                    owned_a = build_table(&A);
+                    table_r = build_table(&R);
+                    (t, true)
+                }
+                None => {
+                    let [(A, a_valid), (R, r_valid)] =
+                        decompress_fused_x2(a_encodings, r_encodings);
+                    for (l, ok) in alive.iter_mut().enumerate() {
+                        *ok &= (a_valid & r_valid) >> l & 1 == 1;
+                    }
+                    [owned_a, table_r] = build_table_x2(&A, &R);
                     (&owned_a, false)
                 }
             };
-
-            let (R, r_valid) = decompress_fused(r_encodings);
-            for (l, ok) in alive.iter_mut().enumerate() {
-                *ok &= r_valid >> l & 1 == 1;
-            }
-
-            let table_r = build_table(&R);
 
             let mut acc: Option<ProjV> = None;
             let mut last: Option<ComplV> = None;
