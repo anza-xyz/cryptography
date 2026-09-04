@@ -24,7 +24,11 @@ use crate::backend::lanes::edwards_x8::{
     table_from_affine_lanes,
 };
 use crate::backend::lanes::field_x8::{LANES, LaneMask};
+#[cfg(curve25519_backend = "simd")]
+use crate::backend::lanes::ifma_x8::fused::decompress_table_x8;
 use crate::backend::lanes::joint::JOINT_TABLE_B;
+#[cfg(curve25519_backend = "simd")]
+use crate::backend::lanes::sha512_x8::challenge_digests_x8;
 use crate::backend::serial::curve_models::AffineNielsPoint;
 use crate::constants::EDWARDS_D2;
 use crate::edwards::CompressedEdwardsY;
@@ -226,9 +230,7 @@ fn prepare_group(
     // vector unit is available.
     #[cfg(curve25519_backend = "simd")]
     let k: [Scalar; LANES] = if crate::backend::lanes::ifma_x8::available() {
-        let digests = unsafe {
-            crate::backend::lanes::sha512_x8::challenge_digests_x8(r_bytes, a_bytes, msgs)
-        };
+        let digests = unsafe { challenge_digests_x8(r_bytes, a_bytes, msgs) };
         core::array::from_fn(|l| Scalar::from_bytes_mod_order_wide(&digests[l]))
     } else {
         challenge_scalars_serial(a_bytes, r_bytes, msgs)
@@ -458,6 +460,92 @@ fn verify_group_prepared(
     let (digits, alive) = prepare_group(&a_bytes, &r_bytes, &s_bytes, &msgs);
     let table = table_from_affine_lanes(&core::array::from_fn(|l| &group[l].0.multiples));
     run_curve_stage(&a_bytes, &r_bytes, Some(&table), &digits, &alive, engine)
+}
+
+/// A group after scalar preparation. Benches only.
+#[doc(hidden)]
+pub struct PreparedGroup {
+    a: [[u8; 32]; LANES],
+    r: [[u8; 32]; LANES],
+    digits: GroupDigits,
+    alive: LaneMask,
+}
+
+/// Scalar preparation of one full group, hashing included. Benches only.
+#[doc(hidden)]
+pub fn prepare_group_only(
+    group: &[(VerificationKeyBytes, Signature, &[u8]); LANES],
+) -> PreparedGroup {
+    let a: [[u8; 32]; LANES] = core::array::from_fn(|l| group[l].0.0);
+    let r: [[u8; 32]; LANES] = core::array::from_fn(|l| *group[l].1.r_bytes());
+    let s_bytes: [[u8; 32]; LANES] = core::array::from_fn(|l| *group[l].1.s_bytes());
+    let msgs: [&[u8]; LANES] = core::array::from_fn(|l| group[l].2);
+    let (digits, alive) = prepare_group(&a, &r, &s_bytes, &msgs);
+    PreparedGroup {
+        a,
+        r,
+        digits,
+        alive,
+    }
+}
+
+/// The curve stage of a prepared group on the host's kernel. Benches only.
+#[doc(hidden)]
+pub fn curve_stage_only(prepared: &PreparedGroup) -> LaneMask {
+    run_curve_stage(
+        &prepared.a,
+        &prepared.r,
+        None,
+        &prepared.digits,
+        &prepared.alive,
+        Engine::Default,
+    )
+}
+
+/// The challenge hashes of one group, eight-wide where the host allows. Benches only.
+#[doc(hidden)]
+pub fn challenge_hashes_only(group: &[(VerificationKeyBytes, Signature, &[u8]); LANES]) -> u64 {
+    let a: [[u8; 32]; LANES] = core::array::from_fn(|l| group[l].0.0);
+    let r: [[u8; 32]; LANES] = core::array::from_fn(|l| *group[l].1.r_bytes());
+    let msgs: [&[u8]; LANES] = core::array::from_fn(|l| group[l].2);
+    #[cfg(curve25519_backend = "simd")]
+    if lane_engine_available() {
+        let digests = unsafe { challenge_digests_x8(&r, &a, &msgs) };
+        let mut sum = 0u64;
+        for d in digests.iter() {
+            sum ^= u64::from_le_bytes([d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]]);
+        }
+        return sum;
+    }
+    let scalars = challenge_scalars_serial(&a, &r, &msgs);
+    let mut sum = 0u64;
+    for k in scalars.iter() {
+        let b = k.as_bytes();
+        sum ^= u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]);
+    }
+    sum
+}
+
+/// Decompression plus table build for eight encodings on the host's kernel. Benches only.
+#[doc(hidden)]
+pub fn decompress_table_only(encodings: &[[u8; 32]; LANES]) -> u64 {
+    #[cfg(curve25519_backend = "simd")]
+    if lane_engine_available() {
+        let (valid, sum) = unsafe { decompress_table_x8(encodings) };
+        return sum ^ valid as u64;
+    }
+    let (p, valid) = decompress_x8(encodings);
+    let table = LookupTableX8::from_extended(&p);
+    let mut sum = 0u64;
+    for entry in table.0.iter() {
+        for limb in entry.Y_plus_X.limbs[0].iter() {
+            sum ^= *limb;
+        }
+    }
+    for (l, ok) in valid.iter().enumerate() {
+        sum ^= (*ok as u64) << l;
+    }
+    sum
 }
 
 /// The portable curve stage: identical structure to the fused IFMA path.

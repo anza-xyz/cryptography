@@ -1218,6 +1218,26 @@ pub(crate) mod fused {
         }
     }
 
+    /// Decompression and table build alone, for the breakdown bench.
+    ///
+    /// # Safety
+    ///
+    /// Callers must have verified [`available`].
+    #[target_feature(enable = "avx512ifma")]
+    pub(crate) unsafe fn decompress_table_x8(encodings: &[[u8; 32]; LANES]) -> (u8, u64) {
+        unsafe {
+            let (p, valid) = decompress_fused(encodings);
+            let table = build_table(&p);
+            let mut sum = 0u64;
+            for entry in table.0.iter() {
+                for limb in entry.Y_plus_X.limbs[0].iter() {
+                    sum ^= *limb;
+                }
+            }
+            (valid, sum)
+        }
+    }
+
     /// The complete curve stage for one group: decompress, tables, the four-term
     /// lockstep Horner loop, cofactor doublings and identity test.
     ///

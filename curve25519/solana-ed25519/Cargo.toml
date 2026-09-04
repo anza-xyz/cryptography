@@ -57,6 +57,11 @@ harness = false
 required-features = ["alloc", "digest", "rand_core"]
 
 [[bench]]
+name = "lane_breakdown"
+harness = false
+required-features = ["alloc", "digest", "rand_core"]
+
+[[bench]]
 name = "prepared_verify"
 harness = false
 required-features = ["alloc", "digest", "rand_core"]
