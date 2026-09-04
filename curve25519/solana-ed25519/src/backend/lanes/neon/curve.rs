@@ -15,13 +15,12 @@ use super::field::{
     Fe, Limbs, Simd, Stage, ZERO_STAGE, limbs_from_bytes, limbs_from_fe51, limbs_neg,
     limbs_to_bytes,
 };
+use crate::backend::lanes::GroupDigits;
+use crate::backend::lanes::digits::HEEA_DIGITS;
 use crate::backend::lanes::edwards_x8::LookupTableX8;
 use crate::backend::lanes::field_x8::{LANES, LaneMask};
-use crate::backend::lanes::{GroupDigits, HEEA_DIGITS};
-use crate::backend::serial::curve_models::AffineNielsPoint;
-use crate::backend::serial::u64::constants::{
-    EDWARDS_D, EDWARDS_D2, LANE_BASEPOINT_128_MULTIPLES, LANE_BASEPOINT_MULTIPLES, SQRT_M1,
-};
+use crate::backend::lanes::joint::{JOINT_TABLE_B, JointTable};
+use crate::backend::serial::u64::constants::{EDWARDS_D, EDWARDS_D2, SQRT_M1};
 
 const D: Limbs = limbs_from_fe51(EDWARDS_D.0);
 const D2: Limbs = limbs_from_fe51(EDWARDS_D2.0);
@@ -537,7 +536,12 @@ fn build_table<F: Field>(P: &ExtP<F>, off: usize) -> TableMem {
     out
 }
 
-fn select<F: Field>(t: &TableMem, digits: &[[i8; HEEA_DIGITS]; LANES], i: usize, off: usize) -> NielsP<F> {
+fn select<F: Field>(
+    t: &TableMem,
+    digits: &[[i8; HEEA_DIGITS]; LANES],
+    i: usize,
+    off: usize,
+) -> NielsP<F> {
     let mut sy = ZERO_STAGE;
     let mut sm = ZERO_STAGE;
     let mut sz = ZERO_STAGE;
@@ -553,7 +557,11 @@ fn select<F: Field>(t: &TableMem, digits: &[[i8; HEEA_DIGITS]; LANES], i: usize,
         }
         let e = &t.0[(d.unsigned_abs() as usize) - 1];
         let neg = d < 0;
-        let (a, b) = if neg { (&e.ymx, &e.ypx) } else { (&e.ypx, &e.ymx) };
+        let (a, b) = if neg {
+            (&e.ymx, &e.ypx)
+        } else {
+            (&e.ypx, &e.ymx)
+        };
         let td = if neg { &e.t2d_neg } else { &e.t2d };
         for k in 0..10 {
             sy[k][l] = a[k][l];
@@ -570,65 +578,20 @@ fn select<F: Field>(t: &TableMem, digits: &[[i8; HEEA_DIGITS]; LANES], i: usize,
     }
 }
 
-/// A static affine table entry: the same point in every lane, `Z` implicit.
-struct AffMem {
-    ypx: Limbs,
-    ymx: Limbs,
-    t2d: Limbs,
-    t2d_neg: Limbs,
-}
-
-const fn aff_entry(e: &AffineNielsPoint) -> AffMem {
-    let t2d = limbs_from_fe51(e.xy2d.0);
-    AffMem {
-        ypx: limbs_from_fe51(e.y_plus_x.0),
-        ymx: limbs_from_fe51(e.y_minus_x.0),
-        t2d,
-        t2d_neg: limbs_neg(&t2d),
-    }
-}
-
-const fn aff_table(src: &[AffineNielsPoint; 8]) -> [AffMem; 8] {
-    [
-        aff_entry(&src[0]),
-        aff_entry(&src[1]),
-        aff_entry(&src[2]),
-        aff_entry(&src[3]),
-        aff_entry(&src[4]),
-        aff_entry(&src[5]),
-        aff_entry(&src[6]),
-        aff_entry(&src[7]),
-    ]
-}
-
-static NEON_TABLE_B: [AffMem; 8] = aff_table(&LANE_BASEPOINT_MULTIPLES);
-static NEON_TABLE_B_128: [AffMem; 8] = aff_table(&LANE_BASEPOINT_128_MULTIPLES);
-
-fn select_affine<F: Field>(
-    t: &[AffMem; 8],
-    digits: &[[i8; HEEA_DIGITS]; LANES],
-    i: usize,
-    off: usize,
-) -> AffNielsP<F> {
+/// Select, per lane, the joint table entry for a digit pair.
+fn select_joint<F: Field>(t: &JointTable, index: &[u64; LANES], off: usize) -> AffNielsP<F> {
     let mut sy = ZERO_STAGE;
     let mut sm = ZERO_STAGE;
     let mut st = ZERO_STAGE;
     for l in off..off + F::W {
-        let d = digits[l][i];
-        if d == 0 {
-            // The affine identity (1, 1, 0).
-            sy[0][l] = 1;
-            sm[0][l] = 1;
-            continue;
-        }
-        let e = &t[(d.unsigned_abs() as usize) - 1];
-        let neg = d < 0;
-        let (a, b) = if neg { (&e.ymx, &e.ypx) } else { (&e.ypx, &e.ymx) };
-        let td = if neg { &e.t2d_neg } else { &e.t2d };
+        let j = index[l] as usize;
+        let ypx = limbs_from_fe51(core::array::from_fn(|i| t.y_plus_x[i][j]));
+        let ymx = limbs_from_fe51(core::array::from_fn(|i| t.y_minus_x[i][j]));
+        let t2d = limbs_from_fe51(core::array::from_fn(|i| t.t2d[i][j]));
         for k in 0..10 {
-            sy[k][l] = a[k];
-            sm[k][l] = b[k];
-            st[k][l] = td[k];
+            sy[k][l] = ypx[k];
+            sm[k][l] = ymx[k];
+            st[k][l] = t2d[k];
         }
     }
     AffNielsP {
@@ -650,17 +613,18 @@ pub(crate) fn verify_curve<F: Field>(
 ) -> LaneMask {
     let mut alive = *alive_in;
 
-    let owned_a: Option<TableMem> = match prepared_a {
-        Some(_) => None,
+    let owned_a: TableMem;
+    let table_A: &TableMem = match prepared_a {
+        Some(t) => t,
         None => {
             let (A, a_valid) = decompress::<F>(a_encodings, off);
             for l in off..off + F::W {
                 alive[l] &= a_valid[l];
             }
-            Some(build_table(&A, off))
+            owned_a = build_table(&A, off);
+            &owned_a
         }
     };
-    let table_A = prepared_a.unwrap_or_else(|| owned_a.as_ref().expect("table built above"));
 
     let (R, r_valid) = decompress::<F>(r_encodings, off);
     for l in off..off + F::W {
@@ -684,20 +648,19 @@ pub(crate) fn verify_curve<F: Field>(
 
         let e1 = compl_to_ext(&readd_affine(
             &e,
-            &select_affine::<F>(&NEON_TABLE_B, &digits.b_lo, i, off),
+            &select_joint::<F>(&JOINT_TABLE_B, &digits.b[i], off),
         ));
-        let e2 = compl_to_ext(&readd_affine(
-            &e1,
-            &select_affine::<F>(&NEON_TABLE_B_128, &digits.b_hi, i, off),
-        ));
-        let e3 = compl_to_ext(&readd(&e2, &select::<F>(table_A, &digits.a, i, off)));
-        let completed = readd(&e3, &select::<F>(&table_R, &digits.r, i, off));
+        let e2 = compl_to_ext(&readd(&e1, &select::<F>(table_A, &digits.a, i, off)));
+        let completed = readd(&e2, &select::<F>(&table_R, &digits.r, i, off));
         acc = Some(compl_to_proj(&completed));
         last = Some(completed);
     }
 
     // Three cofactor doublings, then the identity test.
-    let e_final = compl_to_ext(&last.expect("loop runs at least one round"));
+    let e_final = match last {
+        Some(ref c) => compl_to_ext(c),
+        None => identity_ext::<F>(),
+    };
     let mut p = ProjP {
         X: e_final.X,
         Y: e_final.Y,

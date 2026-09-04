@@ -380,21 +380,11 @@ impl Simd for uint32x4_t {
     }
     #[inline(always)]
     fn acc_sra26(a: Self::Acc, b: Self::Acc) -> Self::Acc {
-        unsafe {
-            [
-                vsraq_n_u64::<26>(a[0], b[0]),
-                vsraq_n_u64::<26>(a[1], b[1]),
-            ]
-        }
+        unsafe { [vsraq_n_u64::<26>(a[0], b[0]), vsraq_n_u64::<26>(a[1], b[1])] }
     }
     #[inline(always)]
     fn acc_sra25(a: Self::Acc, b: Self::Acc) -> Self::Acc {
-        unsafe {
-            [
-                vsraq_n_u64::<25>(a[0], b[0]),
-                vsraq_n_u64::<25>(a[1], b[1]),
-            ]
-        }
+        unsafe { [vsraq_n_u64::<25>(a[0], b[0]), vsraq_n_u64::<25>(a[1], b[1])] }
     }
     #[inline(always)]
     fn acc_wrap19(a: Self::Acc, b: Self::Acc) -> Self::Acc {

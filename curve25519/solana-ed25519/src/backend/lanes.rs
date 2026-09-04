@@ -10,29 +10,29 @@
 //! advance in lockstep, each with its own verdict, and no field operation
 //! ever crosses lanes.
 
+pub(crate) mod digits;
 pub(crate) mod edwards_x8;
 pub(crate) mod field_x8;
 #[cfg(curve25519_backend = "simd")]
 pub(crate) mod ifma_x8;
+pub(crate) mod joint;
+mod joint_data;
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 pub(crate) mod neon;
 #[cfg(curve25519_backend = "simd")]
 pub(crate) mod sha512_x8;
 
-/// Number of radix-16 digit positions a 129-bit scalar can occupy.
-pub(crate) const HEEA_DIGITS: usize = 33;
+use digits::HEEA_DIGITS;
+use field_x8::LANES;
 
-/// The per-lane radix-16 digit schedules of the four MSM terms of the
-/// HEEA-transformed verification equation.
+/// The per-lane radix-16 digit schedules of the HEEA-transformed verification equation.
 pub(crate) struct GroupDigits {
-    /// Digits of \\(\tau s \bmod 2^{128}\\), applied to \\(B\\).
-    pub(crate) b_lo: [[i8; HEEA_DIGITS]; field_x8::LANES],
-    /// Digits of \\(\lfloor \tau s / 2^{128} \rfloor\\), applied to \\(B'\\).
-    pub(crate) b_hi: [[i8; HEEA_DIGITS]; field_x8::LANES],
-    /// Digits applied to \\(A\\): \\(\pm\rho\\) with the HEEA sign folded in.
-    pub(crate) a: [[i8; HEEA_DIGITS]; field_x8::LANES],
-    /// Digits applied to \\(R\\): \\(-\tau\\).
-    pub(crate) r: [[i8; HEEA_DIGITS]; field_x8::LANES],
-    /// Highest digit position with any nonzero digit.
+    /// Joint fixed-base table index per lane, one row per position.
+    pub(crate) b: [[u64; LANES]; HEEA_DIGITS],
+    /// Digits applied to A, with the HEEA sign folded in.
+    pub(crate) a: [[i8; HEEA_DIGITS]; LANES],
+    /// Digits applied to R.
+    pub(crate) r: [[i8; HEEA_DIGITS]; LANES],
+    /// Highest position with any nonzero digit.
     pub(crate) start: usize,
 }

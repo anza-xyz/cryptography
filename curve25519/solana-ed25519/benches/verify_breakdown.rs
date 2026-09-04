@@ -12,8 +12,8 @@ use solana_ed25519::edwards::{CompressedEdwardsY, EdwardsPoint};
 use solana_ed25519::scalar::Scalar;
 use solana_ed25519::traits::{HEEADecomposition, IsIdentity};
 
-/// Message sizes: empty, a 32-byte digest, and a 1232-byte Solana packet.
-static MSG_SIZES: [usize; 4] = [0, 32, 256, 1232];
+/// Message sizes: empty, a 32-byte digest, the 1232-byte packet and the 4096-byte one.
+static MSG_SIZES: [usize; 5] = [0, 32, 256, 1232, 4096];
 
 fn inputs(msg_len: usize) -> (VerificationKey, Signature, Vec<u8>) {
     let sk = SigningKey::from([7u8; 32]);

@@ -17,11 +17,18 @@ use alloc::vec::Vec;
 
 use sha2::{Sha512, digest::Update};
 
+use crate::backend::lanes::GroupDigits;
+use crate::backend::lanes::digits::{HEEA_DIGITS, joint_digits, negate, signed_digits};
 use crate::backend::lanes::edwards_x8::{
     CompletedPointX8, ExtendedPointX8, LookupTableX8, ProjectivePointX8, decompress_x8,
+    table_from_affine_lanes,
 };
 use crate::backend::lanes::field_x8::{LANES, LaneMask};
-use crate::backend::lanes::{GroupDigits, HEEA_DIGITS};
+use crate::backend::lanes::joint::JOINT_TABLE_B;
+use crate::backend::serial::curve_models::AffineNielsPoint;
+use crate::constants::EDWARDS_D2;
+use crate::edwards::CompressedEdwardsY;
+use crate::field::FieldElement;
 use crate::scalar::Scalar;
 use crate::traits::HEEADecomposition;
 
@@ -207,24 +214,6 @@ fn challenge_scalars_serial(
     })
 }
 
-/// Truncate a 64-position radix-16 schedule to the HEEA digit window.
-///
-/// The scalars fed through here are at most 129 bits, so every digit above
-/// position 32 is zero.
-fn heea_digits(scalar: &Scalar) -> [i8; HEEA_DIGITS] {
-    let full = scalar.as_radix_16();
-    debug_assert!(full[HEEA_DIGITS..].iter().all(|&d| d == 0));
-    core::array::from_fn(|i| full[i])
-}
-
-/// Negate a radix-16 digit schedule: digit-wise negation is exact and keeps
-/// every digit in `[-8, 8]`.
-fn negate_digits(digits: &mut [i8; HEEA_DIGITS]) {
-    for d in digits.iter_mut() {
-        *d = -*d;
-    }
-}
-
 /// Shared per-lane scalar preparation: challenge hashing, `s` canonicality,
 /// HEEA decomposition and digit schedules.
 fn prepare_group(
@@ -263,57 +252,35 @@ fn prepare_group(
     // equation tau*s B + rho A' - tau R with A' = -A when rho == tau*k and A' = A
     // otherwise, the sign folded into the rho digits. Working mod l is sound
     // here: the [8] multiplication annihilates the l-multiple and the torsion.
-    let mut b_lo = [[0i8; HEEA_DIGITS]; LANES];
-    let mut b_hi = [[0i8; HEEA_DIGITS]; LANES];
+    let mut b = [[0u64; LANES]; HEEA_DIGITS];
     let mut a = [[0i8; HEEA_DIGITS]; LANES];
     let mut r = [[0i8; HEEA_DIGITS]; LANES];
 
     for l in 0..LANES {
         let (rho, tau, flip_k) = k[l].heea_decompose();
         let ts = tau * s[l];
-
-        let ts_bytes = ts.as_bytes();
-        let mut lo_bytes = [0u8; 32];
-        let mut hi_bytes = [0u8; 32];
-        lo_bytes[..16].copy_from_slice(&ts_bytes[..16]);
-        hi_bytes[..16].copy_from_slice(&ts_bytes[16..]);
-        // The halves are 128-bit values, well below the group order.
-        let ts_lo = Scalar::from_canonical_bytes(lo_bytes).unwrap();
-        let ts_hi = Scalar::from_canonical_bytes(hi_bytes).unwrap();
-
-        b_lo[l] = heea_digits(&ts_lo);
-        b_hi[l] = heea_digits(&ts_hi);
-        a[l] = heea_digits(&rho);
-        if !flip_k {
-            // A' = -A: apply -rho to the decompressed A.
-            negate_digits(&mut a[l]);
+        for (i, &d) in joint_digits(ts.as_bytes()).iter().enumerate() {
+            b[i][l] = d as u64;
         }
-        r[l] = heea_digits(&tau);
-        // The R term is always -tau R.
-        negate_digits(&mut r[l]);
+        a[l] = signed_digits(&rho);
+        if !flip_k {
+            negate(&mut a[l]);
+        }
+        r[l] = signed_digits(&tau);
+        negate(&mut r[l]);
     }
 
     // First digit position with any contribution.
     let mut start = 0;
     for i in (0..HEEA_DIGITS).rev() {
-        let any =
-            (0..LANES).any(|l| b_lo[l][i] != 0 || b_hi[l][i] != 0 || a[l][i] != 0 || r[l][i] != 0);
+        let any = (0..LANES).any(|l| b[i][l] != 0 || a[l][i] != 0 || r[l][i] != 0);
         if any {
             start = i;
             break;
         }
     }
 
-    (
-        GroupDigits {
-            b_lo,
-            b_hi,
-            a,
-            r,
-            start,
-        },
-        alive,
-    )
+    (GroupDigits { b, a, r, start }, alive)
 }
 
 /// Dispatch one prepared group to the fused or portable curve stage.
@@ -384,18 +351,13 @@ fn verify_group(
 /// does, accepting non-canonical encodings.
 pub struct PreparedLaneKey {
     vk_bytes: VerificationKeyBytes,
-    multiples: [crate::backend::serial::curve_models::AffineNielsPoint; 8],
+    multiples: [AffineNielsPoint; 8],
 }
 
 impl PreparedLaneKey {
     /// Decompress and precompute; fails exactly when
     /// [`VerificationKey::try_from`] would.
     pub fn new(vk_bytes: VerificationKeyBytes) -> Result<Self, super::Error> {
-        use crate::backend::serial::curve_models::AffineNielsPoint;
-        use crate::constants::EDWARDS_D2;
-        use crate::edwards::CompressedEdwardsY;
-        use crate::field::FieldElement;
-
         let A = CompressedEdwardsY(vk_bytes.0)
             .decompress()
             .ok_or(super::Error::MalformedPublicKey)?;
@@ -494,10 +456,7 @@ fn verify_group_prepared(
     let msgs: [&[u8]; LANES] = core::array::from_fn(|l| group[l].2);
 
     let (digits, alive) = prepare_group(&a_bytes, &r_bytes, &s_bytes, &msgs);
-    let table =
-        crate::backend::lanes::edwards_x8::table_from_affine_lanes(&core::array::from_fn(|l| {
-            &group[l].0.multiples
-        }));
+    let table = table_from_affine_lanes(&core::array::from_fn(|l| &group[l].0.multiples));
     run_curve_stage(&a_bytes, &r_bytes, Some(&table), &digits, &alive, engine)
 }
 
@@ -513,25 +472,24 @@ fn verify_curve_portable(
 
     // Eight-wide decompression, non-canonical accepted; a prepared table carries
     // known-valid `A` multiples and skips the `A` half.
-    let owned_a: Option<LookupTableX8> = match prepared_a {
-        Some(_) => None,
+    let owned_a: LookupTableX8;
+    let table_A: &LookupTableX8 = match prepared_a {
+        Some(t) => t,
         None => {
             let (A, a_valid) = decompress_x8(a_encodings);
             for l in 0..LANES {
                 alive[l] &= a_valid[l];
             }
-            Some(LookupTableX8::from_extended(&A))
+            owned_a = LookupTableX8::from_extended(&A);
+            &owned_a
         }
     };
-    let table_A = prepared_a.unwrap_or_else(|| owned_a.as_ref().expect("table built above"));
 
     let (R, r_valid) = decompress_x8(r_encodings);
     for l in 0..LANES {
         alive[l] &= r_valid[l];
     }
 
-    let table_B = &crate::backend::lanes::edwards_x8::PACKED_TABLE_B;
-    let table_B_128 = &crate::backend::lanes::edwards_x8::PACKED_TABLE_B_128;
     let table_R = LookupTableX8::from_extended(&R);
 
     let mut acc: Option<ProjectivePointX8> = None;
@@ -548,12 +506,7 @@ fn verify_curve_portable(
             None => ExtendedPointX8::IDENTITY,
         };
 
-        e = e
-            .add(&table_B.select(&core::array::from_fn(|l| digits.b_lo[l][i])))
-            .as_extended();
-        e = e
-            .add(&table_B_128.select(&core::array::from_fn(|l| digits.b_hi[l][i])))
-            .as_extended();
+        e = e.add(&JOINT_TABLE_B.select(&digits.b[i])).as_extended();
         e = e
             .add(&table_A.select(&core::array::from_fn(|l| digits.a[l][i])))
             .as_extended();
@@ -563,10 +516,10 @@ fn verify_curve_portable(
     }
 
     // Three cofactor doublings, then the identity test.
-    let checked = last
-        .expect("loop runs at least one round")
-        .as_extended()
-        .mul_by_pow_2(3);
+    let checked = match last {
+        Some(c) => c.as_extended().mul_by_pow_2(3),
+        None => ExtendedPointX8::IDENTITY,
+    };
 
     let is_identity = checked.is_identity_lanes();
     core::array::from_fn(|l| alive[l] && is_identity[l])

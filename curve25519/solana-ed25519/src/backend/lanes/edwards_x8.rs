@@ -7,6 +7,7 @@
 #![allow(non_snake_case)]
 
 use super::field_x8::{FieldElementX8, LANES, LaneMask, sqrt_ratio_i_x8};
+use crate::backend::serial::curve_models::AffineNielsPoint;
 use crate::backend::serial::u64::constants::{EDWARDS_D, EDWARDS_D2};
 #[cfg(test)]
 use crate::edwards::EdwardsPoint;
@@ -209,12 +210,9 @@ impl ProjectiveNielsX8 {
 /// radix-16 digit in \\([-8, 8]\\).
 pub(crate) struct LookupTableX8(pub(crate) [ProjectiveNielsX8; 8]);
 
-
 /// Assemble a per-lane table from eight keys' cached affine multiples: entry
 /// `j`, lane `l` holds `[(j+1)]A_l`, with `Z` one in every lane.
-pub(crate) fn table_from_affine_lanes(
-    keys: &[&[crate::backend::serial::curve_models::AffineNielsPoint; 8]; LANES],
-) -> LookupTableX8 {
+pub(crate) fn table_from_affine_lanes(keys: &[&[AffineNielsPoint; 8]; LANES]) -> LookupTableX8 {
     let mut out = LookupTableX8([ProjectiveNielsX8::IDENTITY; 8]);
     for (j, entry) in out.0.iter_mut().enumerate() {
         entry.Z = FieldElementX8::ONE;
@@ -229,110 +227,6 @@ pub(crate) fn table_from_affine_lanes(
     }
     out
 }
-
-/// The weak reduction `FieldElement51::reduce` performs, as a `const fn`.
-const fn reduce_limbs(mut limbs: [u64; 5]) -> [u64; 5] {
-    const LOW_51_BIT_MASK: u64 = (1u64 << 51) - 1;
-    let c0 = limbs[0] >> 51;
-    let c1 = limbs[1] >> 51;
-    let c2 = limbs[2] >> 51;
-    let c3 = limbs[3] >> 51;
-    let c4 = limbs[4] >> 51;
-    limbs[0] &= LOW_51_BIT_MASK;
-    limbs[1] &= LOW_51_BIT_MASK;
-    limbs[2] &= LOW_51_BIT_MASK;
-    limbs[3] &= LOW_51_BIT_MASK;
-    limbs[4] &= LOW_51_BIT_MASK;
-    limbs[0] += c4 * 19;
-    limbs[1] += c0;
-    limbs[2] += c1;
-    limbs[3] += c2;
-    limbs[4] += c3;
-    limbs
-}
-
-/// `FieldElement51::negate` as a `const fn`: `16p - a`, weakly reduced.
-const fn neg_limbs(a: [u64; 5]) -> [u64; 5] {
-    reduce_limbs([
-        36028797018963664u64 - a[0],
-        36028797018963952u64 - a[1],
-        36028797018963952u64 - a[2],
-        36028797018963952u64 - a[3],
-        36028797018963952u64 - a[4],
-    ])
-}
-
-/// Eight affine cached points, identical in every lane, packed one entry per
-/// lane: `coord[i][j]` is limb `i` of entry `j`.
-///
-/// Both signs of `2dT` are stored so a digit's sign folds into the same select.
-#[repr(align(64))]
-pub(crate) struct PackedAffineTableX8 {
-    pub(crate) y_plus_x: [[u64; LANES]; 5],
-    pub(crate) y_minus_x: [[u64; LANES]; 5],
-    pub(crate) t2d: [[u64; LANES]; 5],
-    pub(crate) neg_t2d: [[u64; LANES]; 5],
-}
-
-const fn pack_affine_table(
-    entries: &[crate::backend::serial::curve_models::AffineNielsPoint; 8],
-) -> PackedAffineTableX8 {
-    let mut out = PackedAffineTableX8 {
-        y_plus_x: [[0; LANES]; 5],
-        y_minus_x: [[0; LANES]; 5],
-        t2d: [[0; LANES]; 5],
-        neg_t2d: [[0; LANES]; 5],
-    };
-    let mut j = 0;
-    while j < 8 {
-        let neg = neg_limbs(entries[j].xy2d.0);
-        let mut i = 0;
-        while i < 5 {
-            out.y_plus_x[i][j] = entries[j].y_plus_x.0[i];
-            out.y_minus_x[i][j] = entries[j].y_minus_x.0[i];
-            out.t2d[i][j] = entries[j].xy2d.0[i];
-            out.neg_t2d[i][j] = neg[i];
-            i += 1;
-        }
-        j += 1;
-    }
-    out
-}
-
-impl PackedAffineTableX8 {
-    /// Select, per lane, the entry for a signed radix-16 digit in \\([-8, 8]\\).
-    ///
-    /// `Z` is one in every entry, so it is never written.
-    pub(crate) fn select(&self, digits: &[i8; LANES]) -> ProjectiveNielsX8 {
-        let mut out = ProjectiveNielsX8::IDENTITY;
-        for (l, &d) in digits.iter().enumerate() {
-            if d == 0 {
-                continue;
-            }
-            let j = (d.unsigned_abs() as usize) - 1;
-            let neg = d < 0;
-            for i in 0..5 {
-                let (ypx, ymx) = (self.y_plus_x[i][j], self.y_minus_x[i][j]);
-                out.Y_plus_X.limbs[i][l] = if neg { ymx } else { ypx };
-                out.Y_minus_X.limbs[i][l] = if neg { ypx } else { ymx };
-                out.T2d.limbs[i][l] = if neg {
-                    self.neg_t2d[i][j]
-                } else {
-                    self.t2d[i][j]
-                };
-            }
-        }
-        out
-    }
-}
-
-/// `[B, 2B, ..., 8B]` as affine entries, built at compile time.
-pub(crate) static PACKED_TABLE_B: PackedAffineTableX8 =
-    pack_affine_table(&crate::backend::serial::u64::constants::LANE_BASEPOINT_MULTIPLES);
-
-/// `[B', 2B', ..., 8B']` for `B' = 2^128 B`.
-pub(crate) static PACKED_TABLE_B_128: PackedAffineTableX8 =
-    pack_affine_table(&crate::backend::serial::u64::constants::LANE_BASEPOINT_128_MULTIPLES);
 
 impl LookupTableX8 {
     /// Build `[P, 2P, ..., 8P]` for all lanes at once.

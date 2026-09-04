@@ -358,8 +358,7 @@ mod test {
                 .map(|(i, &n)| (0..n).map(|j| (i * 31 + j) as u8).collect())
                 .collect();
 
-            let r_bytes: [[u8; 32]; LANES] =
-                core::array::from_fn(|l| [(l * 7 + shift) as u8; 32]);
+            let r_bytes: [[u8; 32]; LANES] = core::array::from_fn(|l| [(l * 7 + shift) as u8; 32]);
             let a_bytes: [[u8; 32]; LANES] =
                 core::array::from_fn(|l| [(l * 13 + shift + 3) as u8; 32]);
             let msgs: [&[u8]; LANES] = core::array::from_fn(|l| msgs_data[l].as_slice());

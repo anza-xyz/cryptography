@@ -533,6 +533,7 @@ pub(crate) mod fused {
     use crate::backend::lanes::GroupDigits;
     use crate::backend::lanes::edwards_x8::{ExtendedPointX8, LookupTableX8, ProjectiveNielsX8};
     use crate::backend::lanes::field_x8::{FieldElementX8, LANES, LaneMask};
+    use crate::backend::lanes::joint::{JOINT_TABLE_B, JointTable};
     use crate::backend::serial::u64::constants::{EDWARDS_D, EDWARDS_D2, SQRT_M1};
     use crate::backend::serial::u64::field::FieldElement51;
 
@@ -1129,53 +1130,26 @@ pub(crate) mod fused {
         }
     );
 
-    /// `select_v` for a lane-packed constant table: one permute per limb picks
-    /// the entry and its sign at once.
+    /// Gather, per lane, the joint table entry for a digit pair.
     #[target_feature(enable = "avx512ifma")]
     #[inline]
-    unsafe fn select_v_packed(
-        table: &crate::backend::lanes::edwards_x8::PackedAffineTableX8,
-        digits: &[i8; LANES],
-    ) -> AffNielsV {
+    unsafe fn select_joint(table: &JointTable, index: &[u64; LANES]) -> AffNielsV {
         unsafe {
-            use core::arch::x86_64::{
-                _mm512_maskz_permutex2var_epi64, _mm512_mask_blend_epi64,
-            };
+            use core::arch::x86_64::_mm512_i64gather_epi64;
 
-            // Index `m` reads the entry, `m + 8` the sign-flipped half of
-            // the pair each permute is given.
-            let mut idx = [0u64; LANES];
-            let mut nonzero: u8 = 0;
-            for (l, &d) in digits.iter().enumerate() {
-                if d == 0 {
-                    continue;
-                }
-                nonzero |= 1 << l;
-                let m = (d.unsigned_abs() - 1) as u64;
-                idx[l] = if d < 0 { m + 8 } else { m };
-            }
-            let iv = _mm512_loadu_si512(idx.as_ptr() as *const _);
-
+            let iv = _mm512_loadu_si512(index.as_ptr() as *const _);
             let mut out = AffNielsV {
                 ypx: [splat(0); 5],
                 ymx: [splat(0); 5],
                 t2d: [splat(0); 5],
             };
             for i in 0..5 {
-                let ypx = _mm512_loadu_si512(table.y_plus_x[i].as_ptr() as *const _);
-                let ymx = _mm512_loadu_si512(table.y_minus_x[i].as_ptr() as *const _);
-                let t2d = _mm512_loadu_si512(table.t2d[i].as_ptr() as *const _);
-                let neg = _mm512_loadu_si512(table.neg_t2d[i].as_ptr() as *const _);
-                out.ypx[i] = _mm512_maskz_permutex2var_epi64(nonzero, ypx, iv, ymx);
-                out.ymx[i] = _mm512_maskz_permutex2var_epi64(nonzero, ymx, iv, ypx);
-                out.t2d[i] = _mm512_maskz_permutex2var_epi64(nonzero, t2d, iv, neg);
+                out.ypx[i] =
+                    _mm512_i64gather_epi64::<8>(iv, table.y_plus_x[i].as_ptr() as *const i64);
+                out.ymx[i] =
+                    _mm512_i64gather_epi64::<8>(iv, table.y_minus_x[i].as_ptr() as *const i64);
+                out.t2d[i] = _mm512_i64gather_epi64::<8>(iv, table.t2d[i].as_ptr() as *const i64);
             }
-
-            // Zero digits: the affine identity (1, 1, 0), already zero above.
-            let one = splat(1);
-            out.ypx[0] = _mm512_mask_blend_epi64(nonzero, one, out.ypx[0]);
-            out.ymx[0] = _mm512_mask_blend_epi64(nonzero, one, out.ymx[0]);
-
             out
         }
     }
@@ -1263,14 +1237,16 @@ pub(crate) mod fused {
 
             // A prepared table carries known-valid affine `A` multiples;
             // otherwise decompress `A` and build its table here.
-            let owned_a: Option<LookupTableX8> = match prepared_a {
-                Some(_) => None,
+            let owned_a: LookupTableX8;
+            let (table_a, affine_a): (&LookupTableX8, bool) = match prepared_a {
+                Some(t) => (t, true),
                 None => {
                     let (A, a_valid) = decompress_fused(a_encodings);
                     for (l, ok) in alive.iter_mut().enumerate() {
                         *ok &= a_valid >> l & 1 == 1;
                     }
-                    Some(build_table(&A))
+                    owned_a = build_table(&A);
+                    (&owned_a, false)
                 }
             };
 
@@ -1279,9 +1255,7 @@ pub(crate) mod fused {
                 *ok &= r_valid >> l & 1 == 1;
             }
 
-            let table_B = &crate::backend::lanes::edwards_x8::PACKED_TABLE_B;
-            let table_B_128 = &crate::backend::lanes::edwards_x8::PACKED_TABLE_B_128;
-            let table_R = build_table(&R);
+            let table_r = build_table(&R);
 
             let mut acc: Option<ProjV> = None;
             let mut last: Option<ComplV> = None;
@@ -1303,27 +1277,28 @@ pub(crate) mod fused {
                     None => load_ext(&ExtendedPointX8::IDENTITY),
                 };
 
-                let b_lo_d: [i8; LANES] = core::array::from_fn(|l| digits.b_lo[l][i]);
-                let b_hi_d: [i8; LANES] = core::array::from_fn(|l| digits.b_hi[l][i]);
                 let a_d: [i8; LANES] = core::array::from_fn(|l| digits.a[l][i]);
                 let r_d: [i8; LANES] = core::array::from_fn(|l| digits.r[l][i]);
 
-                let e1 = compl_to_ext(&readd_affine(&e, &select_v_packed(table_B, &b_lo_d)));
-                let e2 = compl_to_ext(&readd_affine(&e1, &select_v_packed(table_B_128, &b_hi_d)));
-                let e3 = match prepared_a {
-                    Some(t) => compl_to_ext(&readd_affine(&e2, &select_v_affine(t, &a_d))),
-                    None => compl_to_ext(&readd(
-                        &e2,
-                        &select_v(owned_a.as_ref().expect("table built above"), &a_d),
-                    )),
+                let e1 = compl_to_ext(&readd_affine(
+                    &e,
+                    &select_joint(&JOINT_TABLE_B, &digits.b[i]),
+                ));
+                let e2 = if affine_a {
+                    compl_to_ext(&readd_affine(&e1, &select_v_affine(table_a, &a_d)))
+                } else {
+                    compl_to_ext(&readd(&e1, &select_v(table_a, &a_d)))
                 };
-                let completed = readd(&e3, &select_v(&table_R, &r_d));
+                let completed = readd(&e2, &select_v(&table_r, &r_d));
                 acc = Some(compl_to_proj(&completed));
                 last = Some(completed);
             }
 
             // Three cofactor doublings.
-            let e_final = compl_to_ext(&last.expect("loop runs at least one round"));
+            let e_final = match last {
+                Some(ref c) => compl_to_ext(c),
+                None => load_ext(&ExtendedPointX8::IDENTITY),
+            };
             let mut p = ProjV {
                 x: e_final.x,
                 y: e_final.y,
