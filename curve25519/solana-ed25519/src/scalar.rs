@@ -143,7 +143,7 @@ use zeroize::Zeroize;
 
 use crate::backend;
 use crate::constants;
-use crate::scalar::heea::{I256, curve25519_heea_vartime};
+use crate::scalar::heea::{I256, curve25519_heea_vartime_lehmer};
 use crate::traits::HEEADecomposition;
 
 mod heea;
@@ -575,7 +575,7 @@ impl HEEADecomposition for Scalar {
         let v = self.into();
 
         // Run the algorithm
-        let (mut rho_i, mut tau_i) = curve25519_heea_vartime(v);
+        let (mut rho_i, mut tau_i) = curve25519_heea_vartime_lehmer(v);
 
         // Convert back to Scalars and ensure shortness
         let mut flip_h = false;

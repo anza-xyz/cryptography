@@ -279,6 +279,44 @@ impl<T: Debug> Debug for NafLookupTable8<T> {
     }
 }
 
+#[cfg(feature = "alloc")]
+impl NafLookupTable8<AffineNielsPoint> {
+    /// Build the odd-multiples table for `A` using one shared inversion.
+    ///
+    /// The same table the `From<&EdwardsPoint>` impl below builds, with all 64
+    /// `Z` denominators inverted together by Montgomery's trick.
+    pub(crate) fn from_edwards_batch(A: &EdwardsPoint) -> Self {
+        use crate::constants;
+        use crate::field::FieldElement;
+
+        // Odd multiples [A, 3A, 5A, ..., 127A] in extended coordinates.
+        let A2 = A.double().as_projective_niels();
+        let mut points = [*A; 64];
+        for i in 0..63 {
+            points[i + 1] = (&points[i] + &A2).as_extended();
+        }
+
+        let mut z_invs = [FieldElement::ONE; 64];
+        for (z_inv, point) in z_invs.iter_mut().zip(points.iter()) {
+            *z_inv = point.Z;
+        }
+        FieldElement::invert_batch_alloc(&mut z_invs);
+
+        let mut table = [AffineNielsPoint::identity(); 64];
+        for (entry, (point, z_inv)) in table.iter_mut().zip(points.iter().zip(z_invs.iter())) {
+            let x = &point.X * z_inv;
+            let y = &point.Y * z_inv;
+            *entry = AffineNielsPoint {
+                y_plus_x: &y + &x,
+                y_minus_x: &y - &x,
+                xy2d: &(&x * &y) * &constants::EDWARDS_D2,
+            };
+        }
+
+        NafLookupTable8(table)
+    }
+}
+
 #[cfg(any(feature = "precomputed-tables", feature = "alloc"))]
 impl<'a> From<&'a EdwardsPoint> for NafLookupTable8<ProjectiveNielsPoint> {
     fn from(A: &'a EdwardsPoint) -> Self {

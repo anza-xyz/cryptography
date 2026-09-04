@@ -9,7 +9,7 @@
 
 #![allow(non_snake_case)]
 
-#[curve25519_dalek_derive::unsafe_target_feature_specialize("avx2")]
+#[curve25519_dalek_derive::unsafe_target_feature_specialize("avx2", "avx512ifma,avx512vl")]
 pub mod spec {
 
     use alloc::vec::Vec;
@@ -19,6 +19,9 @@ pub mod spec {
 
     #[for_target_feature("avx2")]
     use crate::backend::vector::avx2::{CachedPoint, ExtendedPoint};
+
+    #[for_target_feature("avx512ifma")]
+    use crate::backend::vector::ifma::{CachedPoint, ExtendedPoint};
 
     use crate::edwards::EdwardsPoint;
     use crate::scalar::Scalar;
@@ -128,43 +131,72 @@ pub mod spec {
             )
         }
     }
+}
 
-    #[cfg(test)]
-    mod test {
-        #[test]
-        fn test_vartime_pippenger() {
-            use super::*;
-            use crate::constants;
-            use crate::scalar::Scalar;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod test {
+    use alloc::vec::Vec;
 
-            // Reuse points across different tests
-            let mut n = 512;
-            let x = Scalar::from(2128506u64).invert();
-            let y = Scalar::from(4443282u64).invert();
-            let points: Vec<_> = (0..n)
-                .map(|i| constants::ED25519_BASEPOINT_POINT * Scalar::from(1 + i as u64))
-                .collect();
-            let scalars: Vec<_> = (0..n)
-                .map(|i| x + (Scalar::from(i as u64) * y)) // fast way to make ~random but deterministic scalars
-                .collect();
+    use crate::constants;
+    use crate::edwards::EdwardsPoint;
+    use crate::scalar::Scalar;
+    use crate::traits::VartimeMultiscalarMul;
 
-            let premultiplied: Vec<EdwardsPoint> = scalars
-                .iter()
-                .zip(points.iter())
-                .map(|(sc, pt)| sc * pt)
-                .collect();
+    fn run_vartime_pippenger<P>(pippenger_multiscalar: P)
+    where
+        P: Fn(Vec<Scalar>, Vec<EdwardsPoint>) -> EdwardsPoint,
+    {
+        // Reuse points across different tests
+        let mut n = 512;
+        let x = Scalar::from(2128506u64).invert();
+        let y = Scalar::from(4443282u64).invert();
+        let points: Vec<_> = (0..n)
+            .map(|i| constants::ED25519_BASEPOINT_POINT * Scalar::from(1 + i as u64))
+            .collect();
+        let scalars: Vec<_> = (0..n)
+            .map(|i| x + (Scalar::from(i as u64) * y)) // fast way to make ~random but deterministic scalars
+            .collect();
 
-            while n > 0 {
-                let scalars = &scalars[0..n].to_vec();
-                let points = &points[0..n].to_vec();
-                let control: EdwardsPoint = premultiplied[0..n].iter().sum();
+        let premultiplied: Vec<EdwardsPoint> = scalars
+            .iter()
+            .zip(points.iter())
+            .map(|(sc, pt)| sc * pt)
+            .collect();
 
-                let subject = Pippenger::vartime_multiscalar_mul(scalars.clone(), points.clone());
+        while n > 0 {
+            let scalars = scalars[0..n].to_vec();
+            let points = points[0..n].to_vec();
+            let control: EdwardsPoint = premultiplied[0..n].iter().sum();
 
-                assert_eq!(subject.compress(), control.compress());
+            let subject = pippenger_multiscalar(scalars, points);
 
-                n = n / 2;
-            }
+            assert_eq!(subject.compress(), control.compress());
+
+            n /= 2;
         }
+    }
+
+    // the AVX2 Pippenger multiscalar matches term-by-term multiplication
+    #[test]
+    fn test_vartime_pippenger_avx2() {
+        if !std::is_x86_feature_detected!("avx2") {
+            return;
+        }
+        run_vartime_pippenger(|scalars, points| {
+            super::spec_avx2::Pippenger::vartime_multiscalar_mul(scalars, points)
+        });
+    }
+
+    // the same for the AVX-512 IFMA specialization
+    #[test]
+    fn test_vartime_pippenger_avx512() {
+        if !std::is_x86_feature_detected!("avx512ifma")
+            || !std::is_x86_feature_detected!("avx512vl")
+        {
+            return;
+        }
+        run_vartime_pippenger(|scalars, points| {
+            super::spec_avx512ifma_avx512vl::Pippenger::vartime_multiscalar_mul(scalars, points)
+        });
     }
 }

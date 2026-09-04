@@ -361,7 +361,10 @@ impl VerificationKey {
             &tau, &neg_R, &rho, &A, &ts,
         );
 
-        if result.mul_by_cofactor().is_identity() {
+        // Honest signatures satisfy the equation exactly, not merely modulo
+        // torsion, so checking that first skips the cofactor doublings. The
+        // cofactor check remains for ZIP-215 signatures carrying torsion.
+        if result.is_identity_vartime() || result.mul_by_cofactor().is_identity() {
             Ok(())
         } else {
             Err(Error::InvalidSignature)
@@ -390,6 +393,14 @@ impl VerificationKey {
     #[allow(non_snake_case)]
     pub fn verify_dalek(&self, signature: &Signature, msg: &[u8]) -> Result<(), Error> {
         self.verify_dalek_prehashed(signature, self.challenge_scalar(signature, msg))
+    }
+
+    /// Precompute lookup tables for verifying many signatures under this key.
+    ///
+    /// See [`PreparedVerificationKey`].
+    #[cfg(feature = "alloc")]
+    pub fn prepare(&self) -> PreparedVerificationKey {
+        PreparedVerificationKey::from(self)
     }
 
     #[allow(non_snake_case)]
@@ -425,5 +436,104 @@ impl VerificationKey {
         } else {
             Err(Error::InvalidSignature)
         }
+    }
+}
+
+/// A [`VerificationKey`] with a precomputed lookup table for `A`, for
+/// verifying many signatures under the same key.
+///
+/// Each [`verify`](PreparedVerificationKey::verify) skips the per-call table
+/// construction for `A` and uses a wider window for its scalar. Verification
+/// semantics are identical to [`VerificationKey::verify`].
+///
+/// The table is much larger than a [`VerificationKey`], so this type is worth
+/// building only for keys that recur.
+#[cfg(feature = "alloc")]
+#[derive(Clone)]
+#[allow(non_snake_case)]
+pub struct PreparedVerificationKey {
+    vk: VerificationKey,
+    /// Width-8 odd-multiples table for `-A`, in the selected backend's
+    /// format. When the transformed equation needs `+A`, the scalar's NAF
+    /// digits are negated instead of the table.
+    minus_A_table: crate::backend::PreparedNafTable,
+}
+
+#[cfg(feature = "alloc")]
+impl From<&VerificationKey> for PreparedVerificationKey {
+    fn from(vk: &VerificationKey) -> Self {
+        PreparedVerificationKey {
+            vk: *vk,
+            minus_A_table: crate::backend::PreparedNafTable::for_point(&vk.minus_A),
+        }
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl core::fmt::Debug for PreparedVerificationKey {
+    fn fmt(&self, fmt: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        fmt.debug_tuple("PreparedVerificationKey")
+            .field(&self.vk.A_bytes)
+            .finish()
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl PreparedVerificationKey {
+    /// The underlying [`VerificationKey`].
+    pub fn verification_key(&self) -> &VerificationKey {
+        &self.vk
+    }
+
+    /// Verify a purported `signature` on the given `msg`.
+    ///
+    /// Same checks and semantics as [`VerificationKey::verify`], using the
+    /// precomputed table for `A`.
+    #[allow(non_snake_case)]
+    pub fn verify(&self, signature: &Signature, msg: &[u8]) -> Result<(), Error> {
+        let h = self.vk.challenge_scalar(signature, msg);
+        let (rho, tau, flip_h) = h.heea_decompose();
+
+        let s = Option::<Scalar>::from(Scalar::from_canonical_bytes(*signature.s_bytes()))
+            .ok_or(Error::InvalidSignature)?;
+
+        let neg_R = -CompressedEdwardsY(*signature.r_bytes())
+            .decompress()
+            .ok_or(Error::InvalidSignature)?;
+
+        let ts = tau * s;
+
+        // As in `verify_zebra_prehashed`, the A term is `-A` when rho == tau*h
+        // (mod l) and `A` when rho == -tau*h. The cached table holds `-A`, and
+        // `flip_h` selects `+A` by negating the rho digits.
+        let result = crate::backend::vartime_triple_base_mul_128_128_256_prechecked_prepared(
+            &tau,
+            &neg_R,
+            &rho,
+            &self.minus_A_table,
+            flip_h,
+            &self.vk.minus_A,
+            &ts,
+        );
+
+        // Same acceptance criterion as `verify_zebra_prehashed`.
+        if result.is_identity_vartime() || result.mul_by_cofactor().is_identity() {
+            Ok(())
+        } else {
+            Err(Error::InvalidSignature)
+        }
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl Verifier<Signature> for PreparedVerificationKey {
+    /// Verify a [`Signature`] object against a given [`PreparedVerificationKey`].
+    fn verify(
+        &self,
+        message: &[u8],
+        signature: &Signature,
+    ) -> Result<(), ed25519::signature::Error> {
+        self.verify(signature, message)
+            .map_err(|_| ed25519::signature::Error::new())
     }
 }

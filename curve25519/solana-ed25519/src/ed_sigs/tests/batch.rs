@@ -79,3 +79,71 @@ fn first_undecodable_compressed_edwards_y() -> [u8; 32] {
 
     panic!("failed to find an undecodable compressed Edwards-Y encoding");
 }
+
+// `queue_prepared` accepts exactly the batches `queue` accepts
+#[test]
+fn batch_verify_prepared_matches_queue() {
+    let mut prepared = batch::Verifier::new();
+    let mut plain = batch::Verifier::new();
+    for i in 0..32 {
+        let mut seed = [0u8; 32];
+        seed[0] = i as u8;
+        let sk = SigningKey::from(seed);
+        let vk = VerificationKey::from(&sk);
+        let msg = b"BatchVerifyTest";
+        let sig = sk.sign(&msg[..]);
+        prepared.queue_prepared(&vk, sig, msg);
+        plain.queue((VerificationKeyBytes::from(&sk), sig, msg));
+    }
+    assert!(prepared.verify().is_ok());
+    assert!(plain.verify().is_ok());
+}
+
+// a batch queued through `queue_prepared` still rejects a bad signature
+#[test]
+fn batch_verify_prepared_rejects_bad_sig() {
+    let mut batch = batch::Verifier::new();
+    for i in 0..16 {
+        let mut seed = [0u8; 32];
+        seed[0] = i as u8;
+        let sk = SigningKey::from(seed);
+        let vk = VerificationKey::from(&sk);
+        let msg = b"BatchVerifyTest";
+        let sig = if i != 7 {
+            sk.sign(&msg[..])
+        } else {
+            sk.sign(b"badmsg")
+        };
+        batch.queue_prepared(&vk, sig, msg);
+    }
+    assert!(batch.verify().is_err());
+}
+
+// a batch may mix both entry paths, the same key arriving through each included
+#[test]
+fn batch_verify_prepared_and_plain_mix() {
+    let mut batch = batch::Verifier::new();
+    let msg = b"BatchVerifyTest";
+    let shared = SigningKey::from([9u8; 32]);
+    let shared_vk = VerificationKey::from(&shared);
+
+    batch.queue_prepared(&shared_vk, shared.sign(&msg[..]), msg);
+    batch.queue((
+        VerificationKeyBytes::from(&shared),
+        shared.sign(&msg[..]),
+        msg,
+    ));
+
+    for i in 0..8 {
+        let mut seed = [0u8; 32];
+        seed[0] = 100 + i as u8;
+        let sk = SigningKey::from(seed);
+        let sig = sk.sign(&msg[..]);
+        if i % 2 == 0 {
+            batch.queue_prepared(&VerificationKey::from(&sk), sig, msg);
+        } else {
+            batch.queue((VerificationKeyBytes::from(&sk), sig, msg));
+        }
+    }
+    assert!(batch.verify().is_ok());
+}

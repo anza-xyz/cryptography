@@ -2,7 +2,9 @@
 name = "solana-ed25519"
 version = "0.2.4"
 edition = "2024"
-rust-version = "1.85.0"
+# 1.89 is required for the stabilized AVX-512 intrinsics used by the IFMA
+# backend, and matches the workspace / solana platform-tools rust version.
+rust-version = "1.89.0"
 authors = [
     "Isis Lovecruft <isis@patternsinthevoid.net>",
     "Henry de Valence <hdevalence@hdevalence.ca>",
@@ -43,6 +45,26 @@ rustc_version.workspace = true
 name = "dalek_benchmarks"
 harness = false
 required-features = ["alloc", "digest", "group", "rand_core"]
+
+[[bench]]
+name = "bench"
+harness = false
+required-features = ["alloc", "digest", "rand_core"]
+
+[[bench]]
+name = "verify_breakdown"
+harness = false
+required-features = ["alloc", "digest", "rand_core"]
+
+[[bench]]
+name = "prepared_verify"
+harness = false
+required-features = ["alloc", "digest", "rand_core"]
+
+[[bench]]
+name = "batch_keycache"
+harness = false
+required-features = ["alloc", "digest", "rand_core"]
 
 [dependencies]
 cfg-if.workspace = true

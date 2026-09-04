@@ -72,6 +72,35 @@ fn bench_batch_verify(c: &mut Criterion) {
                 })
             },
         );
+        #[cfg(feature = "alloc")]
+        group.bench_with_input(
+            BenchmarkId::new("Wide lanes (per-sig verdicts)", n),
+            &sigs,
+            |b, sigs: &Vec<(VerificationKeyBytes, Signature)>| {
+                let items: Vec<(VerificationKeyBytes, Signature, &[u8])> = sigs
+                    .iter()
+                    .map(|(vk_bytes, sig)| (*vk_bytes, *sig, &b""[..]))
+                    .collect();
+                b.iter(|| lanes::verify_batch(&items))
+            },
+        );
+        #[cfg(feature = "alloc")]
+        group.bench_with_input(
+            BenchmarkId::new("Wide lanes prepared (hot keys)", n),
+            &sigs,
+            |b, sigs: &Vec<(VerificationKeyBytes, Signature)>| {
+                let keys: Vec<lanes::PreparedLaneKey> = sigs
+                    .iter()
+                    .map(|(vk_bytes, _)| lanes::PreparedLaneKey::new(*vk_bytes).unwrap())
+                    .collect();
+                let items: Vec<(&lanes::PreparedLaneKey, Signature, &[u8])> = sigs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (_, sig))| (&keys[i], *sig, &b""[..]))
+                    .collect();
+                b.iter(|| lanes::verify_batch_prepared(&items))
+            },
+        );
         #[cfg(all(feature = "alloc", feature = "rand_core"))]
         let sigs = sigs_with_same_pubkey().take(*n).collect::<Vec<_>>();
         #[cfg(all(feature = "alloc", feature = "rand_core"))]

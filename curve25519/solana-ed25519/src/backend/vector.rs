@@ -16,4 +16,6 @@ pub mod packed_simd;
 
 pub mod avx2;
 
+pub mod ifma;
+
 pub mod scalar_mul;

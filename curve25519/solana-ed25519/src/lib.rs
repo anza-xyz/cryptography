@@ -36,7 +36,7 @@
 // External dependencies:
 //------------------------------------------------------------------------
 
-#[cfg(feature = "alloc")]
+// The lane verifier stages groups on the heap, so alloc is unconditional.
 #[allow(unused_imports)]
 #[macro_use]
 extern crate alloc;

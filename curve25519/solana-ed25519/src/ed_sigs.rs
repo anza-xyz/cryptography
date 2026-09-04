@@ -12,6 +12,8 @@ mod tests;
 pub mod batch;
 mod bip32;
 mod error;
+#[cfg(feature = "alloc")]
+pub mod lanes;
 mod signing_key;
 mod verification_key;
 
@@ -21,6 +23,8 @@ pub use ::ed25519::Signature;
 pub use bip32::{BIP32_HARDENED_INDEX_FLAG, Bip32DerivationError, ExtendedSigningKey};
 pub use error::Error;
 pub use signing_key::SigningKey;
+#[cfg(feature = "alloc")]
+pub use verification_key::PreparedVerificationKey;
 pub use verification_key::{VerificationKey, VerificationKeyBytes};
 
 pub(crate) fn scalar_from_sha512(hash: Sha512) -> Scalar {

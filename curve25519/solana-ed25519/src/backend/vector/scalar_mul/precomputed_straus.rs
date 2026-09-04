@@ -11,7 +11,7 @@
 
 #![allow(non_snake_case)]
 
-#[curve25519_dalek_derive::unsafe_target_feature_specialize("avx2")]
+#[curve25519_dalek_derive::unsafe_target_feature_specialize("avx2", "avx512ifma,avx512vl")]
 pub mod spec {
 
     use alloc::vec::Vec;
@@ -21,6 +21,9 @@ pub mod spec {
 
     #[for_target_feature("avx2")]
     use crate::backend::vector::avx2::{CachedPoint, ExtendedPoint};
+
+    #[for_target_feature("avx512ifma")]
+    use crate::backend::vector::ifma::{CachedPoint, ExtendedPoint};
 
     use crate::edwards::EdwardsPoint;
     use crate::scalar::Scalar;

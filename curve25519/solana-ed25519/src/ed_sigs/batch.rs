@@ -51,10 +51,11 @@
 use alloc::vec::Vec;
 use core::convert::TryFrom;
 
+use crate::edwards::EdwardsPoint;
 use crate::scalar::Scalar;
 #[cfg(feature = "rand_core")]
 use crate::{
-    edwards::{CompressedEdwardsY, EdwardsPoint},
+    edwards::CompressedEdwardsY,
     traits::{IsIdentity, VartimeMultiscalarMul},
 };
 use hashbrown::HashMap;
@@ -115,11 +116,23 @@ impl Item {
     }
 }
 
+/// The signatures queued under a single verification key, plus the
+/// decompressed key itself once a caller has supplied one.
+#[derive(Default)]
+#[allow(non_snake_case)]
+struct Entry {
+    /// Decompressed `A`, populated when the signature arrived through
+    /// [`Verifier::queue_prepared`]. Lets `verify` skip re-deriving it.
+    A: Option<EdwardsPoint>,
+    /// The `(k, sig)` pairs signed under this key.
+    sigs: Vec<(Scalar, Signature)>,
+}
+
 /// A batch verification context.
 #[derive(Default)]
 pub struct Verifier {
-    /// Signature data queued for verification.
-    signatures: HashMap<VerificationKeyBytes, Vec<(Scalar, Signature)>>,
+    /// Signature data queued for verification, keyed by verification key.
+    signatures: HashMap<VerificationKeyBytes, Entry>,
     /// Caching this count avoids a hash traversal to figure out
     /// how much to preallocate.
     batch_size: usize,
@@ -137,10 +150,38 @@ impl Verifier {
 
         self.signatures
             .entry(vk_bytes)
+            .or_default()
+            .sigs
             // The common case is 1 signature per public key.
             // We could also consider using a smallvec here.
-            .or_insert_with(|| Vec::with_capacity(1))
             .push((k, sig));
+        self.batch_size += 1;
+    }
+
+    /// Queue a `(key, signature, message)` tuple whose key is already decompressed.
+    ///
+    /// Equivalent to [`queue`](Verifier::queue), but reuses the point held by
+    /// `vk` rather than decompressing `A` again during
+    /// [`verify`](Verifier::verify), saving a field exponentiation per distinct
+    /// key per batch.
+    pub fn queue_prepared<M: AsRef<[u8]> + ?Sized>(
+        &mut self,
+        vk: &VerificationKey,
+        sig: Signature,
+        msg: &M,
+    ) {
+        // Compute k now, exactly as `Item::from` does.
+        let k = scalar_from_sha512(
+            Sha512::default()
+                .chain(&sig.r_bytes()[..])
+                .chain(&vk.A_bytes.0[..])
+                .chain(msg.as_ref()),
+        );
+
+        let entry = self.signatures.entry(vk.A_bytes).or_default();
+        // `VerificationKey` stores `-A`; the batch equation below wants `A`.
+        entry.A.get_or_insert_with(|| -vk.minus_A);
+        entry.sigs.push((k, sig));
         self.batch_size += 1;
     }
 
@@ -182,14 +223,18 @@ impl Verifier {
         let mut Rs = Vec::with_capacity(self.batch_size);
         let mut B_coeff = Scalar::ZERO;
 
-        for (vk_bytes, sigs) in self.signatures.iter() {
-            let A = CompressedEdwardsY(vk_bytes.0)
-                .decompress()
-                .ok_or(Error::MalformedPublicKey)?;
+        for (vk_bytes, entry) in self.signatures.iter() {
+            // Already decompressed if this key was queued via `queue_prepared`.
+            let A = match entry.A {
+                Some(A) => A,
+                None => CompressedEdwardsY(vk_bytes.0)
+                    .decompress()
+                    .ok_or(Error::MalformedPublicKey)?,
+            };
 
             let mut A_coeff = Scalar::ZERO;
 
-            for (k, sig) in sigs.iter() {
+            for (k, sig) in entry.sigs.iter() {
                 let R = CompressedEdwardsY(*sig.r_bytes())
                     .decompress()
                     .ok_or(Error::InvalidSignature)?;
@@ -213,7 +258,9 @@ impl Verifier {
             once(&B).chain(As.iter()).chain(Rs.iter()),
         );
 
-        if check.mul_by_cofactor().is_identity() {
+        // An all-honest batch sums terms that are each exactly zero, so `check` is
+        // usually the identity itself; test that before the cofactor doublings.
+        if check.is_identity_vartime() || check.mul_by_cofactor().is_identity() {
             Ok(())
         } else {
             Err(Error::InvalidSignature)

@@ -755,10 +755,10 @@ impl EdwardsPoint {
         let mut repr = CompressedEdwardsY([0u8; 32]);
         loop {
             rng.fill_bytes(&mut repr.0);
-            if let Some(p) = repr.decompress() {
-                if !IsIdentity::is_identity(&p) {
-                    break p;
-                }
+            if let Some(p) = repr.decompress()
+                && !IsIdentity::is_identity(&p)
+            {
+                break p;
             }
         }
     }
@@ -1384,6 +1384,14 @@ impl EdwardsPoint {
     /// Multiply by the cofactor: return \\(\[8\]P\\).
     pub fn mul_by_cofactor(&self) -> EdwardsPoint {
         self.mul_by_pow_2(3)
+    }
+
+    /// Check whether this point is the identity, in variable time.
+    ///
+    /// The identity is \\((0 : Z : Z : 0)\\) in extended coordinates, so unlike
+    /// the constant-time `is_identity` this needs no field multiplications.
+    pub(crate) fn is_identity_vartime(&self) -> bool {
+        bool::from(self.X.is_zero()) && bool::from((&self.Y - &self.Z).is_zero())
     }
 
     /// Compute \\([2\^k] P \\) by successive doublings. Requires \\( k > 0 \\).

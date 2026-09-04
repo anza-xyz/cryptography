@@ -7,7 +7,7 @@
 
 #![allow(non_snake_case)]
 
-#[curve25519_dalek_derive::unsafe_target_feature_specialize("avx2")]
+#[curve25519_dalek_derive::unsafe_target_feature_specialize("avx2", "avx512ifma,avx512vl")]
 pub mod spec {
 
     use core::cmp::Ordering;
@@ -15,11 +15,21 @@ pub mod spec {
     #[for_target_feature("avx2")]
     use crate::backend::vector::avx2::{CachedPoint, ExtendedPoint};
 
+    #[for_target_feature("avx512ifma")]
+    use crate::backend::vector::ifma::{CachedPoint, ExtendedPoint};
+
     #[for_target_feature("avx2")]
     use crate::backend::vector::avx2::constants::BASEPOINT_128_ODD_LOOKUP_TABLE;
+
     #[cfg(feature = "precomputed-tables")]
     #[for_target_feature("avx2")]
     use crate::backend::vector::avx2::constants::BASEPOINT_ODD_LOOKUP_TABLE;
+    #[for_target_feature("avx512ifma")]
+    use crate::backend::vector::ifma::constants::BASEPOINT_128_ODD_LOOKUP_TABLE;
+
+    #[cfg(feature = "precomputed-tables")]
+    #[for_target_feature("avx512ifma")]
+    use crate::backend::vector::ifma::constants::BASEPOINT_ODD_LOOKUP_TABLE;
 
     #[cfg(not(feature = "precomputed-tables"))]
     use crate::constants;
@@ -29,17 +39,24 @@ pub mod spec {
     #[allow(unused_imports)]
     use crate::traits::Identity;
     use crate::window::NafLookupTable5;
+    #[cfg(feature = "alloc")]
+    use crate::window::NafLookupTable8;
 
     const DYNAMIC_NAF_WINDOW: usize = 5;
 
-    // This intentionally differs from the serial backend when precomputed
-    // tables are enabled. The AVX2 basepoint table is width 8, and this vector
-    // path uses the larger b_lo NAF window in that configuration as a
-    // backend-specific performance tradeoff.
+    // The static basepoint tables are width-8 when precomputed tables are
+    // enabled, so both halves of the basepoint scalar use width-8 NAF digits.
+    // Without precomputed tables the width-5 static (for B') and a
+    // runtime-built width-5 table (for B) are used instead.
     #[cfg(feature = "precomputed-tables")]
     const B_LO_NAF_WINDOW: usize = 8;
     #[cfg(not(feature = "precomputed-tables"))]
     const B_LO_NAF_WINDOW: usize = DYNAMIC_NAF_WINDOW;
+
+    #[cfg(feature = "precomputed-tables")]
+    const B_HI_NAF_WINDOW: usize = 8;
+    #[cfg(not(feature = "precomputed-tables"))]
+    const B_HI_NAF_WINDOW: usize = DYNAMIC_NAF_WINDOW;
 
     /// Compute \\(a_1 A_1 + a_2 A_2 + b B\\) in variable time, where \\(B\\) is the Ed25519 basepoint.
     ///
@@ -68,12 +85,8 @@ pub mod spec {
     /// # Implementation
     ///
     /// - For \\(A_1\\) and \\(A_2\\): NAF with window width 5 (8 precomputed points each)
-    /// - For \\(B\\): NAF with window width 8 when precomputed tables available (64 points), otherwise width 5
-    /// - For \\(B'\\): NAF with window width 5
-    ///
-    /// The serial backend keeps \\(b_{lo}\\) at width 5 even when precomputed
-    /// tables are enabled. This vector backend uses width 8 in that
-    /// configuration as a backend-specific performance tradeoff.
+    /// - For \\(B\\) and \\(B'\\): NAF with window width 8 from the static width-8
+    ///   tables when precomputed tables are enabled, otherwise width 5
     ///
     /// The algorithm shares doublings across all four scalar multiplications, processing
     /// only 128 bits instead of 256, providing approximately 2x speedup over the naive approach.
@@ -105,7 +118,7 @@ pub mod spec {
         let a1_naf = a1.non_adjacent_form_128(DYNAMIC_NAF_WINDOW);
         let a2_naf = a2.non_adjacent_form_128(DYNAMIC_NAF_WINDOW);
         let b_lo_naf = b_lo.non_adjacent_form_128(B_LO_NAF_WINDOW);
-        let b_hi_naf = b_hi.non_adjacent_form_128(DYNAMIC_NAF_WINDOW);
+        let b_hi_naf = b_hi.non_adjacent_form_128(B_HI_NAF_WINDOW);
 
         // Find starting index - check all NAFs up to bit 127
         // (with potential carry to bit 128 or 129)
@@ -186,11 +199,142 @@ pub mod spec {
 
         Q.into()
     }
+
+    /// Build the width-8 `CachedPoint` odd-multiples table for `A`, for use
+    /// with [`mul_128_128_256_prechecked_prepared`].
+    ///
+    /// This must run with AVX2 available; callers dispatch on the selected
+    /// backend before invoking it.
+    #[cfg(feature = "alloc")]
+    pub(crate) fn build_prepared_a2_table(A: &EdwardsPoint) -> NafLookupTable8<CachedPoint> {
+        NafLookupTable8::<CachedPoint>::from(A)
+    }
+
+    /// Compute \\(a_1 A_1 + a_2 A_2 + b B\\) as in `mul_128_128_256_prechecked`,
+    /// but with \\(A_2\\) supplied as a prebuilt width-8 `CachedPoint` table
+    /// instead of a point.
+    ///
+    /// If `negate_A2` is true, the contribution is \\(-a_2 A_2\\), computed by
+    /// negating the \\(a_2\\) NAF digits so the cached table can be used for
+    /// either sign.
+    ///
+    /// # Precondition
+    ///
+    /// As for `mul_128_128_256_prechecked`, callers must ensure \\(a_1\\) and
+    /// \\(a_2\\) are less than \\(2^{128}\\).
+    #[cfg(feature = "alloc")]
+    pub(crate) fn mul_128_128_256_prechecked_prepared(
+        a1: &Scalar,
+        A1: &EdwardsPoint,
+        a2: &Scalar,
+        table_A2: &NafLookupTable8<CachedPoint>,
+        negate_A2: bool,
+        b: &Scalar,
+    ) -> EdwardsPoint {
+        // Decompose b into b_lo (lower 128 bits) and b_hi (upper 128 bits)
+        // b = b_lo + b_hi * 2^128
+        let b_bytes = b.as_bytes();
+
+        let mut b_lo_bytes = [0u8; 32];
+        let mut b_hi_bytes = [0u8; 32];
+
+        b_lo_bytes[..16].copy_from_slice(&b_bytes[..16]);
+        b_hi_bytes[..16].copy_from_slice(&b_bytes[16..]);
+
+        let b_lo = Scalar::from_canonical_bytes_unchecked(b_lo_bytes);
+        let b_hi = Scalar::from_canonical_bytes_unchecked(b_hi_bytes);
+
+        // Compute NAF representations (all scalars are now ~128 bits). The a2
+        // digits are width 8 to match the prebuilt table.
+        let a1_naf = a1.non_adjacent_form_128(DYNAMIC_NAF_WINDOW);
+        let mut a2_naf = a2.non_adjacent_form_128(8);
+        if negate_A2 {
+            // Digits are odd with magnitude <= 127, so negation cannot overflow.
+            for digit in a2_naf.iter_mut() {
+                *digit = -*digit;
+            }
+        }
+        let b_lo_naf = b_lo.non_adjacent_form_128(B_LO_NAF_WINDOW);
+        let b_hi_naf = b_hi.non_adjacent_form_128(B_HI_NAF_WINDOW);
+
+        // Find starting index - check all NAFs up to bit 127
+        // (with potential carry to bit 128 or 129)
+        let mut i: usize = HEEA_MAX_INDEX;
+        for j in (0..=HEEA_MAX_INDEX).rev() {
+            i = j;
+            if a1_naf[i] != 0 || a2_naf[i] != 0 || b_lo_naf[i] != 0 || b_hi_naf[i] != 0 {
+                break;
+            }
+        }
+
+        let table_A1 = NafLookupTable5::<CachedPoint>::from(A1);
+
+        #[cfg(feature = "precomputed-tables")]
+        let table_B = &BASEPOINT_ODD_LOOKUP_TABLE;
+        #[cfg(not(feature = "precomputed-tables"))]
+        let table_B = &NafLookupTable5::<CachedPoint>::from(&constants::ED25519_BASEPOINT_POINT);
+
+        // B' = B * 2^128.
+        let table_B_128 = &BASEPOINT_128_ODD_LOOKUP_TABLE;
+
+        let mut Q = ExtendedPoint::identity();
+
+        loop {
+            Q = Q.double();
+
+            match a1_naf[i].cmp(&0) {
+                Ordering::Greater => {
+                    Q = &Q + &table_A1.select(a1_naf[i] as usize);
+                }
+                Ordering::Less => {
+                    Q = &Q - &table_A1.select(-a1_naf[i] as usize);
+                }
+                Ordering::Equal => {}
+            }
+
+            match a2_naf[i].cmp(&0) {
+                Ordering::Greater => {
+                    Q = &Q + &table_A2.select(a2_naf[i] as usize);
+                }
+                Ordering::Less => {
+                    Q = &Q - &table_A2.select(-a2_naf[i] as usize);
+                }
+                Ordering::Equal => {}
+            }
+
+            match b_lo_naf[i].cmp(&0) {
+                Ordering::Greater => {
+                    Q = &Q + &table_B.select(b_lo_naf[i] as usize);
+                }
+                Ordering::Less => {
+                    Q = &Q - &table_B.select(-b_lo_naf[i] as usize);
+                }
+                Ordering::Equal => {}
+            }
+
+            match b_hi_naf[i].cmp(&0) {
+                Ordering::Greater => {
+                    Q = &Q + &table_B_128.select(b_hi_naf[i] as usize);
+                }
+                Ordering::Less => {
+                    Q = &Q - &table_B_128.select(-b_hi_naf[i] as usize);
+                }
+                Ordering::Equal => {}
+            }
+
+            if i == 0 {
+                break;
+            }
+            i -= 1;
+        }
+
+        Q.into()
+    }
 }
 
 #[cfg(all(test, target_arch = "x86_64"))]
 mod test {
-    use super::spec_avx2;
+    use super::{spec_avx2, spec_avx512ifma_avx512vl};
     use crate::backend::serial;
     use crate::constants;
     use crate::scalar::Scalar;
@@ -232,5 +376,77 @@ mod test {
 
         assert_eq!(avx2, serial);
         assert_eq!(avx2, expected);
+    }
+
+    // the AVX-512 triple-base multiply matches the serial and naive results
+    #[test]
+    fn avx512_triple_base_matches_serial_and_naive() {
+        if !std::is_x86_feature_detected!("avx512ifma")
+            || !std::is_x86_feature_detected!("avx512vl")
+        {
+            return;
+        }
+
+        let a1 = scalar_from_low_128([
+            0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22,
+            0x11, 0x00,
+        ]);
+        let a2 = scalar_from_low_128([
+            0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe, 0x0f, 0x1e, 0x2d, 0x3c, 0x4b, 0x5a,
+            0x69, 0x78,
+        ]);
+        let b = Scalar::from_bytes_mod_order([
+            0x42, 0x91, 0x0a, 0xbe, 0xef, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99,
+            0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+            0x10, 0x20, 0x30, 0x40,
+        ]);
+
+        let A1 = constants::ED25519_BASEPOINT_POINT * Scalar::from(31u64);
+        let A2 = constants::ED25519_BASEPOINT_POINT * Scalar::from(37u64);
+
+        let ifma = spec_avx512ifma_avx512vl::mul_128_128_256_prechecked(&a1, &A1, &a2, &A2, &b);
+        let serial = serial::scalar_mul::vartime_triple_base::mul_128_128_256_prechecked(
+            &a1, &A1, &a2, &A2, &b,
+        );
+        let expected = (a1 * A1 + a2 * A2) + b * constants::ED25519_BASEPOINT_POINT;
+
+        assert_eq!(ifma, serial);
+        assert_eq!(ifma, expected);
+    }
+
+    #[cfg(feature = "alloc")]
+    // a prepared A2 table gives the same result as passing the point
+    #[test]
+    fn avx512_prepared_triple_base_matches_unprepared() {
+        if !std::is_x86_feature_detected!("avx512ifma")
+            || !std::is_x86_feature_detected!("avx512vl")
+        {
+            return;
+        }
+
+        let a1 = scalar_from_low_128([
+            0x21, 0x43, 0x65, 0x87, 0xa9, 0xcb, 0xed, 0x0f, 0xf0, 0xe1, 0xd2, 0xc3, 0xb4, 0xa5,
+            0x96, 0x07,
+        ]);
+        let a2 = scalar_from_low_128([
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+            0x0f, 0x10,
+        ]);
+        let b = Scalar::from_bytes_mod_order([0x5Au8; 32]);
+
+        let A1 = constants::ED25519_BASEPOINT_POINT * Scalar::from(41u64);
+        let A2 = constants::ED25519_BASEPOINT_POINT * Scalar::from(43u64);
+
+        let table_A2 = spec_avx512ifma_avx512vl::build_prepared_a2_table(&A2);
+
+        for negate in [false, true] {
+            let prepared = spec_avx512ifma_avx512vl::mul_128_128_256_prechecked_prepared(
+                &a1, &A1, &a2, &table_A2, negate, &b,
+            );
+            let A2_signed = if negate { -A2 } else { A2 };
+            let unprepared =
+                spec_avx512ifma_avx512vl::mul_128_128_256_prechecked(&a1, &A1, &a2, &A2_signed, &b);
+            assert_eq!(prepared, unprepared, "negate = {negate}");
+        }
     }
 }
