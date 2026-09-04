@@ -39,8 +39,7 @@ pub(crate) fn available() -> bool {
 macro_rules! tf {
     ($(#[$meta:meta])* fn $name:ident($($arg:ident: $ty:ty),*) -> $ret:ty $body:block) => {
         $(#[$meta])*
-        #[target_feature(enable = "avx512ifma")]
-        #[inline]
+        #[inline(always)]
         unsafe fn $name($($arg: $ty),*) -> $ret $body
     };
 }
@@ -337,7 +336,7 @@ macro_rules! mul_waves_raw_emit {
     }};
 }
 
-#[target_feature(enable = "avx512ifma")]
+#[inline(always)]
 unsafe fn mul_waves(x: [__m512i; 5], y: [__m512i; 5]) -> [__m512i; 5] {
     unsafe { carry_reduce(mul_waves_raw_emit!(x, y)) }
 }
@@ -475,7 +474,7 @@ macro_rules! square_waves_raw_emit {
     }};
 }
 
-#[target_feature(enable = "avx512ifma")]
+#[inline(always)]
 unsafe fn square_waves(x: [__m512i; 5]) -> [__m512i; 5] {
     unsafe { carry_reduce(square_waves_raw_emit!(x)) }
 }
