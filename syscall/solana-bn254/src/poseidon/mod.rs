@@ -162,6 +162,18 @@ fn apply_dense_matrix<const T: usize>(state: &mut [U256; T], m: &[[U256; T]; T])
     *state = new_state;
 }
 
+/// Computes only the first output of a dense matrix multiplication.
+#[inline(always)]
+fn apply_dense_matrix_row0<const T: usize>(state: &mut [U256; T], m: &[[U256; T]; T]) {
+    type B = Backend<Fr>;
+    let mut sum = U256::zero();
+    for (j, state_val) in state.iter().enumerate() {
+        let term = B::mul(&m[0][j], state_val);
+        sum = B::add(&sum, &term);
+    }
+    state[0] = sum;
+}
+
 /// Executes an `O(T)` sparse matrix multiplication on the scalar state.
 #[inline(always)]
 fn apply_sparse_matrix<const T: usize>(state: &mut [U256; T], m: &SparseMatrix<T>) {
@@ -213,6 +225,14 @@ fn dense_layer<const T: usize>(state: &mut [U256; T], m: &[[U256; T]; T]) {
 /// Every element of `state` must be a fully reduced Montgomery-form field
 /// element (`x < Fr::MODULUS`), per the `MontgomeryBackend` contract.
 pub fn poseidon<const T: usize>(
+    state: [U256; T],
+    constants: &PoseidonConstants<T>,
+) -> [U256; T] {
+    poseidon_inner::<T, false>(state, constants)
+}
+
+/// With `HASH_ONLY`, only the returned `state[0]` is a valid output coordinate.
+fn poseidon_inner<const T: usize, const HASH_ONLY: bool>(
     mut state: [U256; T],
     constants: &PoseidonConstants<T>,
 ) -> [U256; T] {
@@ -252,13 +272,17 @@ pub fn poseidon<const T: usize>(
     }
 
     // --- Second Half: Full Rounds ---
-    for _ in 0..half_full {
+    for round in 0..half_full {
         for state_val in state.iter_mut() {
             *state_val = B::add(state_val, &rc[rc_idx]);
             rc_idx += 1;
         }
         sbox_layer(&mut state);
-        dense_layer(&mut state, constants.mds_matrix);
+        if HASH_ONLY && round + 1 == half_full {
+            apply_dense_matrix_row0(&mut state, constants.mds_matrix);
+        } else {
+            dense_layer(&mut state, constants.mds_matrix);
+        }
     }
 
     state
@@ -281,5 +305,5 @@ pub fn hash<const T: usize>(inputs: &[U256], constants: &PoseidonConstants<T>) -
     }
     let mut state = [U256::zero(); T];
     state[1..].copy_from_slice(inputs);
-    Some(poseidon(state, constants)[0])
+    Some(poseidon_inner::<T, true>(state, constants)[0])
 }
