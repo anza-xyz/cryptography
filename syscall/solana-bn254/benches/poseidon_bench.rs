@@ -1,14 +1,13 @@
 use ark_ff::PrimeField;
 use criterion::{Criterion, criterion_group, criterion_main};
 use light_poseidon::PoseidonHasher;
-use rand::RngExt; // Required for the `.random()` trait method
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 use solana_bn254::backend::{Backend, Fr, MontgomeryBackend, U256};
 use solana_bn254::poseidon::{constants::*, hash};
 
-/// A uniformly random field element, as both an arkworks element and a
+/// A pseudorandom field element, as both an arkworks element and a
 /// Montgomery-form `U256`, so both implementations hash identical inputs.
-fn random_element() -> (ark_bn254::Fr, U256) {
-    let mut rng = rand::rng();
+fn random_element(rng: &mut StdRng) -> (ark_bn254::Fr, U256) {
     let f = ark_bn254::Fr::from_be_bytes_mod_order(&rng.random::<[u8; 32]>());
     (f, Backend::<Fr>::to_mont(&U256::new(f.into_bigint().0)))
 }
@@ -17,11 +16,12 @@ macro_rules! bench_width {
     ($c:expr, $t:literal, $params:ident) => {{
         let params = &$params;
         let nr_inputs = $t - 1;
+        let mut rng = StdRng::seed_from_u64(0x706f_7365_6964_6f6e);
 
         let mut ark_inputs = Vec::with_capacity(nr_inputs);
         let mut our_inputs = Vec::with_capacity(nr_inputs);
         for _ in 0..nr_inputs {
-            let (f, u) = random_element();
+            let (f, u) = random_element(&mut rng);
             ark_inputs.push(f);
             our_inputs.push(u);
         }
