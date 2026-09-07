@@ -196,6 +196,15 @@ fn apply_sparse_matrix<const T: usize>(state: &mut [U256; T], m: &SparseMatrix<T
     }
 }
 
+/// Applies one S-box in scalar full rounds.
+///
+/// Keep this call separate to discourage vectorizing across state elements.
+#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512ifma")))]
+#[inline(never)]
+fn apply_sbox_scalar(state_val: &mut U256) {
+    *state_val = sbox(state_val);
+}
+
 /// Applies the S-box to every state element, routing to SIMD where available.
 #[inline(always)]
 fn sbox_layer<const T: usize>(state: &mut [U256; T]) {
@@ -205,7 +214,11 @@ fn sbox_layer<const T: usize>(state: &mut [U256; T]) {
     }
     #[cfg(not(all(target_arch = "x86_64", target_feature = "avx512ifma")))]
     for state_val in state.iter_mut() {
-        *state_val = sbox(state_val);
+        if cfg!(target_arch = "x86_64") && (T == 4 || T == 8) {
+            apply_sbox_scalar(state_val);
+        } else {
+            *state_val = sbox(state_val);
+        }
     }
 }
 
