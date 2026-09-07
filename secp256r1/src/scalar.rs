@@ -51,26 +51,12 @@ impl Scalar {
 
     #[inline]
     pub fn from_bytes(bytes: &[u8; 32], endianness: Endianness) -> Option<Self> {
-        let mut scalar_bytes = [0u8; 32];
-        scalar_bytes.copy_from_slice(bytes);
-
-        if endianness == Endianness::Little {
-            scalar_bytes.reverse();
-        }
-
-        Self::from_canonical_limbs(limbs_from_be_bytes(&scalar_bytes))
+        Self::from_canonical_limbs(limbs_from_bytes(bytes, endianness))
     }
 
     #[inline]
     pub fn from_bytes_reduced(bytes: &[u8; 32], endianness: Endianness) -> Self {
-        let mut scalar_bytes = [0u8; 32];
-        scalar_bytes.copy_from_slice(bytes);
-
-        if endianness == Endianness::Little {
-            scalar_bytes.reverse();
-        }
-
-        let mut limbs = limbs_from_be_bytes(&scalar_bytes);
+        let mut limbs = limbs_from_bytes(bytes, endianness);
 
         if ge_limbs(limbs, MODULUS) {
             limbs = sub_limbs(limbs, MODULUS).0;
@@ -79,6 +65,17 @@ impl Scalar {
         Self {
             limbs: montgomery_mul(limbs, R2),
         }
+    }
+
+    /// Returns `true` when `bytes` encodes an integer smaller than the P-256
+    /// group order.
+    ///
+    /// This is the range check that [`from_bytes`][Scalar::from_bytes]
+    /// performs, without the conversion into Montgomery form, for callers that
+    /// only need to validate an encoding they intend to keep in byte form.
+    #[inline]
+    pub fn is_canonical(bytes: &[u8; 32], endianness: Endianness) -> bool {
+        !ge_limbs(limbs_from_bytes(bytes, endianness), MODULUS)
     }
 
     #[inline]
@@ -452,6 +449,17 @@ fn mac(a: u64, b: u64, c: u64, carry: u64) -> (u64, u64) {
 }
 
 #[inline]
+fn limbs_from_bytes(bytes: &[u8; 32], endianness: Endianness) -> [u64; 4] {
+    let mut be_bytes = *bytes;
+
+    if endianness == Endianness::Little {
+        be_bytes.reverse();
+    }
+
+    limbs_from_be_bytes(&be_bytes)
+}
+
+#[inline]
 fn limbs_from_be_bytes(bytes: &[u8; 32]) -> [u64; 4] {
     let mut limbs = [0u64; 4];
 
@@ -524,6 +532,36 @@ mod tests {
     #[test]
     fn rejects_non_canonical_order() {
         assert!(Scalar::from_bytes(&N, Endianness::Big).is_none());
+    }
+
+    #[test]
+    fn is_canonical_agrees_with_from_bytes() {
+        let mut n_minus_one = N;
+        n_minus_one[31] -= 1;
+
+        for bytes in [[0u8; 32], A, B, n_minus_one, N, [0xffu8; 32]] {
+            assert_eq!(
+                Scalar::is_canonical(&bytes, Endianness::Big),
+                Scalar::from_bytes(&bytes, Endianness::Big).is_some(),
+                "big endian {bytes:02x?}"
+            );
+
+            let mut le = bytes;
+            le.reverse();
+            assert_eq!(
+                Scalar::is_canonical(&le, Endianness::Little),
+                Scalar::from_bytes(&le, Endianness::Little).is_some(),
+                "little endian {bytes:02x?}"
+            );
+        }
+
+        for i in 0..128 {
+            let bytes = sample(i);
+            assert_eq!(
+                Scalar::is_canonical(&bytes, Endianness::Big),
+                Scalar::from_bytes(&bytes, Endianness::Big).is_some()
+            );
+        }
     }
 
     #[test]

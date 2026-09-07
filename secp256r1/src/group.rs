@@ -396,8 +396,8 @@ impl ProjectivePoint {
     /// public scalars.
     #[inline]
     pub fn mul_scalar_vartime(self, scalar: [u8; 32]) -> Option<Self> {
-        let scalar = canonical_scalar_bytes(scalar)?;
-        Some(self.mul_scalar_vartime_unchecked(scalar))
+        Scalar::is_canonical(&scalar, Endianness::Big)
+            .then(|| self.mul_scalar_vartime_unchecked(scalar))
     }
 
     /// Multiplies this point by arbitrary big-endian scalar bytes.
@@ -434,8 +434,8 @@ impl ProjectivePoint {
     /// public scalars.
     #[inline]
     pub fn fixed_base_scalar_mul_vartime(scalar: [u8; 32]) -> Option<Self> {
-        let scalar = canonical_scalar_bytes(scalar)?;
-        Some(Self::fixed_base_scalar_mul_vartime_unchecked(scalar))
+        Scalar::is_canonical(&scalar, Endianness::Big)
+            .then(|| Self::fixed_base_scalar_mul_vartime_unchecked(scalar))
     }
 
     /// Multiplies the generator by arbitrary big-endian scalar bytes.
@@ -459,13 +459,12 @@ impl ProjectivePoint {
         point: AffinePoint,
         point_scalar: [u8; 32],
     ) -> Option<Self> {
-        let generator_scalar = canonical_scalar_bytes(generator_scalar)?;
-        let point_scalar = canonical_scalar_bytes(point_scalar)?;
-        Some(Self::double_scalar_mul_vartime_unchecked(
-            generator_scalar,
-            point,
-            point_scalar,
-        ))
+        let canonical = Scalar::is_canonical(&generator_scalar, Endianness::Big)
+            && Scalar::is_canonical(&point_scalar, Endianness::Big);
+
+        canonical.then(|| {
+            Self::double_scalar_mul_vartime_unchecked(generator_scalar, point, point_scalar)
+        })
     }
 
     /// Computes a double-scalar multiplication with arbitrary big-endian
@@ -510,13 +509,14 @@ impl ProjectivePoint {
             return None;
         }
 
-        let scalars = scalars
+        if !scalars
             .iter()
-            .copied()
-            .map(canonical_scalar_bytes)
-            .collect::<Option<Vec<_>>>()?;
+            .all(|scalar| Scalar::is_canonical(scalar, Endianness::Big))
+        {
+            return None;
+        }
 
-        Self::multi_scalar_mul_vartime_unchecked(points, &scalars)
+        Self::multi_scalar_mul_vartime_unchecked(points, scalars)
     }
 
     /// Computes `sum(scalars[i] * points[i])` using variable-time table
@@ -552,11 +552,6 @@ impl ProjectivePoint {
 
         Some(out)
     }
-}
-
-#[inline]
-fn canonical_scalar_bytes(scalar: [u8; 32]) -> Option<[u8; 32]> {
-    Scalar::from_bytes(&scalar, Endianness::Big).map(Scalar::to_be_bytes)
 }
 
 impl Add for ProjectivePoint {
