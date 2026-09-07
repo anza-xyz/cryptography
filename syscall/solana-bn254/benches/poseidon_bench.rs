@@ -1,12 +1,13 @@
-use ark_ff::PrimeField;
-use criterion::{Criterion, criterion_group, criterion_main};
+use ark_ff::{Field as _, PrimeField};
+use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use light_poseidon::PoseidonHasher;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use solana_bn254::backend::{Backend, Fr, MontgomeryBackend, U256};
-use solana_bn254::poseidon::{constants::*, hash};
+use solana_bn254::poseidon::{constants::*, hash, sbox};
+use std::hint::black_box;
 
-/// A pseudorandom field element, as both an arkworks element and a
-/// Montgomery-form `U256`, so both implementations hash identical inputs.
+/// A field element represented by both arkworks and this crate.
+/// Both representations correspond to the same field value.
 fn random_element(rng: &mut StdRng) -> (ark_bn254::Fr, U256) {
     let f = ark_bn254::Fr::from_be_bytes_mod_order(&rng.random::<[u8; 32]>());
     (f, Backend::<Fr>::to_mont(&U256::new(f.into_bigint().0)))
@@ -66,5 +67,114 @@ fn bench_poseidon(c: &mut Criterion) {
     bench_width!(c, 13, BN254_X5_T13);
 }
 
-criterion_group!(benches, bench_poseidon);
+fn bench_scalar_arithmetic(c: &mut Criterion) {
+    type B = Backend<Fr>;
+    const CHAIN_LENGTH: u64 = 64;
+
+    let mut rng = StdRng::seed_from_u64(0x6172_6974_685f_7631);
+    let (ark_start, start) = random_element(&mut rng);
+    let (ark_factor, factor) = random_element(&mut rng);
+
+    // Check all four chains against arkworks before timing anything.
+    let mut mul_result = start;
+    let mut mul_self_result = start;
+    let mut sqr_result = start;
+    let mut sbox_result = start;
+
+    let mut ark_mul = ark_start;
+    let mut ark_square = ark_start;
+    let mut ark_sbox = ark_start;
+
+    for _ in 0..CHAIN_LENGTH {
+        mul_result = B::mul(&mul_result, &factor);
+        mul_self_result = B::mul(&mul_self_result, &mul_self_result);
+        sqr_result = B::sqr(&sqr_result);
+        sbox_result = sbox(&sbox_result);
+
+        ark_mul *= ark_factor;
+        ark_square = ark_square.square();
+        ark_sbox = ark_sbox.pow([5u64]);
+    }
+
+    // Construct the expected Montgomery residues using arkworks alone.
+    // Exact limb equality also checks that each result is fully reduced.
+    let radix = ark_bn254::Fr::from(2u64).pow([256u64]);
+
+    for (name, actual, expected) in [
+        ("mul", mul_result, ark_mul),
+        ("mul_self", mul_self_result, ark_square),
+        ("sqr", sqr_result, ark_square),
+        ("sbox", sbox_result, ark_sbox),
+    ] {
+        assert_eq!(
+            actual,
+            U256::new((expected * radix).into_bigint().0),
+            "{name} chain mismatch"
+        );
+    }
+
+    let mut group = c.benchmark_group("scalar_arithmetic");
+    group.throughput(Throughput::Elements(CHAIN_LENGTH));
+
+    // Every chain begins with the same inputs on every iteration.
+    // Each call consumes the preceding call's result.
+    // Black boxes at the chain boundaries prevent constant folding
+    // and removal of the result without adding barriers between calls.
+
+    group.bench_function("mul_chain_64", |b| {
+        b.iter(|| {
+            let mut value = black_box(start);
+            let multiplier = black_box(factor);
+
+            for _ in 0..CHAIN_LENGTH {
+                value = B::mul(&value, &multiplier);
+            }
+
+            black_box(value)
+        })
+    });
+
+    // This matches the operation used by the original sqr implementation.
+    group.bench_function("mul_self_chain_64", |b| {
+        b.iter(|| {
+            let mut value = black_box(start);
+
+            for _ in 0..CHAIN_LENGTH {
+                value = B::mul(&value, &value);
+            }
+
+            black_box(value)
+        })
+    });
+
+    group.bench_function("sqr_chain_64", |b| {
+        b.iter(|| {
+            let mut value = black_box(start);
+
+            for _ in 0..CHAIN_LENGTH {
+                value = B::sqr(&value);
+            }
+
+            black_box(value)
+        })
+    });
+
+    // Measure two squares followed by a multiplication in their actual
+    // scalar S-box context.
+    group.bench_function("sbox_chain_64", |b| {
+        b.iter(|| {
+            let mut value = black_box(start);
+
+            for _ in 0..CHAIN_LENGTH {
+                value = sbox(&value);
+            }
+
+            black_box(value)
+        })
+    });
+
+    group.finish();
+}
+
+criterion_group!(benches, bench_poseidon, bench_scalar_arithmetic);
 criterion_main!(benches);
