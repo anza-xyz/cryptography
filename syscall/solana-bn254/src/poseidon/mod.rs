@@ -179,11 +179,22 @@ fn apply_dense_matrix_row0<const T: usize>(state: &mut [U256; T], m: &[[U256; T]
 fn apply_sparse_matrix<const T: usize>(state: &mut [U256; T], m: &SparseMatrix<T>) {
     type B = Backend<Fr>;
     let mut first_word = U256::zero();
+    // Limit this loop form to the width ranges favored by the Zen 4
+    // reference benchmarks.
+    let skip_first_add = if cfg!(all(target_arch = "x86_64", target_feature = "avx512ifma")) {
+        T >= 9 && T <= 13
+    } else {
+        cfg!(target_arch = "x86_64") && T >= 2 && T <= 6
+    };
 
     // Row vector dot product for the new state[0]
     for (j, state_val) in state.iter().enumerate() {
         let term = B::mul(&m.row[j], state_val);
-        first_word = B::add(&first_word, &term);
+        first_word = if skip_first_add && j == 0 {
+            term
+        } else {
+            B::add(&first_word, &term)
+        };
     }
 
     let prev_first = state[0];
