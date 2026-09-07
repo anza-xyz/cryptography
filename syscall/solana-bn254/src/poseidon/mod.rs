@@ -182,9 +182,9 @@ fn apply_sparse_matrix<const T: usize>(state: &mut [U256; T], m: &SparseMatrix<T
     // Limit this loop form to the width ranges favored by the Zen 4
     // reference benchmarks.
     let skip_first_add = if cfg!(all(target_arch = "x86_64", target_feature = "avx512ifma")) {
-        T >= 9 && T <= 13
+        (9..=13).contains(&T)
     } else {
-        cfg!(target_arch = "x86_64") && T >= 2 && T <= 6
+        cfg!(target_arch = "x86_64") && (2..=6).contains(&T)
     };
 
     // Row vector dot product for the new state[0]
@@ -248,10 +248,7 @@ fn dense_layer<const T: usize>(state: &mut [U256; T], m: &[[U256; T]; T]) {
 ///
 /// Every element of `state` must be a fully reduced Montgomery-form field
 /// element (`x < Fr::MODULUS`), per the `MontgomeryBackend` contract.
-pub fn poseidon<const T: usize>(
-    state: [U256; T],
-    constants: &PoseidonConstants<T>,
-) -> [U256; T] {
+pub fn poseidon<const T: usize>(state: [U256; T], constants: &PoseidonConstants<T>) -> [U256; T] {
     poseidon_inner::<T, false>(state, constants)
 }
 

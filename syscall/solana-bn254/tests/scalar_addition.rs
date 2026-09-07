@@ -32,12 +32,7 @@ fn check_add(a: &U256, b: &U256) {
 #[test]
 fn add_boundary_values_match_arkworks() {
     let one = ArkFr::from(1u64);
-    let mut values = vec![
-        ArkFr::from(0u64),
-        one,
-        ArkFr::from(2u64),
-        ArkFr::from(3u64),
-    ];
+    let mut values = vec![ArkFr::from(0u64), one, ArkFr::from(2u64), ArkFr::from(3u64)];
 
     // Values near the modulus exercise the final conditional subtraction.
     for delta in [1u64, 2, 3, 4, 7, 8, 15, 16, u64::MAX] {

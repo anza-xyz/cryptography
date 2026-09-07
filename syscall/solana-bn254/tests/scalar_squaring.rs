@@ -7,9 +7,7 @@
 use ark_bn254::Fr as ArkFr;
 use ark_ff::{BigInt, Field as _, PrimeField};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use solana_bn254::backend::{
-    Fr, MontgomeryBackend, U256, portable::PortableBackend,
-};
+use solana_bn254::backend::{Fr, MontgomeryBackend, U256, portable::PortableBackend};
 
 type B = PortableBackend<Fr>;
 
@@ -18,17 +16,15 @@ fn radix_inverse() -> ArkFr {
 }
 
 fn random_raw(rng: &mut StdRng) -> U256 {
-    let value =
-        ArkFr::from_le_bytes_mod_order(&rng.random::<[u8; 32]>());
+    let value = ArkFr::from_le_bytes_mod_order(&rng.random::<[u8; 32]>());
     U256::new(value.into_bigint().0)
 }
 
 fn check_square(input: U256, r_inv: ArkFr) -> U256 {
-    let integer = ArkFr::from_bigint(BigInt(input.0))
-        .expect("test input must be below the Fr modulus");
+    let integer =
+        ArkFr::from_bigint(BigInt(input.0)).expect("test input must be below the Fr modulus");
 
-    let expected =
-        U256::new((integer.square() * r_inv).into_bigint().0);
+    let expected = U256::new((integer.square() * r_inv).into_bigint().0);
     let actual = B::sqr(&input);
 
     // Exact limb equality also checks that the output is fully reduced.
@@ -47,12 +43,7 @@ fn boundary_values() -> Vec<U256> {
         U256::zero(),
         U256::one(),
         U256::new([u64::MAX, u64::MAX, u64::MAX, 0]),
-        U256::new([
-            u64::MAX,
-            u64::MAX,
-            u64::MAX,
-            modulus[3] - 1,
-        ]),
+        U256::new([u64::MAX, u64::MAX, u64::MAX, modulus[3] - 1]),
         U256::new([
             0xaaaa_aaaa_aaaa_aaaa,
             0x5555_5555_5555_5555,
