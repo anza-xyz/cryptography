@@ -9,15 +9,21 @@
 //!
 //! In addition to these general tradeoffs, design flaws in Ed25519 specifically
 //! mean that batched verification may not agree with individual verification.
-//! Some signatures may verify as part of a batch but not on their own.
-//! This problem is fixed by [ZIP215], a precise specification for edge cases
-//! in Ed25519 signature validation that ensures that batch verification agrees
-//! with individual verification in all cases.
+//! Some signatures may verify as part of a batch but not on their own. Batch
+//! verification is inherently cofactored — it checks a random linear
+//! combination of the individual equations multiplied by the cofactor — so it
+//! cannot reproduce the cofactorless accept/reject decisions of
+//! [`VerificationKey::verify_dalek`].
 //!
-//! This crate implements ZIP215, so batch verification always agrees with
-//! individual verification, but this is not guaranteed by other implementations.
-//! **Be extremely careful when using Ed25519 in a consensus-critical context
-//! like a blockchain.**
+//! This module implements [SIMD-0376], whose equation is cofactored, so batch
+//! verification always agrees with [`VerificationKey::verify_simd0376`]. This
+//! is not guaranteed by other implementations. **Be extremely careful when
+//! using Ed25519 in a consensus-critical context like a blockchain.**
+//!
+//! SIMD-0376's per-signature checks — canonical `A` and `R` encodings, a fully
+//! reduced `s`, and rejection of small-order `A` and `R` — are independent of
+//! the batch, and are applied here to each signature before it enters the
+//! multiscalar multiplication.
 //!
 //! This batch verification implementation is adaptive in the sense that it
 //! detects multiple signatures created with the same verification key and
@@ -30,7 +36,7 @@
 //!
 //! This optimization doesn't help much with Zcash, where public keys are random,
 //! but could be useful in proof-of-stake systems where signatures come from a
-//! set of validators (provided that system uses the ZIP215 rules).
+//! set of validators (provided that system uses the same rules).
 //!
 //! # Example
 //! ```ignore
@@ -46,26 +52,26 @@
 //! assert!(batch.verify().is_ok());
 //! ```
 //!
-//! [ZIP215]: https://zips.z.cash/zip-0215
+//! [SIMD-0376]: https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0376-verify-strict.md
 
 use alloc::vec::Vec;
 use core::convert::TryFrom;
 
+#[cfg(feature = "rand_core")]
+use super::accepts_point_encoding;
+use super::{Error, VerificationKey, VerificationKeyBytes, challenge_scalar};
 use crate::scalar::Scalar;
 #[cfg(feature = "rand_core")]
 use crate::{
     edwards::{CompressedEdwardsY, EdwardsPoint},
     traits::{IsIdentity, VartimeMultiscalarMul},
 };
+use ed25519::Signature;
 use hashbrown::HashMap;
 #[cfg(feature = "rand_core")]
 use rand::rngs::SysRng;
 #[cfg(feature = "rand_core")]
 use rand_core::{Rng, UnwrapErr};
-use sha2::{Sha512, digest::Update};
-
-use super::{Error, VerificationKey, VerificationKeyBytes, scalar_from_sha512};
-use ed25519::Signature;
 
 // Shim to generate a u128 without importing `rand`.
 #[cfg(feature = "rand_core")]
@@ -91,12 +97,7 @@ impl<'msg, M: AsRef<[u8]> + ?Sized> From<(VerificationKeyBytes, Signature, &'msg
     fn from(tup: (VerificationKeyBytes, Signature, &'msg M)) -> Self {
         let (vk_bytes, sig, msg) = tup;
         // Compute k now to avoid dependency on the msg lifetime.
-        let k = scalar_from_sha512(
-            Sha512::default()
-                .chain(&sig.r_bytes()[..])
-                .chain(&vk_bytes.0[..])
-                .chain(msg),
-        );
+        let k = challenge_scalar(sig.r_bytes(), &vk_bytes.0, msg.as_ref());
         Self { vk_bytes, sig, k }
     }
 }
@@ -111,7 +112,7 @@ impl Item {
     /// from the lifetime of the message.
     pub fn verify_single(self) -> Result<(), Error> {
         VerificationKey::try_from(self.vk_bytes)
-            .and_then(|vk| vk.verify_zebra_prehashed(&self.sig, self.k))
+            .and_then(|vk| vk.verify_simd0376_prehashed(&self.sig, self.k))
     }
 }
 
@@ -183,6 +184,10 @@ impl Verifier {
         let mut B_coeff = Scalar::ZERO;
 
         for (vk_bytes, sigs) in self.signatures.iter() {
+            // SIMD-0376 steps 1 and 5 for `A`.
+            if !accepts_point_encoding(&vk_bytes.0) {
+                return Err(Error::MalformedPublicKey);
+            }
             let A = CompressedEdwardsY(vk_bytes.0)
                 .decompress()
                 .ok_or(Error::MalformedPublicKey)?;
@@ -190,6 +195,10 @@ impl Verifier {
             let mut A_coeff = Scalar::ZERO;
 
             for (k, sig) in sigs.iter() {
+                // SIMD-0376 steps 2 and 5 for `R`.
+                if !accepts_point_encoding(sig.r_bytes()) {
+                    return Err(Error::InvalidSignature);
+                }
                 let R = CompressedEdwardsY(*sig.r_bytes())
                     .decompress()
                     .ok_or(Error::InvalidSignature)?;

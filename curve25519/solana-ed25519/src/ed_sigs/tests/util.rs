@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 #![cfg(feature = "std")]
 
-use crate::ed_sigs as ed25519_heea_zip215;
+use crate::ed_sigs;
 use crate::edwards::{CompressedEdwardsY, EdwardsPoint};
 use color_eyre::{Report, eyre::eyre};
 
@@ -13,7 +13,7 @@ pub struct TestCase {
     pub vk_bytes: [u8; 32],
     pub sig_bytes: [u8; 64],
     pub valid_legacy: bool,
-    pub valid_zip215: bool,
+    pub valid_simd0376: bool,
 }
 
 impl core::fmt::Debug for TestCase {
@@ -22,7 +22,7 @@ impl core::fmt::Debug for TestCase {
             .field("vk_bytes", &hex::encode(&self.vk_bytes[..]))
             .field("sig_bytes", &hex::encode(&self.sig_bytes[..]))
             .field("valid_legacy", &self.valid_legacy)
-            .field("valid_zip215", &self.valid_zip215)
+            .field("valid_simd0376", &self.valid_simd0376)
             .finish()
     }
 }
@@ -39,27 +39,27 @@ impl TestCase {
                 Err(e.wrap_err("legacy-valid signature case was rejected under legacy rules"))
             }
         }?;
-        match (self.valid_zip215, self.check_zip215()) {
+        match (self.valid_simd0376, self.check_simd0376()) {
             (false, Err(_)) => Ok(()),
             (true, Ok(())) => Ok(()),
             (false, Ok(())) => Err(eyre!(
-                "zip215-invalid signature case validated under zip215 rules"
+                "simd0376-invalid signature case validated under SIMD-0376 rules"
             )),
             (true, Err(e)) => {
-                Err(e.wrap_err("zip215-valid signature case was rejected under zip215 rules"))
+                Err(e.wrap_err("simd0376-valid signature case was rejected under SIMD-0376 rules"))
             }
         }
     }
 
     fn check_legacy(&self) -> Result<(), Report> {
-        use ed25519_heea_zip215::{Signature, VerificationKey};
+        use ed_sigs::{Signature, VerificationKey};
         let sig = Signature::from(self.sig_bytes);
         VerificationKey::try_from(self.vk_bytes).and_then(|vk| vk.verify_dalek(&sig, b"Zcash"))?;
         Ok(())
     }
 
-    fn check_zip215(&self) -> Result<(), Report> {
-        use ed25519_heea_zip215::{Signature, VerificationKey};
+    fn check_simd0376(&self) -> Result<(), Report> {
+        use ed_sigs::{Signature, VerificationKey};
         let sig = Signature::from(self.sig_bytes);
         VerificationKey::try_from(self.vk_bytes).and_then(|vk| vk.verify(&sig, b"Zcash"))?;
         Ok(())
@@ -81,7 +81,7 @@ pub fn non_canonical_field_encodings() -> Vec<[u8; 32]> {
     encodings
 }
 
-// Compute all 25 non-canonical point encodings.  The first 5 are low order.
+// Compute all 26 non-canonical point encodings.  The first 6 are low order.
 pub fn non_canonical_point_encodings() -> Vec<[u8; 32]> {
     // Points are encoded by the y-coordinate and a bit indicating the
     // sign of the x-coordinate. There are two ways to construct a

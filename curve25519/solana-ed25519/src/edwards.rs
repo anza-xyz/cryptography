@@ -203,6 +203,60 @@ impl CompressedEdwardsY {
         self.0
     }
 
+    /// Determine whether this is the canonical encoding of the point it
+    /// decodes to.
+    ///
+    /// An encoding is canonical when
+    ///
+    /// * its low 255 bits encode a fully reduced \\(y\\)-coordinate, i.e.
+    ///   \\(y < 2\^{255} - 19\\), and
+    /// * its sign bit (bit 255) is clear whenever the recovered
+    ///   \\(x\\)-coordinate is zero.
+    ///
+    /// The second condition needs no decompression: the curve equation
+    /// \\(-x\^2 + y\^2 = 1 + d x\^2 y\^2\\) forces \\(x = 0\\) exactly when
+    /// \\(y\^2 = 1\\), because \\(1 + d \neq 0\\). So the only two
+    /// \\(y\\)-coordinates for which the sign bit is redundant are
+    /// \\(y = \pm 1\\).
+    ///
+    /// This is independent of whether the encoding decodes at all: an
+    /// off-curve \\(y\\) can still be canonically encoded. Callers that need
+    /// the point must still call [`CompressedEdwardsY::decompress`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use solana_ed25519::{constants::ED25519_BASEPOINT_POINT, edwards::CompressedEdwardsY};
+    ///
+    /// assert!(ED25519_BASEPOINT_POINT.compress().is_canonical());
+    ///
+    /// // `y = 2^255 - 18` is the unreduced encoding of `y = 1`.
+    /// let mut unreduced = [0xffu8; 32];
+    /// unreduced[0] = 0xee;
+    /// unreduced[31] = 0x7f;
+    /// assert!(!CompressedEdwardsY(unreduced).is_canonical());
+    ///
+    /// // `y = 1` with the sign bit set, but the recovered `x` is zero.
+    /// let mut redundant_sign = [0u8; 32];
+    /// redundant_sign[0] = 1;
+    /// redundant_sign[31] = 0x80;
+    /// assert!(!CompressedEdwardsY(redundant_sign).is_canonical());
+    /// ```
+    pub fn is_canonical(&self) -> bool {
+        let mut y_bytes = self.0;
+        let sign_bit_set = (y_bytes[31] >> 7) == 1;
+        y_bytes[31] &= 0x7f;
+
+        // `FieldElement::to_bytes` produces the canonical encoding, so a `y`
+        // that survives the round trip was already fully reduced.
+        let y = FieldElement::from_bytes(&y_bytes);
+        if y.to_bytes() != y_bytes {
+            return false;
+        }
+
+        !(sign_bit_set && (y == FieldElement::ONE || y == FieldElement::MINUS_ONE))
+    }
+
     /// Attempt to decompress to an `EdwardsPoint`.
     ///
     /// Returns `None` if the input is not the \\(y\\)-coordinate of a
@@ -1898,6 +1952,82 @@ mod test {
         assert_eq!(minus_basepoint.Y, constants::ED25519_BASEPOINT_POINT.Y);
         assert_eq!(minus_basepoint.Z, constants::ED25519_BASEPOINT_POINT.Z);
         assert_eq!(minus_basepoint.T, -(&constants::ED25519_BASEPOINT_POINT.T));
+    }
+
+    /// `is_canonical` must agree with the decompress/recompress round trip,
+    /// which is the definition it is an optimisation of. `is_canonical` avoids
+    /// the field inversion that `compress` needs, so the two are only worth
+    /// having if they always answer the same.
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn is_canonical_matches_recompression() {
+        use alloc::vec::Vec;
+
+        let mut candidates = Vec::new();
+
+        // Canonical encodings: the torsion points and some multiples of the
+        // basepoint, both signs.
+        for p in constants::EIGHT_TORSION.iter() {
+            candidates.push(p.compress().to_bytes());
+        }
+        for i in 1..32u64 {
+            let p = constants::ED25519_BASEPOINT_POINT * Scalar::from(i);
+            candidates.push(p.compress().to_bytes());
+            candidates.push((-p).compress().to_bytes());
+        }
+
+        // Unreduced `y`: the 19 field elements representable as `y + p` in 255
+        // bits, with the sign bit clear and set.
+        for i in 0..19u8 {
+            let mut bytes = [0xffu8; 32];
+            bytes[0] = 237 + i;
+            bytes[31] = 0x7f;
+            candidates.push(bytes);
+            bytes[31] = 0xff;
+            candidates.push(bytes);
+        }
+
+        // Redundant sign bit: `y = ±1`, where the recovered `x` is zero.
+        let mut y_one = [0u8; 32];
+        y_one[0] = 1;
+        candidates.push(y_one);
+        y_one[31] = 0x80;
+        candidates.push(y_one);
+        let mut y_minus_one = [0xffu8; 32];
+        y_minus_one[0] = 0xec;
+        y_minus_one[31] = 0x7f;
+        candidates.push(y_minus_one);
+        y_minus_one[31] = 0xff;
+        candidates.push(y_minus_one);
+
+        let mut decodable = 0usize;
+        let mut non_canonical = 0usize;
+        for bytes in candidates {
+            let encoded = CompressedEdwardsY(bytes);
+            if let Some(point) = encoded.decompress() {
+                decodable += 1;
+                let canonical = point.compress().to_bytes() == bytes;
+                assert_eq!(
+                    encoded.is_canonical(),
+                    canonical,
+                    "is_canonical disagrees with recompression for {:?}",
+                    bytes
+                );
+                if !canonical {
+                    non_canonical += 1;
+                }
+            } else {
+                // Undecodable encodings still have a well-defined canonicity;
+                // `is_canonical` must not panic or depend on decodability.
+                let _ = encoded.is_canonical();
+            }
+        }
+
+        assert!(decodable > 0);
+        // All 26 non-canonical point encodings appear above: 24 with an
+        // unreduced `y` (of the 38 candidates, 14 are not on the curve), plus
+        // `y = 1` and `y = -1` with the redundant sign bit set.
+        assert_eq!(non_canonical, 26);
     }
 
     /// Test that computing 1*basepoint gives the correct basepoint.

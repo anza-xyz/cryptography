@@ -51,17 +51,17 @@ have been removed.
 
 ## Ed25519 Signatures (`ed_sigs`)
 
-This crate includes a **ZIP-215-compliant Ed25519 signature implementation** in the
+This crate includes a **[SIMD-0376]-compliant Ed25519 signature implementation** in the
 `ed_sigs` module, forked from [ed25519-zebra] and extended with HEEA-accelerated
 verification.
 
 > For the original ed25519-zebra documentation see [README_zebra.md](README_zebra.md).
 
-### `verify_zebra`: fast-path signature verification
+### `verify_simd0376`: fast-path signature verification
 
-`VerificationKey::verify_zebra` is the HEEA implementation used by the default
+`VerificationKey::verify_simd0376` is the HEEA implementation used by the default
 `VerificationKey::verify` method. Both accept the same arguments and produce identical
-ZIP-215 results.
+results.
 
 The HEEA method (TCHES 2025) transforms the standard 2-point MSM:
 
@@ -81,15 +81,34 @@ where `ρ ≡ τ·h (mod ℓ)` when `flip_h` is false, `ρ ≡ -τ·h (mod ℓ)`
 and the two basepoints (`B` and `2¹²⁸B`) use precomputed lookup tables, giving approximately
 **~15% faster** verification compared to the standard path.
 
-### ZIP 215
+### SIMD-0376
 
-ZIP-215-compliant Ed25519 validation rules are fully preserved from ed25519-zebra:
+`verify` implements [SIMD-0376], which is [ZIP 215]'s cofactored verification
+equation combined with explicit rejection of non-canonical encodings and of
+small-order `A` and `R`:
 
-- Non-canonical point encodings are accepted for `A` and `R`.
-- `s` must be a canonical integer less than the group order `ℓ`.
-- The cofactor-cleared equation `[8][s]B = [8]R + [8][h]A` is used (not the RFC 8032 variant).
+1. `A` must be a canonical 32-byte encoding.
+2. `R` must be a canonical 32-byte encoding.
+3. `s` must be a canonical integer less than the group order `ℓ`.
+4. `A` and `R` must decode to points on the curve.
+5. Neither `A` nor `R` may be small-order (`[8]P = O`).
+6. `h = SHA512(R ‖ A ‖ M) mod ℓ`.
+7. The cofactor-cleared equation `[8][s]B - [8]R - [8][h]A = O` must hold (not the
+   RFC 8032 cofactorless variant).
 
-See [ZIP 215] for full details.
+This is deliberately *not* unmodified ZIP-215. ZIP-215 accepts non-canonical
+encodings and small-order `A`, which on Solana would make `Pubkey::default()` —
+the all-zero encoding, which is also the System Program ID — a signable public
+key, because the cofactored equation annihilates every small-order component.
+Steps 1–5 are per-signature and independent of the batch, so they do not
+interfere with batch verification; see `ed_sigs::batch`.
+
+`VerificationKey::verify_dalek` retains the pre-SIMD-0376 rule and is
+accept/reject identical to `ed25519-dalek`'s `verify_strict`. Both rules are
+provided because activating SIMD-0376 requires a feature gate, so a gated
+validator must be able to evaluate either one.
+
+See [SIMD-0376] for full details.
 
 ---
 
@@ -112,7 +131,7 @@ let sk = SigningKey::from_bytes(&[1u8; 32]);
 let sig = sk.sign(msg);
 let vk = VerificationKey::from(&sk);
 
-// Standard ZIP-215 verification with heea acceleration
+// SIMD-0376 verification with HEEA acceleration
 vk.verify(&sig, msg).expect("valid signature");
 ```
 
@@ -221,5 +240,6 @@ Rust **1.85.0** (Edition 2024).
 [curve25519-dalek]: https://github.com/dalek-cryptography/curve25519-dalek
 [ed25519-zebra]: https://github.com/ZcashFoundation/ed25519-zebra
 [ZIP 215]: https://zips.z.cash/zip-0215
+[SIMD-0376]: https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0376-verify-strict.md
 [SPPARK]: https://github.com/supranational/sppark
 [subtle]: https://docs.rs/subtle

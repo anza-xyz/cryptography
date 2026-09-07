@@ -95,10 +95,10 @@ fn bench_batch_verify(c: &mut Criterion) {
 fn bench_single_verify(c: &mut Criterion) {
     let mut group = c.benchmark_group("Single Verification");
 
-    group.bench_function("local_verify_zebra", |b| {
+    group.bench_function("local_verify_simd0376", |b| {
         let (vk, sig, _) = single_verify_inputs();
         b.iter(|| {
-            let _ = vk.verify_zebra(&sig, b"");
+            let _ = vk.verify_simd0376(&sig, b"");
         })
     });
 

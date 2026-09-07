@@ -8,7 +8,7 @@ use crate::scalar::Scalar;
 use core::convert::TryFrom;
 
 #[test]
-fn test_verify_zebra_invalid_signature() {
+fn test_verify_simd0376_invalid_signature() {
     let signing_key = SigningKey::from([1u8; 32]);
     let verification_key = VerificationKey::from(&signing_key);
 
@@ -19,7 +19,7 @@ fn test_verify_zebra_invalid_signature() {
     let wrong_msg = b"Different message";
 
     let result_default = verification_key.verify(&signature, wrong_msg);
-    let result_zebra = verification_key.verify_zebra(&signature, wrong_msg);
+    let result_simd0376 = verification_key.verify_simd0376(&signature, wrong_msg);
     let result_dalek = verification_key.verify_dalek(&signature, wrong_msg);
 
     assert!(
@@ -27,8 +27,8 @@ fn test_verify_zebra_invalid_signature() {
         "Default verification should fail for wrong message"
     );
     assert!(
-        result_zebra.is_err(),
-        "Zebra verification should fail for wrong message"
+        result_simd0376.is_err(),
+        "SIMD-0376 verification should fail for wrong message"
     );
     assert!(
         result_dalek.is_err(),
@@ -37,7 +37,7 @@ fn test_verify_zebra_invalid_signature() {
 }
 
 #[test]
-fn test_verify_zebra_multiple_signatures() {
+fn test_verify_simd0376_multiple_signatures() {
     for i in 0..100 {
         let mut seed = [0u8; 32];
         seed[0] = i;
@@ -48,7 +48,7 @@ fn test_verify_zebra_multiple_signatures() {
         let signature = signing_key.sign(msg.as_bytes());
 
         let result_default = verification_key.verify(&signature, msg.as_bytes());
-        let result_zebra = verification_key.verify_zebra(&signature, msg.as_bytes());
+        let result_simd0376 = verification_key.verify_simd0376(&signature, msg.as_bytes());
         let result_dalek = verification_key.verify_dalek(&signature, msg.as_bytes());
 
         assert!(
@@ -57,8 +57,8 @@ fn test_verify_zebra_multiple_signatures() {
             i
         );
         assert!(
-            result_zebra.is_ok(),
-            "Zebra verification should succeed for signature {}",
+            result_simd0376.is_ok(),
+            "SIMD-0376 verification should succeed for signature {}",
             i
         );
         assert!(
@@ -70,7 +70,7 @@ fn test_verify_zebra_multiple_signatures() {
 }
 
 #[test]
-fn test_default_verification_matches_zebra() {
+fn test_default_verification_matches_simd0376() {
     let signing_key = SigningKey::from([2u8; 32]);
     let verification_key = VerificationKey::from(&signing_key);
     let msg = b"default verification mode";
@@ -78,7 +78,7 @@ fn test_default_verification_matches_zebra() {
 
     assert_eq!(
         verification_key.verify(&signature, msg),
-        verification_key.verify_zebra(&signature, msg)
+        verification_key.verify_simd0376(&signature, msg)
     );
 }
 
@@ -101,7 +101,7 @@ fn test_signature_verifier_trait_impl() {
 }
 
 #[test]
-fn test_verify_zebra_prehashed_rejects_noncanonical_s() {
+fn test_verify_simd0376_prehashed_rejects_noncanonical_s() {
     let signing_key = SigningKey::from([4u8; 32]);
     let verification_key = VerificationKey::from(&signing_key);
     let mut sig_bytes: [u8; 64] = signing_key.sign(b"noncanonical s").into();
@@ -109,13 +109,13 @@ fn test_verify_zebra_prehashed_rejects_noncanonical_s() {
     let signature = Signature::from(sig_bytes);
 
     assert_eq!(
-        verification_key.verify_zebra_prehashed(&signature, Scalar::from(1u64)),
+        verification_key.verify_simd0376_prehashed(&signature, Scalar::from(1u64)),
         Err(Error::InvalidSignature)
     );
 }
 
 #[test]
-fn test_verify_zebra_prehashed_rejects_undecodable_r() {
+fn test_verify_simd0376_prehashed_rejects_undecodable_r() {
     let signing_key = SigningKey::from([5u8; 32]);
     let verification_key = VerificationKey::from(&signing_key);
     let mut sig_bytes: [u8; 64] = signing_key.sign(b"undecodable r").into();
@@ -126,7 +126,7 @@ fn test_verify_zebra_prehashed_rejects_undecodable_r() {
     let signature = Signature::from(sig_bytes);
 
     assert_eq!(
-        verification_key.verify_zebra_prehashed(&signature, Scalar::from(1u64)),
+        verification_key.verify_simd0376_prehashed(&signature, Scalar::from(1u64)),
         Err(Error::InvalidSignature)
     );
 }
