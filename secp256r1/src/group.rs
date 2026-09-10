@@ -7,9 +7,8 @@
 //! - [`ProjectivePoint`] — Jacobian `(X : Y : Z)` coordinates, used during
 //!   multi-step scalar multiplication to avoid per-step field inversions.
 //!
-//! Use [`ProjectivePoint::to_affine`] to convert back and pay the single
-//! field inversion, or [`batch_normalize`][`ProjectivePoint`] implicitly via
-//! the precomputed table builders.
+//! Use [`ProjectivePoint::to_affine`] to convert back to affine coordinates.
+//! Precomputed table builders normalize points in batches internally.
 
 use core::ops::{Add, Neg, Sub};
 use std::sync::OnceLock;
@@ -71,6 +70,10 @@ impl AffinePoint {
         Self::GENERATOR
     }
 
+    /// Constructs a non-identity point from its coordinates.
+    ///
+    /// Returns `None` if the coordinates do not satisfy the curve equation.
+    /// Use [`Self::IDENTITY`] for the identity point.
     #[inline]
     pub fn new(x: FieldElement, y: FieldElement) -> Option<Self> {
         let point = Self {
@@ -82,6 +85,11 @@ impl AffinePoint {
         point.is_on_curve().then_some(point)
     }
 
+    /// Parses a 64-byte `X || Y` encoding.
+    ///
+    /// Each coordinate uses the requested byte order. Exactly 64 zero
+    /// bytes decode to the identity. All other inputs must have canonical
+    /// coordinates and satisfy the curve equation, or this returns `None`.
     #[inline]
     pub fn from_uncompressed(bytes: &[u8; 64], endianness: Endianness) -> Option<Self> {
         if bytes == &[0u8; 64] {
@@ -104,6 +112,12 @@ impl AffinePoint {
         )
     }
 
+    /// Parses a parity prefix followed by a 32-byte X-coordinate.
+    ///
+    /// Prefix `0x02` selects even Y; `0x03` selects odd Y. Only X uses the
+    /// requested byte order. Returns `None` for an invalid prefix, a
+    /// noncanonical X-coordinate, or an X-coordinate with no curve point.
+    /// The identity has no compressed representation.
     #[inline]
     pub fn from_compressed(bytes: &[u8; 33], endianness: Endianness) -> Option<Self> {
         // `0x02`: Compressed point with an even Y-coordinate
@@ -764,9 +778,17 @@ mod tests {
     ];
 
     fn assert_matches_p256(rust: ProjectivePoint, p256: P256ProjectivePoint) {
+        let expected_identity = bool::from(p256.is_identity());
+        assert_eq!(rust.is_identity(), expected_identity, "identity mismatch");
+
         let rust_bytes = rust.to_uncompressed(Endianness::Big);
-        let p256_bytes = p256.to_affine().to_encoded_point(false);
-        assert_eq!(rust_bytes.as_slice(), &p256_bytes.as_bytes()[1..]);
+
+        if expected_identity {
+            assert_eq!(rust_bytes, [0u8; 64]);
+        } else {
+            let p256_bytes = p256.to_affine().to_encoded_point(false);
+            assert_eq!(rust_bytes.as_slice(), &p256_bytes.as_bytes()[1..]);
+        }
     }
 
     #[test]
@@ -1001,5 +1023,98 @@ mod tests {
 
         // Compressed correctly refuses to serialize the identity point
         assert!(identity.to_compressed(Endianness::Big).is_none());
+    }
+
+    #[test]
+    fn identity_and_inverse_operations_match_p256() {
+        let g = ProjectivePoint::GENERATOR;
+        let identity = ProjectivePoint::IDENTITY;
+        let reference_g = P256ProjectivePoint::generator();
+        let reference_identity = P256ProjectivePoint::IDENTITY;
+
+        for (rust, reference) in [
+            (identity, reference_identity),
+            (identity.double(), reference_identity.double()),
+            (-identity, -reference_identity),
+            (g + identity, reference_g + reference_identity),
+            (identity + g, reference_identity + reference_g),
+            (g - g, reference_g - reference_g),
+            (g + (-g), reference_g + (-reference_g)),
+            (g.add_mixed(AffinePoint::IDENTITY), reference_g),
+            (identity.add_mixed(AffinePoint::GENERATOR), reference_g),
+            (g.add_mixed(-AffinePoint::GENERATOR), reference_identity),
+        ] {
+            assert_matches_p256(rust, reference);
+        }
+    }
+
+    #[test]
+    fn zero_scalars_and_cancelling_msm_return_identity() {
+        let zero = [0u8; 32];
+        let g = AffinePoint::GENERATOR;
+
+        let results = [
+            ProjectivePoint::GENERATOR.mul_scalar_vartime(zero).unwrap(),
+            ProjectivePoint::IDENTITY
+                .mul_scalar_vartime(SCALAR)
+                .unwrap(),
+            ProjectivePoint::fixed_base_scalar_mul_vartime(zero).unwrap(),
+            ProjectivePoint::double_scalar_mul_vartime(zero, g, zero).unwrap(),
+            ProjectivePoint::multi_scalar_mul_vartime(&[], &[]).unwrap(),
+            ProjectivePoint::multi_scalar_mul_vartime(&[g], &[zero]).unwrap(),
+            ProjectivePoint::multi_scalar_mul_vartime(
+                &[g, -g, AffinePoint::IDENTITY],
+                &[SCALAR; 3],
+            )
+            .unwrap(),
+        ];
+
+        for result in results {
+            assert_matches_p256(result, P256ProjectivePoint::IDENTITY);
+        }
+    }
+
+    #[test]
+    fn identity_points_do_not_bypass_scalar_validation() {
+        let mut n_plus_one = GROUP_ORDER;
+        n_plus_one[31] += 1;
+
+        for invalid in [GROUP_ORDER, n_plus_one, [0xffu8; 32]] {
+            assert!(
+                ProjectivePoint::IDENTITY
+                    .mul_scalar_vartime(invalid)
+                    .is_none()
+            );
+
+            assert!(
+                ProjectivePoint::double_scalar_mul_vartime(
+                    [0u8; 32],
+                    AffinePoint::IDENTITY,
+                    invalid,
+                )
+                .is_none()
+            );
+
+            assert!(
+                ProjectivePoint::double_scalar_mul_vartime(
+                    invalid,
+                    AffinePoint::IDENTITY,
+                    [0u8; 32],
+                )
+                .is_none()
+            );
+
+            let points = [AffinePoint::IDENTITY; 3];
+
+            for index in 0..points.len() {
+                let mut scalars = [[0u8; 32]; 3];
+                scalars[index] = invalid;
+
+                assert!(
+                    ProjectivePoint::multi_scalar_mul_vartime(&points, &scalars).is_none(),
+                    "accepted noncanonical scalar at index {index}"
+                );
+            }
+        }
     }
 }

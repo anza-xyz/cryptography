@@ -17,10 +17,15 @@
 //!
 //! # Security
 //!
-//! This crate is experimental and has not been audited. Group scalar
-//! multiplication APIs are variable time and intended for public inputs. Do not
-//! use them with secret scalars in environments where local timing/cache side
-//! channels are in scope.
+//! All APIs are intended for public inputs only. No API provides a
+//! constant-time guarantee.
+//!
+//! Execution time and memory access patterns may depend on field elements,
+//! scalars, and points. This includes arithmetic, inversion, point operations,
+//! conversions, and comparisons.
+//!
+//! Do not use this crate for computations on secret values, including private
+//! keys or signing nonces.
 
 #![forbid(unsafe_code)]
 
@@ -28,8 +33,18 @@ pub mod field;
 pub mod group;
 pub mod scalar;
 
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
+
+/// Byte order used for scalars and individual point coordinates.
+///
+/// X and Y retain their positions in an uncompressed point. A compressed
+/// point prefix remains the first byte in both orders.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Endianness {
+    /// Most significant byte first.
     Big,
+    /// Least significant byte first.
     Little,
 }
