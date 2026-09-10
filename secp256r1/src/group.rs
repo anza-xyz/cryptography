@@ -7,9 +7,8 @@
 //! - [`ProjectivePoint`] — Jacobian `(X : Y : Z)` coordinates, used during
 //!   multi-step scalar multiplication to avoid per-step field inversions.
 //!
-//! Use [`ProjectivePoint::to_affine`] to convert back and pay the single
-//! field inversion, or [`batch_normalize`][`ProjectivePoint`] implicitly via
-//! the precomputed table builders.
+//! Use [`ProjectivePoint::to_affine`] to convert back to affine coordinates.
+//! Precomputed table builders normalize points in batches internally.
 
 use core::ops::{Add, Neg, Sub};
 use std::sync::OnceLock;
@@ -71,6 +70,10 @@ impl AffinePoint {
         Self::GENERATOR
     }
 
+    /// Constructs a non-identity point from its coordinates.
+    ///
+    /// Returns `None` if the coordinates do not satisfy the curve equation.
+    /// Use [`Self::IDENTITY`] for the identity point.
     #[inline]
     pub fn new(x: FieldElement, y: FieldElement) -> Option<Self> {
         let point = Self {
@@ -82,6 +85,11 @@ impl AffinePoint {
         point.is_on_curve().then_some(point)
     }
 
+    /// Parses a 64-byte `X || Y` encoding.
+    ///
+    /// Each coordinate uses the requested byte order. Exactly 64 zero
+    /// bytes decode to the identity. All other inputs must have canonical
+    /// coordinates and satisfy the curve equation, or this returns `None`.
     #[inline]
     pub fn from_uncompressed(bytes: &[u8; 64], endianness: Endianness) -> Option<Self> {
         if bytes == &[0u8; 64] {
@@ -104,6 +112,12 @@ impl AffinePoint {
         )
     }
 
+    /// Parses a parity prefix followed by a 32-byte X-coordinate.
+    ///
+    /// Prefix `0x02` selects even Y; `0x03` selects odd Y. Only X uses the
+    /// requested byte order. Returns `None` for an invalid prefix, a
+    /// noncanonical X-coordinate, or an X-coordinate with no curve point.
+    /// The identity has no compressed representation.
     #[inline]
     pub fn from_compressed(bytes: &[u8; 33], endianness: Endianness) -> Option<Self> {
         // `0x02`: Compressed point with an even Y-coordinate

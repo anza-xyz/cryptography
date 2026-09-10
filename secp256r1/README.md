@@ -8,10 +8,15 @@ verification APIs.
 
 ## Status
 
-This crate is performance-oriented and experimental. It has not been audited.
-Group scalar multiplication APIs are variable time and intended for public
-inputs. Do not use them with secret scalars in environments where local
-timing/cache side channels are in scope.
+All APIs are intended for public inputs only. No API provides a constant-time
+guarantee.
+
+Execution time and memory access patterns may depend on field elements,
+scalars, and points. This includes arithmetic, inversion, point operations,
+conversions, and comparisons.
+
+Do not use this crate for computations on secret values, including private
+keys or signing nonces.
 
 Current scope:
 
@@ -19,7 +24,7 @@ Current scope:
 - Scalar-field arithmetic modulo the P-256 group order
 - Affine and Jacobian projective point operations
 - Compressed and uncompressed fixed-length point input
-- Uncompressed fixed-length point output
+- Compressed and uncompressed fixed-length point output
 - Single-scalar, fixed-base scalar, double-scalar, and multiscalar multiplication
 
 OpenSSL and `p256` are used only as dev/benchmark comparison dependencies.
@@ -35,6 +40,7 @@ solana-secp256r1 = "0.1.0"
 
 ```rust
 use solana_secp256r1::{
+    Endianness,
     group::{AffinePoint, ProjectivePoint},
     scalar::Scalar,
 };
@@ -42,10 +48,13 @@ use solana_secp256r1::{
 
 ### Scalar Multiplication
 
-```rust
-use secp256r1::group::{AffinePoint, ProjectivePoint};
+These methods accept canonical 32-byte scalars in big-endian byte order.
 
-let scalar = [7u8; 32];
+```rust
+use solana_secp256r1::group::{AffinePoint, ProjectivePoint};
+
+let mut scalar = [0u8; 32];
+scalar[31] = 7;
 
 let fixed_base = ProjectivePoint::fixed_base_scalar_mul_vartime(scalar).unwrap();
 let variable_base = ProjectivePoint::from_affine(AffinePoint::generator())
@@ -63,10 +72,15 @@ need that behavior.
 ### Multiscalar Multiplication
 
 ```rust
-use secp256r1::group::{AffinePoint, ProjectivePoint};
+use solana_secp256r1::group::{AffinePoint, ProjectivePoint};
 
-let points = [AffinePoint::generator(), ProjectivePoint::generator().double().to_affine()];
-let scalars = [[7u8; 32], [11u8; 32]];
+let points = [
+    AffinePoint::generator(),
+    ProjectivePoint::generator().double().to_affine(),
+];
+let mut scalars = [[0u8; 32]; 2];
+scalars[0][31] = 7;
+scalars[1][31] = 11;
 
 let msm = ProjectivePoint::multi_scalar_mul_vartime(&points, &scalars).unwrap();
 let separate = ProjectivePoint::from_affine(points[0])
@@ -81,13 +95,33 @@ assert_eq!(msm.to_affine(), separate.to_affine());
 
 ### Encoded Points
 
+Uncompressed points use 64 bytes: `X || Y`, with each coordinate encoded
+in the requested byte order. Exactly 64 zero bytes represent the identity.
+Compressed points use a parity prefix (`0x02` or `0x03`) followed by a
+32-byte X-coordinate in the requested byte order. The prefix stays first;
+the identity has no compressed representation.
+
 ```rust
-use secp256r1::group::{AffinePoint, ProjectivePoint};
+use solana_secp256r1::{Endianness, group::AffinePoint};
 
-let uncompressed = ProjectivePoint::generator().to_uncompressed().unwrap();
-let parsed = AffinePoint::from_uncompressed(uncompressed).unwrap();
+let point = AffinePoint::generator();
+for endianness in [Endianness::Big, Endianness::Little] {
+    let uncompressed = point.to_uncompressed(endianness);
+    let parsed = AffinePoint::from_uncompressed(&uncompressed, endianness).unwrap();
+    assert_eq!(parsed, point);
 
-assert_eq!(parsed, AffinePoint::generator());
+    let compressed = point.to_compressed(endianness).unwrap();
+    assert_eq!(
+        AffinePoint::from_compressed(&compressed, endianness),
+        Some(point)
+    );
+}
+
+assert_eq!(
+    AffinePoint::IDENTITY.to_uncompressed(Endianness::Big),
+    [0u8; 64]
+);
+assert!(AffinePoint::IDENTITY.to_compressed(Endianness::Big).is_none());
 ```
 
 ## Benchmarks
@@ -95,15 +129,15 @@ assert_eq!(parsed, AffinePoint::generator());
 Run all secp256r1 benchmarks:
 
 ```sh
-cargo bench -p solana_secp256r1
+cargo bench -p solana-secp256r1
 ```
 
 Focused benchmark groups:
 
 ```sh
-cargo bench -p solana_secp256r1 --bench field
-cargo bench -p solana_secp256r1 --bench scalar
-cargo bench -p solana_secp256r1 --bench group
+cargo bench -p solana-secp256r1 --bench field
+cargo bench -p solana-secp256r1 --bench scalar
+cargo bench -p solana-secp256r1 --bench group
 ```
 
 Representative local results from this workspace:

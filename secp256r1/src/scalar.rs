@@ -3,9 +3,9 @@
 //! [`Scalar`] represents an element of GF(n) where
 //! `n = 0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551`
 //! is the P-256 group order. Internally scalars are stored in Montgomery
-//! form; use [`from_be_bytes`][Scalar::from_be_bytes] and
-//! [`to_be_bytes`][Scalar::to_be_bytes] to convert from/to canonical
-//! big-endian representation.
+//! form. Use [`from_bytes`][Scalar::from_bytes] to parse a canonical scalar
+//! in either byte order, and [`to_be_bytes`][Scalar::to_be_bytes] to serialize
+//! it in canonical big-endian form.
 
 use crate::Endianness;
 use core::ops::{Add, Mul, Neg, Sub};
@@ -49,11 +49,19 @@ impl Scalar {
         ],
     };
 
+    /// Parses a canonical scalar in the requested byte order.
+    ///
+    /// Returns `None` if the integer is greater than or equal to the group
+    /// order. Zero is accepted. This method does not reduce the input.
     #[inline]
     pub fn from_bytes(bytes: &[u8; 32], endianness: Endianness) -> Option<Self> {
         Self::from_canonical_limbs(limbs_from_bytes(bytes, endianness))
     }
 
+    /// Reduces a 32-byte integer modulo the P-256 group order.
+    ///
+    /// Accepts every input value in the requested byte order. Use
+    /// [`Self::from_bytes`] when noncanonical inputs must be rejected.
     #[inline]
     pub fn from_bytes_reduced(bytes: &[u8; 32], endianness: Endianness) -> Self {
         let mut limbs = limbs_from_bytes(bytes, endianness);
@@ -78,6 +86,7 @@ impl Scalar {
         !ge_limbs(limbs_from_bytes(bytes, endianness), MODULUS)
     }
 
+    /// Serializes this scalar as a canonical 32-byte big-endian integer.
     #[inline]
     pub fn to_be_bytes(self) -> [u8; 32] {
         be_bytes_from_limbs(from_montgomery(self.limbs))
