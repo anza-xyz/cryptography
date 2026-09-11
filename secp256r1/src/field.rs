@@ -105,11 +105,6 @@ impl FieldElement {
     }
 
     #[inline]
-    pub fn montgomery_limbs(self) -> [u64; 4] {
-        self.limbs
-    }
-
-    #[inline]
     pub(crate) const fn from_montgomery_limbs(limbs: [u64; 4]) -> Self {
         Self { limbs }
     }
