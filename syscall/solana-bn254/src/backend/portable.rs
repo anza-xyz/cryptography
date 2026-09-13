@@ -37,7 +37,14 @@ impl<F: Field> MontgomeryBackend<F> for PortableBackend<F> {
         let (r0, c) = adc(a.0[0], b.0[0], 0);
         let (r1, c) = adc(a.0[1], b.0[1], c);
         let (r2, c) = adc(a.0[2], b.0[2], c);
-        let (r3, c) = adc(a.0[3], b.0[3], c);
+        // Reduced inputs satisfy a + b < 2 * MODULUS.
+        // If MODULUS < 2^255, the sum fits in 256 bits, so the
+        // top limb has no carry out.
+        let (r3, c) = if F::MODULUS.0[3] < (1u64 << 63) {
+            (a.0[3] + b.0[3] + c, 0)
+        } else {
+            adc(a.0[3], b.0[3], c)
+        };
 
         let (d0, br) = sbb(r0, F::MODULUS.0[0], 0);
         let (d1, br) = sbb(r1, F::MODULUS.0[1], br);
@@ -73,6 +80,12 @@ impl<F: Field> MontgomeryBackend<F> for PortableBackend<F> {
 
     #[inline(always)]
     fn mul(a: &U256, b: &U256) -> U256 {
+        // Write p = MODULUS and W = 2^64. Each CIOS step is
+        // t <- (t + a_i * b + m * p) / W, with a_i, m < W.
+        // Starting at zero, this preserves t < b + p.
+        // For reduced b and p < 2^255, b + p < 2^256, so t[4]
+        // stays zero and the final top-limb sum cannot overflow.
+        let has_spare_bit = F::MODULUS.0[3] < (1u64 << 63);
         let mut t = [0u64; 5];
 
         for i in 0..4 {
@@ -80,7 +93,11 @@ impl<F: Field> MontgomeryBackend<F> for PortableBackend<F> {
             let (r1, c) = mac(t[1], a.0[i], b.0[1], c);
             let (r2, c) = mac(t[2], a.0[i], b.0[2], c);
             let (r3, c) = mac(t[3], a.0[i], b.0[3], c);
-            let (r4, r5) = adc(t[4], 0, c);
+            let (r4, r5) = if has_spare_bit {
+                (c, 0)
+            } else {
+                adc(t[4], 0, c)
+            };
 
             let m = r0.wrapping_mul(F::INV);
 
@@ -88,7 +105,11 @@ impl<F: Field> MontgomeryBackend<F> for PortableBackend<F> {
             let (n0, c2) = mac(r1, m, F::MODULUS.0[1], c2);
             let (n1, c2) = mac(r2, m, F::MODULUS.0[2], c2);
             let (n2, c2) = mac(r3, m, F::MODULUS.0[3], c2);
-            let (n3, c2) = adc(r4, 0, c2);
+            let (n3, c2) = if has_spare_bit {
+                (r4 + c2, 0)
+            } else {
+                adc(r4, 0, c2)
+            };
 
             t[0] = n0;
             t[1] = n1;
