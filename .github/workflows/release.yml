@@ -12,7 +12,10 @@ on:
           - solana-curve25519-cuda
           - solana-ed25519
           - ed25519-pokos
+          - solana-secp256r1
           - solana-bls12-381-syscall
+          - solana-bn254-syscall
+          - solana-bn254
       ref:
         description: "git ref to tag (can be a branch or a commit hash)"
         required: true
