@@ -15,7 +15,7 @@
 
 use ark_ff::PrimeField;
 use light_poseidon::PoseidonHasher;
-use rand::RngExt;
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 use solana_bn254::backend::{Backend, Field, Fr, MontgomeryBackend, U256};
 use solana_bn254::poseidon::constants::*;
 use solana_bn254::poseidon::{PoseidonConstants, hash, poseidon};
@@ -107,6 +107,36 @@ macro_rules! width_suite {
 
                 let zeros = [U256::zero(); $t - 1];
                 assert_eq!(out_of_mont(hash(&zeros, params).unwrap()), $kat_zero);
+            }
+
+            /// The hash-only final row must agree with the complete permutation.
+            #[test]
+            fn hash_permutation_equivalence() {
+                let params: &PoseidonConstants<$t> = &$params;
+                let mut rng = StdRng::seed_from_u64(0x6861_7368_7065_726d ^ $t as u64);
+                for case in 0..19 {
+                    let inputs: [U256; $t - 1] = core::array::from_fn(|i| match case {
+                        0 => U256::zero(),
+                        1 => into_mont(U256::new([(i + 1) as u64, 0, 0, 0])),
+                        2 => {
+                            let mut value = <Fr as Field>::MODULUS;
+                            value.0[0] -= 1;
+                            value
+                        }
+                        _ => {
+                            let f =
+                                ark_bn254::Fr::from_le_bytes_mod_order(&rng.random::<[u8; 32]>());
+                            U256::new(f.into_bigint().0)
+                        }
+                    });
+                    let mut state = [U256::zero(); $t];
+                    state[1..].copy_from_slice(&inputs);
+                    assert_eq!(
+                        hash(&inputs, params),
+                        Some(poseidon(state, params)[0]),
+                        "case {case}"
+                    );
+                }
             }
 
             /// Outputs must be fully reduced. An unreduced result still lands in
