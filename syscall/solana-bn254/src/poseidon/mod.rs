@@ -119,12 +119,10 @@ unsafe fn apply_dense_matrix_simd<const T: usize>(state: &mut [U256; T], mds: &[
         for j in 0..T {
             let sj_broadcast = unsafe { broadcast(&state[j]) };
 
-            let mut col = [U256::zero(); T];
-            for row in 0..T {
-                col[row] = mds[row][j];
-            }
             let mut col_chunk = [U256::zero(); 8];
-            col_chunk[..chunk_size].copy_from_slice(&col[i..i + chunk_size]);
+            for (k, word) in col_chunk[..chunk_size].iter_mut().enumerate() {
+                *word = mds[i + k][j];
+            }
 
             unsafe {
                 let col_packed = pack_8x(&col_chunk);
