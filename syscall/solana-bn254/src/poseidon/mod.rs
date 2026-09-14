@@ -96,51 +96,47 @@ unsafe fn apply_sbox_simd<const T: usize>(state: &mut [U256; T]) {
 ///
 /// # Input criteria
 /// Every element of `state` and of `mds` must be a fully reduced Montgomery-form
-/// field element (`x < Fr::MODULUS`). Products are accumulated with the scalar
-/// backend's `add`, which performs a single conditional subtraction and is only
-/// correct for reduced operands. `mul_8x` upholds this on its results by ending
-/// with a conditional subtraction of the modulus.
+/// field element (`x < Fr::MODULUS`). Packed multiplication and addition both
+/// return canonical residues. Accumulate a complete output chunk before
+/// unpacking it into the scalar representation.
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 unsafe fn apply_dense_matrix_simd<const T: usize>(state: &mut [U256; T], mds: &[[U256; T]; T]) {
     use crate::backend::avx512::{
-        math::mul_8x,
+        math::{add_8x, mul_8x},
         pack::{broadcast, pack_8x, unpack_8x_into},
+        types::FieldElement8x52,
     };
 
     let mut new_state = [U256::zero(); T];
+    let mut i = 0;
+    while i < T {
+        let chunk_size = core::cmp::min(8, T - i);
+        // Keep one chunk live through the complete dot products. Every
+        // addition returns reduced residues, so unpacking is safe at the end.
+        let mut sum = FieldElement8x52::zero();
+        for j in 0..T {
+            let sj_broadcast = unsafe { broadcast(&state[j]) };
 
-    for j in 0..T {
-        // Broadcast state[j] horizontally across all 8 SIMD lanes
-        let sj_broadcast = unsafe { broadcast(&state[j]) };
-
-        // Extract column j from the dense matrix
-        let mut col = [U256::zero(); T];
-        for i in 0..T {
-            col[i] = mds[i][j];
-        }
-
-        let mut i = 0;
-        while i < T {
-            let chunk_size = core::cmp::min(8, T - i);
+            let mut col = [U256::zero(); T];
+            for row in 0..T {
+                col[row] = mds[row][j];
+            }
             let mut col_chunk = [U256::zero(); 8];
             col_chunk[..chunk_size].copy_from_slice(&col[i..i + chunk_size]);
 
-            let mut terms = [U256::zero(); 8];
             unsafe {
                 let col_packed = pack_8x(&col_chunk);
-                // Compute (Column * state[j]) simultaneously across up to 8 elements
-                let term_packed = mul_8x(&sj_broadcast, &col_packed);
-                unpack_8x_into(&term_packed, &mut terms);
+                let term = mul_8x(&sj_broadcast, &col_packed);
+                sum = if j == 0 { term } else { add_8x(&sum, &term) };
             }
-
-            // Accumulate safely using the scalar backend to automatically handle Modulus bounds
-            for k in 0..chunk_size {
-                new_state[i + k] = Backend::<Fr>::add(&new_state[i + k], &terms[k]);
-            }
-            i += chunk_size;
         }
+
+        let mut chunk = [U256::zero(); 8];
+        unsafe { unpack_8x_into(&sum, &mut chunk) };
+        new_state[i..i + chunk_size].copy_from_slice(&chunk[..chunk_size]);
+        i += chunk_size;
     }
     *state = new_state;
 }

@@ -34,6 +34,34 @@ pub unsafe fn add_lazy(a: &FieldElement8x52, b: &FieldElement8x52) -> FieldEleme
     }
 }
 
+/// Adds eight pairs of fully reduced Fr residues and returns canonical results.
+///
+/// Both operands must have normalized 52-bit limbs and represent values below
+/// p. Their sum is below 2p < 2^255. Each limb sum, including a carry of at
+/// most one, is below 2^53, so 64-bit lanes cannot overflow. Normalize the
+/// carries before the single conditional modulus subtraction.
+///
+/// Addition preserves the external R = 2^256 Montgomery representation.
+#[inline]
+#[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
+pub(crate) unsafe fn add_8x(a: &FieldElement8x52, b: &FieldElement8x52) -> FieldElement8x52 {
+    let mask_52 = _mm512_set1_epi64(0xFFFFFFFFFFFFF);
+    let sum = add_lazy(a, b);
+    let s1 = _mm512_add_epi64(sum.l1, _mm512_srli_epi64(sum.l0, 52));
+    let s2 = _mm512_add_epi64(sum.l2, _mm512_srli_epi64(s1, 52));
+    let s3 = _mm512_add_epi64(sum.l3, _mm512_srli_epi64(s2, 52));
+    let s4 = _mm512_add_epi64(sum.l4, _mm512_srli_epi64(s3, 52));
+    let normalized = FieldElement8x52 {
+        l0: _mm512_and_si512(sum.l0, mask_52),
+        l1: _mm512_and_si512(s1, mask_52),
+        l2: _mm512_and_si512(s2, mask_52),
+        l3: _mm512_and_si512(s3, mask_52),
+        // The complete sum is below 2^255, so this limb is below 2^47.
+        l4: s4,
+    };
+    cond_sub_modulus(&normalized)
+}
+
 /// Multiplies each lane by `2^4`, renormalizing to 52-bit limbs.
 ///
 /// Used to reconcile Montgomery radices: five 52-bit CIOS iterations divide by
@@ -261,4 +289,106 @@ pub unsafe fn sbox_8x(x: &FieldElement8x52) -> FieldElement8x52 {
     let x2 = mul_8x(x, x);
     let x4 = mul_8x(&x2, &x2);
     mul_8x(&x4, x)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::add_8x;
+    use crate::backend::U256;
+    use crate::backend::avx512::pack::{pack_8x, unpack_8x};
+    use ark_bn254::Fr as ArkFr;
+    use ark_ff::{BigInt, PrimeField};
+    use rand::{RngExt, SeedableRng, rngs::StdRng};
+
+    fn as_ark(value: U256) -> ArkFr {
+        ArkFr::from_bigint(BigInt(value.0)).expect("reduced test operand")
+    }
+
+    fn raw(value: ArkFr) -> U256 {
+        U256::new(value.into_bigint().0)
+    }
+
+    fn random_raw(rng: &mut StdRng) -> U256 {
+        raw(ArkFr::from_le_bytes_mod_order(&rng.random::<[u8; 32]>()))
+    }
+
+    fn check_add(a: [U256; 8], b: [U256; 8]) {
+        let actual = unsafe { unpack_8x(&add_8x(&pack_8x(&a), &pack_8x(&b))) };
+        for lane in 0..8 {
+            // Exact raw equality checks reduction as well as the residue class.
+            assert_eq!(
+                actual[lane],
+                raw(as_ark(a[lane]) + as_ark(b[lane])),
+                "lane {lane}: a={:?}, b={:?}",
+                a[lane],
+                b[lane]
+            );
+        }
+    }
+
+    #[test]
+    fn packed_add_boundary_values_match_arkworks() {
+        let mut values = [U256::zero(); 48];
+        let one = ArkFr::from(1u64);
+        values[1] = raw(one);
+        values[2] = raw(-one);
+        // Exercise the packing boundaries as well as the highest usable bits.
+        for (i, bit) in [
+            1usize, 51, 52, 53, 103, 104, 105, 155, 156, 157, 207, 208, 209, 252, 253,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut limbs = [0u64; 4];
+            limbs[bit / 64] = 1u64 << (bit % 64);
+            let power = as_ark(U256::new(limbs));
+            for (j, value) in [power - one, power, power + one].into_iter().enumerate() {
+                values[3 + 3 * i + j] = raw(value);
+            }
+        }
+        for i in 0..values.len() {
+            for j in 0..values.len() {
+                // Distinct lane operands also exercise mixed reduction masks.
+                check_add(
+                    core::array::from_fn(|lane| values[(i + lane) % values.len()]),
+                    core::array::from_fn(|lane| values[(j + 3 * lane) % values.len()]),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn packed_add_seeded_inputs_match_arkworks() {
+        let mut rng = StdRng::seed_from_u64(0x7061_636b_6164_6431);
+        // 4096 independent lane pairs.
+        for _ in 0..512 {
+            check_add(
+                core::array::from_fn(|_| random_raw(&mut rng)),
+                core::array::from_fn(|_| random_raw(&mut rng)),
+            );
+        }
+    }
+
+    #[test]
+    fn packed_add_chains_match_arkworks() {
+        let mut rng = StdRng::seed_from_u64(0x7061_636b_6368_6169);
+        for chain in 0..64 {
+            let start = core::array::from_fn(|_| random_raw(&mut rng));
+            let mut actual = unsafe { pack_8x(&start) };
+            let mut expected = start.map(as_ark);
+            for step in 0..64 {
+                let addend = core::array::from_fn(|_| random_raw(&mut rng));
+                actual = unsafe { add_8x(&actual, &pack_8x(&addend)) };
+                let result = unsafe { unpack_8x(&actual) };
+                for lane in 0..8 {
+                    expected[lane] += as_ark(addend[lane]);
+                    assert_eq!(
+                        result[lane],
+                        raw(expected[lane]),
+                        "chain {chain}, step {step}, lane {lane}"
+                    );
+                }
+            }
+        }
+    }
 }
