@@ -704,6 +704,11 @@ dependencies = [
 ]
 
 [[package]]
+name = "ed25519-simd"
+version = "0.1.0"
+source = "git+https://github.com/efagerho/ed25519-simd-rs?rev=fb492d10c358c8769d912da16310a41cbf54f00e#fb492d10c358c8769d912da16310a41cbf54f00e"
+
+[[package]]
 name = "educe"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2114,6 +2119,7 @@ dependencies = [
  "digest 0.11.3",
  "ed25519",
  "ed25519-dalek",
+ "ed25519-simd",
  "ff 0.14.0",
  "group 0.14.0",
  "hashbrown 0.15.5",
