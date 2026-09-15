@@ -9,7 +9,7 @@
 
 #![cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
 
-use ark_ff::{BigInteger, PrimeField};
+use ark_ff::PrimeField;
 use rand::RngExt;
 use solana_bn254::backend::avx512::math::{mul_8x, sbox_8x};
 use solana_bn254::backend::avx512::pack::{pack_8x, unpack_8x};
