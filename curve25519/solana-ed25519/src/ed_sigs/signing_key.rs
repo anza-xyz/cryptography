@@ -42,8 +42,8 @@ use zeroize::Zeroizing;
 #[cfg(all(feature = "pem", feature = "pkcs8"))]
 use pkcs8::der::pem::PemLabel;
 
-use super::scalar_from_sha512;
 use super::{VerificationKey, VerificationKeyBytes};
+use super::{challenge_scalar, scalar_from_sha512};
 
 /// The length of a ed25519 `SecretKey`, in bytes.
 pub const SECRET_KEY_LENGTH: usize = 32;
@@ -400,13 +400,10 @@ impl SigningKey {
 
         let R_bytes = EdwardsPoint::mul_base(&r).compress().to_bytes();
 
+        // The same helper the verifier uses, so signing and verification agree
+        // on the challenge by construction rather than by inspection.
         #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
-        let mut k = scalar_from_sha512(
-            Sha512::default()
-                .chain(&R_bytes[..])
-                .chain(&self.vk.A_bytes.0[..])
-                .chain(msg),
-        );
+        let mut k = challenge_scalar(&R_bytes, &self.vk.A_bytes.0, msg);
 
         #[cfg_attr(not(feature = "zeroize"), allow(unused_mut))]
         let mut s = r + k * self.s;
