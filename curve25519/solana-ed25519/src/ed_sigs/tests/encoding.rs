@@ -1,7 +1,7 @@
 #[cfg(any(feature = "pem", feature = "pkcs8"))]
 use crate::ed_sigs::*;
 #[cfg(feature = "pem")]
-use der::pem::LineEnding;
+use pkcs8::der::pem::LineEnding;
 #[cfg(feature = "pkcs8")]
 pub use pkcs8::{EncodePrivateKey, EncodePublicKey};
 #[cfg(any(feature = "pem", feature = "pkcs8"))]

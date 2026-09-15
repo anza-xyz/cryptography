@@ -53,7 +53,6 @@ rand_core = { workspace = true, optional = true }
 rand = { version = "0.10.2", optional = true, default-features = false, features = ["sys_rng"] }
 digest = { workspace = true, optional = true }
 hashbrown.workspace = true
-der = { workspace = true, optional = true }
 pkcs8 = { workspace = true, optional = true }
 sha2.workspace = true
 subtle = { workspace = true, features = ["const-generics"] }
@@ -79,7 +78,7 @@ digest = ["dep:digest"]
 serde = ["dep:serde", "serde/derive"]
 lizard = ["digest"]
 pkcs8 = ["dep:pkcs8", "pkcs8/alloc", "ed25519/pkcs8", "alloc"]
-pem = ["pkcs8", "dep:der", "ed25519/pem", "zeroize"]
+pem = ["pkcs8", "ed25519/pem", "zeroize"]
 # TEMPORARY: mirrors the feature gate the incoming AVX-512 verifier will use.
 avx512 = ["std"]
 
