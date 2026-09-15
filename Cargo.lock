@@ -2117,7 +2117,6 @@ dependencies = [
  "cpufeatures 0.3.0",
  "criterion",
  "curve25519-dalek-derive",
- "der",
  "digest 0.11.3",
  "ed25519",
  "ed25519-dalek",

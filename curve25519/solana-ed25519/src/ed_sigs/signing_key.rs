@@ -27,10 +27,10 @@ use ed25519::KeypairBytes;
 #[cfg(feature = "pem")]
 use ed25519::PublicKeyBytes;
 
-#[cfg(all(feature = "pem", feature = "pkcs8"))]
-use der::pem::LineEnding;
 #[cfg(feature = "pkcs8")]
 use pkcs8::der::SecretDocument;
+#[cfg(all(feature = "pem", feature = "pkcs8"))]
+use pkcs8::der::pem::LineEnding;
 #[cfg(feature = "pkcs8")]
 use pkcs8::{
     DecodePrivateKey, DecodePublicKey, Document, EncodePrivateKey, EncodePublicKey,
