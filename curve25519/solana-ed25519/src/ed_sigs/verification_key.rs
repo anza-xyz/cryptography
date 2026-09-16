@@ -8,11 +8,13 @@
 // BSD-3-Clause (see LICENSE) with third-party notices in ACKNOWLEDGEMENTS.md.
 //
 // Modifications from ed25519-zebra:
-// - Added `verify_zebra`, an accelerated verification path using the HEEA
+// - Added `verify_simd0376`, an accelerated verification path using the HEEA
 //   scalar decomposition from curve25519-sol's `HEEADecomposition` trait.
 //   See "Accelerating EdDSA Signature Verification with Faster Scalar Size
 //   Halving" (TCHES 2025) for the algorithm.
-// - `verify` dispatches to `verify_zebra`, preserving ZIP-215 semantics.
+// - `verify` dispatches to `verify_simd0376`, which applies SIMD-0376
+//   semantics: ZIP-215's cofactored equation, plus explicit rejection of
+//   non-canonical encodings and of small-order `A` and `R`.
 
 use crate::{
     edwards::{CompressedEdwardsY, EdwardsPoint},
@@ -20,7 +22,6 @@ use crate::{
     traits::{HEEADecomposition, IsIdentity},
 };
 use core::convert::{TryFrom, TryInto};
-use sha2::{Sha512, digest::Update};
 #[cfg(feature = "zeroize")]
 use zeroize::DefaultIsZeroes;
 
@@ -36,7 +37,7 @@ use pkcs8::spki::{
 #[cfg(feature = "pkcs8")]
 use pkcs8::{Document, ObjectIdentifier};
 
-use super::{Error, scalar_from_sha512};
+use super::{Error, accepts_point_encoding};
 
 /// The length of an ed25519 `VerificationKey`, in bytes.
 pub const VERIFICATION_KEY_LENGTH: usize = 32;
@@ -150,15 +151,17 @@ fn verification_key_bytes_from_spki(
 /// verification key may not be used immediately, it is probably better to use
 /// [`VerificationKeyBytes`], which stores only the length-checked encoded bytes.
 ///
-/// ## Zcash-specific consensus properties
+/// ## Validation performed here
 ///
-/// Ed25519 checks are described in [§5.4.5][ps] of the Zcash protocol specification and in
-/// [ZIP 215].  The verification criteria for an (encoded) verification key `A_bytes` are:
+/// Constructing a `VerificationKey` only requires that `A_bytes` decode to a
+/// point on the twisted Edwards form of Curve25519. Non-canonical and
+/// small-order encodings are deliberately still accepted at this stage: the
+/// two verification rules this type offers disagree about them, and
+/// [`VerificationKey::verify_dalek`] must stay accept/reject identical to
+/// `ed25519-dalek`'s `verify_strict`, which also decodes `A` permissively.
 ///
-/// * `A_bytes` MUST be an encoding of a point `A` on the twisted Edwards form of
-///   Curve25519, and non-canonical encodings MUST be accepted;
-///
-/// [ps]: https://zips.z.cash/protocol/protocol.pdf#concreteed25519
+/// The SIMD-0376 canonicity and small-order rejections are therefore applied
+/// in [`VerificationKey::verify_simd0376`], not in the constructor.
 #[derive(PartialEq, Eq, Copy, Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(try_from = "VerificationKeyBytes"))]
@@ -206,8 +209,9 @@ impl TryFrom<VerificationKeyBytes> for VerificationKey {
     type Error = Error;
     #[allow(non_snake_case)]
     fn try_from(bytes: VerificationKeyBytes) -> Result<Self, Self::Error> {
-        // * `A_bytes` and `R_bytes` MUST be encodings of points `A` and `R` respectively on the
-        //   twisted Edwards form of Curve25519, and non-canonical encodings MUST be accepted;
+        // Only step 4 of the SIMD-0376 algorithm (on-curve decoding) happens
+        // here; steps 1 and 5 for `A` are applied in `verify_simd0376`. See
+        // the type-level docs for why.
         let A = CompressedEdwardsY(bytes.0)
             .decompress()
             .ok_or(Error::MalformedPublicKey)?;
@@ -269,46 +273,55 @@ impl Verifier<Signature> for VerificationKey {
 
 impl VerificationKey {
     fn challenge_scalar(&self, signature: &Signature, msg: &[u8]) -> Scalar {
-        scalar_from_sha512(
-            Sha512::default()
-                .chain(&signature.r_bytes()[..])
-                .chain(&self.A_bytes.0[..])
-                .chain(msg),
-        )
+        super::challenge_scalar(signature.r_bytes(), &self.A_bytes.0, msg)
     }
 
     /// Verify a purported `signature` on the given `msg`.
     ///
-    /// This is the default verification mode and uses the HEEA-accelerated
-    /// verification path with Zebra / ZIP-215 semantics.
-    ///
-    /// ## Zcash-specific consensus properties
-    ///
-    /// Ed25519 checks are described in [§5.4.5][ps] of the Zcash protocol specification and in
-    /// [ZIP215].  The verification criteria for an (encoded) signature `(R_bytes, s_bytes)` with
-    /// (encoded) verification key `A_bytes` are:
-    ///
-    /// * `A_bytes` and `R_bytes` MUST be encodings of points `A` and `R` respectively on the
-    ///   twisted Edwards form of Curve25519, and non-canonical encodings MUST be accepted;
-    ///
-    /// * `s_bytes` MUST represent an integer `s` less than `l`, the order of the prime-order
-    ///   subgroup of Curve25519;
-    ///
-    /// * the verification equation `[8][s]B = [8]R + [8][k]A` MUST be satisfied;
-    ///
-    /// * the alternate verification equation `[s]B = R + [k]A`, allowed by RFC 8032, MUST NOT be
-    ///   used.
-    ///
-    /// [ps]: https://zips.z.cash/protocol/protocol.pdf#concreteed25519
-    /// [ZIP215]: https://zips.z.cash/zip-0215
+    /// This is the default verification mode and dispatches to
+    /// [`VerificationKey::verify_simd0376`].
     pub fn verify(&self, signature: &Signature, msg: &[u8]) -> Result<(), Error> {
-        self.verify_zebra(signature, msg)
+        self.verify_simd0376(signature, msg)
     }
 
-    /// Verify a signature using HEEA with Zebra / ZIP-215 semantics.
+    /// Verify a signature under [SIMD-0376] semantics, using the
+    /// HEEA-accelerated verification equation.
     ///
-    /// This implements the algorithm from "Accelerating EdDSA Signature Verification
-    /// with Faster Scalar Size Halving" (TCHES 2025).
+    /// ## Consensus properties
+    ///
+    /// For a message `M`, a 32-byte verification key encoding `A_bytes` and a
+    /// 64-byte signature split into `R_bytes` and `s_bytes`:
+    ///
+    /// 1. `A_bytes` MUST be a canonical encoding;
+    /// 2. `R_bytes` MUST be a canonical encoding;
+    /// 3. `s_bytes` MUST represent an integer `s` less than `ℓ`, the order of
+    ///    the prime-order subgroup of Curve25519;
+    /// 4. `A_bytes` and `R_bytes` MUST decode to points on the twisted Edwards
+    ///    form of Curve25519;
+    /// 5. neither `A` nor `R` may be small-order, i.e. satisfy `[8]P = O`;
+    /// 6. `h` is `SHA512(R_bytes || A_bytes || M)` reduced mod `ℓ`;
+    /// 7. the cofactored equation `[8][s]B - [8]R - [8][h]A = O` MUST be
+    ///    satisfied. The cofactorless equation `[s]B = R + [h]A`, allowed by
+    ///    RFC 8032 and used by `verify_strict`, MUST NOT be used.
+    ///
+    /// This is [ZIP-215]'s cofactored equation, but it is deliberately *not*
+    /// ZIP-215: ZIP-215 accepts non-canonical encodings and small-order `A`,
+    /// which on Solana would make `Pubkey::default()` — the all-zero encoding,
+    /// which is also the System Program ID — a signable public key. Because
+    /// the cofactored equation annihilates every small-order component, a
+    /// small-order `A` that step 5 let through would verify the all-zero
+    /// signature on *every* message.
+    ///
+    /// Steps 1-5 are per-signature and independent of any batch, so they can
+    /// be applied before a signature enters a batched multiscalar
+    /// multiplication; the `batch` module does exactly that. It is the
+    /// cofactorless equation, not these checks, that makes batch verification
+    /// of `verify_strict` semantics impossible.
+    ///
+    /// ## Implementation
+    ///
+    /// Step 7 uses the algorithm from "Accelerating EdDSA Signature
+    /// Verification with Faster Scalar Size Halving" (TCHES 2025).
     ///
     /// The decomposition returns ρ and τ such that either ρ ≡ τh (mod ℓ) or
     /// ρ ≡ -τh (mod ℓ). The standard verification equation sB = R + hA is
@@ -321,32 +334,46 @@ impl VerificationKey {
     ///
     /// The resulting equation can be checked with a 4-variable MSM with
     /// half-size scalars.
+    ///
+    /// [SIMD-0376]: https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0376-verify-strict.md
+    /// [ZIP-215]: https://zips.z.cash/zip-0215
     #[allow(non_snake_case)]
-    pub fn verify_zebra(&self, signature: &Signature, msg: &[u8]) -> Result<(), Error> {
-        self.verify_zebra_prehashed(signature, self.challenge_scalar(signature, msg))
+    pub fn verify_simd0376(&self, signature: &Signature, msg: &[u8]) -> Result<(), Error> {
+        self.verify_simd0376_prehashed(signature, self.challenge_scalar(signature, msg))
     }
 
     #[allow(non_snake_case)]
-    pub(crate) fn verify_zebra_prehashed(
+    pub(crate) fn verify_simd0376_prehashed(
         &self,
         signature: &Signature,
         h: Scalar,
     ) -> Result<(), Error> {
+        // Steps 1 and 5 for `A`: canonical encoding, not small-order.
+        if !accepts_point_encoding(&self.A_bytes.0) {
+            return Err(Error::MalformedPublicKey);
+        }
+
+        // Steps 2 and 5 for `R`. Both of these are byte-string tests, so they
+        // run before `R` is decompressed, which costs a square root.
+        if !accepts_point_encoding(signature.r_bytes()) {
+            return Err(Error::InvalidSignature);
+        }
+
+        // Step 3: `s` must be fully reduced.
+        let s = Option::<Scalar>::from(Scalar::from_canonical_bytes(*signature.s_bytes()))
+            .ok_or(Error::InvalidSignature)?;
+
+        // Step 4: decode `R`. `A` was decoded when this key was constructed.
+        let neg_R = -CompressedEdwardsY(*signature.r_bytes())
+            .decompress()
+            .ok_or(Error::InvalidSignature)?;
+
         // Generate half-size scalars ρ and τ. If flip_h is false, then
         // ρ ≡ τh (mod ℓ). If flip_h is true, then ρ ≡ -τh (mod ℓ), so the
         // sign of A is flipped below.
         let (rho, tau, flip_h) = h.heea_decompose();
 
-        // Extract s from the signature
-        let s = Option::<Scalar>::from(Scalar::from_canonical_bytes(*signature.s_bytes()))
-            .ok_or(Error::InvalidSignature)?;
-
-        // Decode R from the signature
-        let neg_R = -CompressedEdwardsY(*signature.r_bytes())
-            .decompress()
-            .ok_or(Error::InvalidSignature)?;
-
-        // Standard verification checks: sB = R + hA.
+        // Step 7. Standard verification checks: sB = R + hA.
         //
         // We verify:
         //   [8] τs B + [8] τ (-R) + [8] ρ A_term == 0
@@ -371,8 +398,9 @@ impl VerificationKey {
     /// Verify a signature with the strict, non-cofactored rules of
     /// [`ed25519_dalek::VerifyingKey::verify_strict`].
     ///
-    /// This is the pre-ZIP-215 verification rule and is accept/reject identical
-    /// to `verify_strict`:
+    /// This is the pre-SIMD-0376 verification rule, kept so that a validator
+    /// gating SIMD-0376 can evaluate either rule, and is accept/reject
+    /// identical to `verify_strict`:
     ///
     /// * `s` MUST be canonically encoded (i.e. reduced mod `ℓ`);
     /// * `R` MUST decode to a point on the curve;

@@ -14,7 +14,7 @@ method and a reduced set of well-tested backends.
 
 | Crate | Description |
 |---|---|
-| [`solana-ed25519`](./solana-ed25519) | Fork of `curve25519-dalek` with ZIP-215-compliant Ed25519 from `ed25519-zebra`, HEEA-accelerated `verify` / `verify_zebra`, and a narrowed backend set (removed `u32` and constraint device supports). |
+| [`solana-ed25519`](./solana-ed25519) | Fork of `curve25519-dalek` with SIMD-0376-compliant Ed25519 from `ed25519-zebra`, HEEA-accelerated `verify` / `verify_simd0376`, and a narrowed backend set (removed `u32` and constraint device supports). |
 | [`curve25519-cuda`](./curve25519-cuda) | GPU-accelerated multi-scalar multiplication (MSM) via CUDA/SPPARK. Falls back to CPU when CUDA is unavailable. |
 
 SIMD helper macros come from the workspace dependency `curve25519-dalek-derive = "0.1.1"`;
@@ -44,7 +44,7 @@ The algorithm is implemented in:
 - [`solana-ed25519/src/scalar/heea.rs`](solana-ed25519/src/scalar/heea.rs) – `curve25519_heea_vartime`
 - [`solana-ed25519/src/traits.rs`](solana-ed25519/src/traits.rs) – `HEEADecomposition` trait
 - [`solana-ed25519/src/backend/serial/scalar_mul/vartime_triple_base.rs`](solana-ed25519/src/backend/serial/scalar_mul/vartime_triple_base.rs) – optimised 128+128+256 MSM
-- [`solana-ed25519/src/ed_sigs/verification_key.rs`](solana-ed25519/src/ed_sigs/verification_key.rs) – `VerificationKey::verify` / `VerificationKey::verify_zebra`
+- [`solana-ed25519/src/ed_sigs/verification_key.rs`](solana-ed25519/src/ed_sigs/verification_key.rs) – `VerificationKey::verify` / `VerificationKey::verify_simd0376`
 
 ### Reduced Backend Set
 
@@ -95,15 +95,15 @@ let sk = SigningKey::new(rand::rng());
 let sig = sk.sign(msg);
 let vk = VerificationKey::from(&sk);
 
-// Standard ZIP-215-compliant verification
+// SIMD-0376-compliant verification
 vk.verify(&sig, msg).expect("valid signature");
 ```
 
 ### Explicit HEEA-accelerated verification
 
 ```rust
-// Same ZIP-215 result as verify(), using the HEEA path explicitly.
-vk.verify_zebra(&sig, msg).expect("valid signature");
+// Same result as verify(), naming the SIMD-0376 path explicitly.
+vk.verify_simd0376(&sig, msg).expect("valid signature");
 ```
 
 ---
@@ -150,7 +150,7 @@ under its upstream BSD 3-Clause license — see [solana-ed25519/LICENSE](./solan
 The repository's Apache-2.0 license does **not** apply to it. Redistribution in source or
 binary form must reproduce that copyright notice, the list of conditions, and the disclaimer.
 
-Its ZIP-215 signature verification (the `ed_sigs` module) is derived from [ed25519-zebra]
+Its signature verification (the `ed_sigs` module) is derived from [ed25519-zebra]
 (Zcash Foundation, `MIT OR Apache-2.0`); the MIT branch is taken, and that notice is reproduced
 in [solana-ed25519/LICENSE-MIT](./solana-ed25519/LICENSE-MIT). Further third-party code the crate
 carries is documented in
