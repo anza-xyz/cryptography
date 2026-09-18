@@ -12,7 +12,7 @@ bincode.workspace = true
 solana-ed25519.workspace = true
 p3-air = "0.6.1"
 p3-challenger = "0.6.1"
-p3-commit = "0.6.1"
+p3-commit = "0.7.0"
 p3-dft = { version = "0.6.1", features = ["parallel"] }
 p3-field = "0.6.1"
 p3-fri = "0.6.1"
