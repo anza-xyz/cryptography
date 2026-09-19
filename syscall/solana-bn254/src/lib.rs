@@ -14,4 +14,4 @@ pub mod backend;
 pub mod curve;
 pub mod poseidon;
 
-pub use curve::g1;
+pub use curve::{g1, g2};
