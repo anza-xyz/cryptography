@@ -2,7 +2,7 @@
 
 //! `solana-bn254`
 //!
-//! Poseidon hashing over the BN254 scalar field, optimized for the
+//! BN254 field and curve arithmetic and Poseidon hashing, optimized for the
 //! Solana Agave validator.
 //!
 //! # Security Warning
@@ -11,4 +11,7 @@
 //! to prioritize cycle efficiency and lowest possible Compute Units.
 
 pub mod backend;
+pub mod curve;
 pub mod poseidon;
+
+pub use curve::{g1, g2};
