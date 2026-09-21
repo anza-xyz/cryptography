@@ -12,6 +12,7 @@
 
 pub mod backend;
 pub mod curve;
+pub mod pairing;
 pub mod poseidon;
 
 #[cfg(test)]

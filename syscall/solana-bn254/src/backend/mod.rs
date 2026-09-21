@@ -28,3 +28,7 @@ pub use u256::U256;
 pub type Backend<F> = portable::PortableBackend<F>;
 
 mod frobenius;
+
+#[cfg(test)]
+#[path = "../../tests/common/tower.rs"]
+pub(crate) mod oracle;

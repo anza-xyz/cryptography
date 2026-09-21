@@ -17,12 +17,14 @@ const FR_MOD_L4: i64 = 0x30644e72e131;
 // The Montgomery Inverse Multiplier for 52-bit limbs: `(-MODULUS^-1) mod 2^52`
 const FR_INV_52: i64 = 0x1f593efffffff;
 
-/// Unreduced Parallel Addition.
+/// Adds corresponding limbs without carrying or reducing modulo a field modulus.
 ///
-/// Because IFMA math logically isolates results within a 52-bit boundary inside a
-/// 64-bit accumulator lane, we naturally gain 12 bits of headroom. This function
-/// can be called ~4,096 times consecutively before an overflow is mathematically
-/// possible, making it extremely efficient for massive MDS matrix multiplications.
+/// Normalized 52-bit input limbs produce sums below 2^53. Callers must track
+/// their own limb bounds for repeated additions and normalize before passing
+/// the result to a routine that requires normalized limbs.
+///
+/// # Safety
+/// Requires AVX-512 F, DQ and IFMA on the executing CPU.
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 pub unsafe fn add_lazy(a: &FieldElement8x52, b: &FieldElement8x52) -> FieldElement8x52 {

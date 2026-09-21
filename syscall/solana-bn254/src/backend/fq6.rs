@@ -64,19 +64,19 @@ impl Fq6 {
 
     /// Multiplies by `v`, using `v^3 = 9+u`.
     #[inline]
-    pub fn mul_by_v(&self) -> Self {
+    pub(crate) fn mul_by_v(&self) -> Self {
         Self::new(mul_by_xi(self.c2), self.c0, self.c1)
     }
 
     /// Multiplies all coefficients by an Fq2 element.
     #[inline]
-    pub fn mul_by_fq2(&self, rhs: &Fq2) -> Self {
+    pub(crate) fn mul_by_fq2(&self, rhs: &Fq2) -> Self {
         Self::new(self.c0 * *rhs, self.c1 * *rhs, self.c2 * *rhs)
     }
 
     /// Multiplies by `b0 + b1*v` using five Fq2 multiplications.
     #[inline]
-    pub fn mul_by_01(&self, b0: &Fq2, b1: &Fq2) -> Self {
+    pub(crate) fn mul_by_01(&self, b0: &Fq2, b1: &Fq2) -> Self {
         let a0b0 = self.c0 * *b0;
         let a1b1 = self.c1 * *b1;
         Self::new(
@@ -143,8 +143,9 @@ impl Mul for Fq6 {
         ))]
         {
             // SAFETY: compile-time gating requires all vector features. Every
-            // input coefficient is a canonical Fq2 value; private inner sums
-            // remain below 2q and the vector helper returns canonical values.
+            // input is canonical, including the reduced Fq2 additions below.
+            // The helper normalizes its own private cross-product sums (<2q)
+            // and returns canonical Fq2 values in the same Montgomery domain.
             let [a0b0, a1b1, a2b2, cross12, cross01, cross02] = unsafe {
                 super::avx512::fq::mul_fq2_6(
                     [

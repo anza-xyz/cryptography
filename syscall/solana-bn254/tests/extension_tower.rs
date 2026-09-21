@@ -192,45 +192,6 @@ fn dependent_chains_match_arkworks() {
 }
 
 #[test]
-fn sparse_multiplication_matches_dense_arkworks() {
-    let mut rng = StdRng::seed_from_u64(0x746f_7765_725f_7370);
-    let mut boundary = Fq::MODULUS;
-    boundary.0[0] -= 1;
-    let (_, boundary) = raw12([boundary; 12]);
-    for i in 0..1024 {
-        let a = if i == 0 { boundary } else { random12(&mut rng) };
-        let b = if i == 0 { boundary } else { random12(&mut rng) };
-        let [b0, b3, b4] = [b.c0.c0, b.c1.c0, b.c1.c1];
-        for [b0, b3, b4] in [
-            [ArkFq2::ZERO; 3],
-            [b0, ArkFq2::ZERO, ArkFq2::ZERO],
-            [ArkFq2::ZERO, b3, ArkFq2::ZERO],
-            [ArkFq2::ZERO, ArkFq2::ZERO, b4],
-            [b0, b3, b4],
-        ] {
-            let factor = ArkFq12::new(
-                ArkFq6::new(b0, ArkFq2::ZERO, ArkFq2::ZERO),
-                ArkFq6::new(b3, b4, ArkFq2::ZERO),
-            );
-            check12(
-                ours12(a).mul_by_034(&ours2(b0), &ours2(b3), &ours2(b4)),
-                a * factor,
-            );
-            check6(
-                ours6(a.c0).mul_by_01(&ours2(b0), &ours2(b3)),
-                a.c0 * ArkFq6::new(b0, b3, ArkFq2::ZERO),
-            );
-            check6(
-                ours6(a.c0).mul_by_fq2(&ours2(b0)),
-                a.c0 * ArkFq6::new(b0, ArkFq2::ZERO, ArkFq2::ZERO),
-            );
-        }
-        let v = ArkFq6::new(ArkFq2::ZERO, ArkFq2::ONE, ArkFq2::ZERO);
-        check6(ours6(a.c0).mul_by_v(), a.c0 * v);
-    }
-}
-
-#[test]
 fn frobenius_matches_generic_exponentiation() {
     let mut rng = StdRng::seed_from_u64(0x746f_7765_725f_6672);
     let mut cases = vec![

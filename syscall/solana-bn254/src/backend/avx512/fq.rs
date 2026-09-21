@@ -16,7 +16,7 @@
 #![allow(unused_unsafe)]
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use super::types::FieldElement8x52;
+use super::{math::add_lazy, types::FieldElement8x52};
 use core::arch::x86_64::*;
 
 // Mathematically pre-computed 52-bit modulus constants for the BN254 Fq field.
@@ -28,20 +28,6 @@ const FQ_MOD_L4: i64 = 0x30644e72e131;
 
 // The Montgomery Inverse Multiplier for 52-bit limbs: `(-MODULUS^-1) mod 2^52`
 const FQ_INV_52: i64 = 0x20782e4866389;
-
-/// Adds two normalized vectors before immediate carry normalization.
-/// Each limb sum is below 2^53, safely inside its 64-bit accumulator lane.
-#[inline]
-#[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
-unsafe fn add_lazy(a: &FieldElement8x52, b: &FieldElement8x52) -> FieldElement8x52 {
-    FieldElement8x52 {
-        l0: _mm512_add_epi64(a.l0, b.l0),
-        l1: _mm512_add_epi64(a.l1, b.l1),
-        l2: _mm512_add_epi64(a.l2, b.l2),
-        l3: _mm512_add_epi64(a.l3, b.l3),
-        l4: _mm512_add_epi64(a.l4, b.l4),
-    }
-}
 
 /// Adds canonical Fq operands and returns normalized limbs representing <2q.
 ///
@@ -448,7 +434,8 @@ pub(crate) unsafe fn fq2_three_squares(
 
 /// Six independent Fq2 products, packed through all three Karatsuba products.
 /// The last two SIMD lanes hold zeros. Input and output coefficients are canonical;
-/// only the private cross-product sums passed to `mul_8x` may be below 2q.
+/// only the private cross-product sums passed to `mul_8x` may exceed q,
+/// and they remain strictly below 2q.
 ///
 /// # Safety
 /// Requires AVX-512 F, DQ and IFMA on the executing CPU. Each input coefficient
