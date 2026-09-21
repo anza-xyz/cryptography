@@ -18,6 +18,13 @@ pub struct Gt(Fq12);
 impl Gt {
     pub const IDENTITY: Self = Self(Fq12::ONE);
 
+    /// Accepts only the sealed output of the verified final-exponentiation path.
+    pub(crate) fn from_final_exponentiation(
+        value: crate::pairing::final_exp::FinalExponentiation,
+    ) -> Self {
+        Self(value.into_fq12())
+    }
+
     /// Validates membership in the order-`r` subgroup, accepting field one.
     ///
     /// Rejects zero and all nonmembers. This uses generic field exponentiation:

@@ -279,6 +279,51 @@ mod tests {
 
     type B = PortableBackend<Fr>;
 
+    #[test]
+    fn halving_is_canonical_and_matches_field_division() {
+        use crate::backend::Fq;
+        use num_bigint::BigUint;
+        use rand::{RngExt, SeedableRng, rngs::StdRng};
+        use std::{vec, vec::Vec};
+
+        fn check<F: Field>() {
+            let integer = |v: U256| {
+                BigUint::from_bytes_le(
+                    &v.0.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<_>>(),
+                )
+            };
+            let raw = |v: &BigUint| {
+                let limbs = v.to_u64_digits();
+                U256::new(core::array::from_fn(|i| limbs.get(i).copied().unwrap_or(0)))
+            };
+            let modulus = integer(F::MODULUS);
+            let inverse_two = (&modulus + BigUint::from(1u8)) >> 1;
+            let mut values = vec![
+                BigUint::from(0u8),
+                BigUint::from(1u8),
+                BigUint::from(2u8),
+                &modulus - BigUint::from(1u8),
+                &modulus - BigUint::from(2u8),
+            ];
+            for bit in 1..254 {
+                let power = BigUint::from(1u8) << bit;
+                values.push((&power - BigUint::from(1u8)) % &modulus);
+                values.push(power % &modulus);
+            }
+            let mut rng = StdRng::seed_from_u64(0x00a0_1254);
+            for _ in 0..512 {
+                values.push(integer(U256::new(rng.random())) % &modulus);
+            }
+            for value in values {
+                let actual = PortableBackend::<F>::halve(&raw(&value));
+                assert!(PortableBackend::<F>::is_reduced(&actual));
+                assert_eq!(integer(actual), value * &inverse_two % &modulus);
+            }
+        }
+        check::<Fq>();
+        check::<Fr>();
+    }
+
     /// `INV` must satisfy `INV * MODULUS == -1 (mod 2^64)`. Catches a
     /// transcription error in the Fr parameters that would otherwise only
     /// show up as silently wrong reductions.
