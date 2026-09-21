@@ -72,6 +72,27 @@ impl<F: Field> PortableBackend<F> {
         }
     };
 
+    /// Divides a canonical Montgomery residue by two without multiplication.
+    /// As in Firedancer's `fd_bn254_fp_halve`, add q for odd inputs before shifting:
+    /// <https://github.com/firedancer-io/firedancer/blob/20c3fa1ff2dab737ec075c3e3e302ba778fd98fe/src/ballet/bn254/fd_bn254_field_inl.h#L225>.
+    /// Adding the odd modulus to odd inputs makes the integer numerator even.
+    /// The numerator is below 2p, so its half is canonical. Retain the high
+    /// carry as well, allowing any odd modulus fitting in 256 bits.
+    #[inline(always)]
+    pub(crate) fn halve(a: &U256) -> U256 {
+        let mask = 0u64.wrapping_sub(a.0[0] & 1);
+        let (r0, carry) = adc(a.0[0], F::MODULUS.0[0] & mask, 0);
+        let (r1, carry) = adc(a.0[1], F::MODULUS.0[1] & mask, carry);
+        let (r2, carry) = adc(a.0[2], F::MODULUS.0[2] & mask, carry);
+        let (r3, carry) = adc(a.0[3], F::MODULUS.0[3] & mask, carry);
+        U256::new([
+            (r0 >> 1) | (r1 << 63),
+            (r1 >> 1) | (r2 << 63),
+            (r2 >> 1) | (r3 << 63),
+            (r3 >> 1) | (carry << 63),
+        ])
+    }
+
     /// Inverts a canonical Montgomery residue, returning `None` for zero.
     ///
     /// For input `a = x * R mod p`, returns `x^-1 * R mod p`, fully reduced,
