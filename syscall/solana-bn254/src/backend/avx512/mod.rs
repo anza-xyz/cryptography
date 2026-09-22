@@ -33,5 +33,4 @@ pub use types::FieldElement8x52;
     target_feature = "avx512dq",
     target_feature = "avx512ifma"
 ))]
-#[cfg(test)]
 pub(crate) mod fq;

@@ -5,7 +5,6 @@
 //! occurs here. See the related table/recoding use in Arkworks:
 //! https://github.com/arkworks-rs/algebra/blob/v0.5.0/ec/src/scalar_mul/wnaf.rs
 
-#[cfg(test)]
 use crate::backend::U256;
 
 pub(super) struct Digits<const L: usize> {
@@ -64,7 +63,6 @@ pub(super) fn from_u128<const W: u32>(value: u128) -> Digits<129> {
     recode::<W, 2, 129>([value as u64, (value >> 64) as u64])
 }
 
-#[cfg(test)]
 pub(super) fn from_u256<const W: u32>(value: &U256) -> Digits<257> {
     recode::<W, 4, 257>(value.0)
 }

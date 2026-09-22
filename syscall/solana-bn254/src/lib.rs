@@ -19,4 +19,4 @@ extern crate self as solana_bn254;
 #[cfg(test)]
 extern crate std;
 
-pub use curve::g1;
+pub use curve::{g1, g2};

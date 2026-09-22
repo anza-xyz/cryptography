@@ -43,8 +43,7 @@ mod adx;
 mod fq2_sum;
 pub(super) mod fq2_wide;
 mod inversion;
-#[cfg(test)]
-mod small_multiple;
+pub(crate) mod small_multiple;
 mod square;
 
 pub(super) use fq2_sum::FqSum;
