@@ -2,7 +2,7 @@
 
 //! `solana-bn254`
 //!
-//! BN254 field arithmetic and Poseidon hashing for the
+//! BN254 field and curve arithmetic and Poseidon hashing for the
 //! Solana Agave validator.
 //!
 //! # Security Warning
@@ -11,9 +11,12 @@
 //! to prioritize cycle efficiency and lowest possible Compute Units.
 
 pub mod backend;
+pub mod curve;
 pub mod poseidon;
 
 #[cfg(test)]
 extern crate self as solana_bn254;
 #[cfg(test)]
 extern crate std;
+
+pub use curve::g1;
