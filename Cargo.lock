@@ -2082,6 +2082,7 @@ dependencies = [
  "ark-ff",
  "criterion",
  "light-poseidon",
+ "num-bigint",
  "rand 0.10.2",
 ]
 

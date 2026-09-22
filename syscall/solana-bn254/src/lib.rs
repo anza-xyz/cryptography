@@ -2,7 +2,7 @@
 
 //! `solana-bn254`
 //!
-//! Poseidon hashing over the BN254 scalar field, optimized for the
+//! BN254 field arithmetic and Poseidon hashing for the
 //! Solana Agave validator.
 //!
 //! # Security Warning
@@ -12,3 +12,8 @@
 
 pub mod backend;
 pub mod poseidon;
+
+#[cfg(test)]
+extern crate self as solana_bn254;
+#[cfg(test)]
+extern crate std;

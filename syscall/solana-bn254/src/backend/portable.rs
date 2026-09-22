@@ -1,7 +1,9 @@
-//! Pure Rust multi-limb arithmetic fallback.
+//! Multi-limb arithmetic with an optional native Fq multiplication kernel.
 //!
 //! Provides a `MontgomeryBackend` using 64-bit limb arithmetic
-//! without assuming x86_64 intrinsics.
+//! with a portable fallback on targets without Linux x86_64 ADX/BMI2.
+//! The CIOS schedule follows Koc, Acar and Kaliski, Section 5:
+//! <https://www.microsoft.com/en-us/research/wp-content/uploads/1996/01/j37acmon.pdf>.
 
 use super::{Field, MontgomeryBackend, U256};
 use core::marker::PhantomData;
@@ -28,8 +30,99 @@ const fn mac(a: u64, b: u64, c: u64, carry: u64) -> (u64, u64) {
     (res as u64, (res >> 64) as u64)
 }
 
-/// A portable, pure-Rust backend for Montgomery arithmetic.
+/// Montgomery arithmetic with a portable fallback and optional native Fq kernel.
 pub struct PortableBackend<F: Field>(PhantomData<F>);
+
+#[cfg(all(
+    target_arch = "x86_64",
+    target_os = "linux",
+    target_feature = "adx",
+    target_feature = "bmi2",
+))]
+mod adx;
+mod fq2_sum;
+pub(super) mod fq2_wide;
+mod inversion;
+#[cfg(test)]
+mod small_multiple;
+mod square;
+
+pub(super) use fq2_sum::FqSum;
+
+impl<F: Field> PortableBackend<F> {
+    /// Inverts a canonical Montgomery residue, returning `None` for zero.
+    ///
+    /// For input `a = x * R mod p`, returns `x^-1 * R mod p`, fully reduced,
+    /// where `R = 2^256`. As with the other backend operations, `a < p` is
+    /// required. Execution is variable-time and intended for public data.
+    pub fn inv(a: &U256) -> Option<U256> {
+        inversion::invert::<F>(a)
+    }
+
+    // Private kernel: callers supply reduced operands, except FqSum, whose
+    // separate proof permits Fq operands below 2q and retains canonical output.
+    #[inline(always)]
+    fn mul_cios(a: &U256, b: &U256) -> U256 {
+        #[cfg(all(
+            target_arch = "x86_64",
+            target_os = "linux",
+            target_feature = "adx",
+            target_feature = "bmi2",
+        ))]
+        if F::MODULUS == crate::backend::Fq::MODULUS {
+            return adx::mul(a, b);
+        }
+
+        // Write p = MODULUS and W = 2^64. Each CIOS step is
+        // t <- (t + a_i * b + m * p) / W, with a_i, m < W.
+        // Starting at zero, this preserves t < b + p.
+        // For reduced b and p < 2^255 (or FqSum), b + p < 2^256, so t[4]
+        // stays zero and the final top-limb sum cannot overflow.
+        let has_spare_bit = F::MODULUS.0[3] < (1u64 << 63);
+        let mut t = [0u64; 5];
+
+        for i in 0..4 {
+            let (r0, c) = mac(t[0], a.0[i], b.0[0], 0);
+            let (r1, c) = mac(t[1], a.0[i], b.0[1], c);
+            let (r2, c) = mac(t[2], a.0[i], b.0[2], c);
+            let (r3, c) = mac(t[3], a.0[i], b.0[3], c);
+            let (r4, r5) = if has_spare_bit {
+                (c, 0)
+            } else {
+                adc(t[4], 0, c)
+            };
+
+            let m = r0.wrapping_mul(F::INV);
+
+            let (_, c2) = mac(r0, m, F::MODULUS.0[0], 0);
+            let (n0, c2) = mac(r1, m, F::MODULUS.0[1], c2);
+            let (n1, c2) = mac(r2, m, F::MODULUS.0[2], c2);
+            let (n2, c2) = mac(r3, m, F::MODULUS.0[3], c2);
+            let (n3, c2) = if has_spare_bit {
+                (r4 + c2, 0)
+            } else {
+                adc(r4, 0, c2)
+            };
+
+            t[0] = n0;
+            t[1] = n1;
+            t[2] = n2;
+            t[3] = n3;
+            t[4] = r5 + c2; // Overflow impossible here
+        }
+
+        let (d0, br) = sbb(t[0], F::MODULUS.0[0], 0);
+        let (d1, br) = sbb(t[1], F::MODULUS.0[1], br);
+        let (d2, br) = sbb(t[2], F::MODULUS.0[2], br);
+        let (d3, br) = sbb(t[3], F::MODULUS.0[3], br);
+
+        if t[4] == 0 && br == 1 {
+            U256::new([t[0], t[1], t[2], t[3]])
+        } else {
+            U256::new([d0, d1, d2, d3])
+        }
+    }
+}
 
 impl<F: Field> MontgomeryBackend<F> for PortableBackend<F> {
     #[inline(always)]
@@ -80,59 +173,16 @@ impl<F: Field> MontgomeryBackend<F> for PortableBackend<F> {
 
     #[inline(always)]
     fn mul(a: &U256, b: &U256) -> U256 {
-        // Write p = MODULUS and W = 2^64. Each CIOS step is
-        // t <- (t + a_i * b + m * p) / W, with a_i, m < W.
-        // Starting at zero, this preserves t < b + p.
-        // For reduced b and p < 2^255, b + p < 2^256, so t[4]
-        // stays zero and the final top-limb sum cannot overflow.
-        let has_spare_bit = F::MODULUS.0[3] < (1u64 << 63);
-        let mut t = [0u64; 5];
-
-        for i in 0..4 {
-            let (r0, c) = mac(t[0], a.0[i], b.0[0], 0);
-            let (r1, c) = mac(t[1], a.0[i], b.0[1], c);
-            let (r2, c) = mac(t[2], a.0[i], b.0[2], c);
-            let (r3, c) = mac(t[3], a.0[i], b.0[3], c);
-            let (r4, r5) = if has_spare_bit {
-                (c, 0)
-            } else {
-                adc(t[4], 0, c)
-            };
-
-            let m = r0.wrapping_mul(F::INV);
-
-            let (_, c2) = mac(r0, m, F::MODULUS.0[0], 0);
-            let (n0, c2) = mac(r1, m, F::MODULUS.0[1], c2);
-            let (n1, c2) = mac(r2, m, F::MODULUS.0[2], c2);
-            let (n2, c2) = mac(r3, m, F::MODULUS.0[3], c2);
-            let (n3, c2) = if has_spare_bit {
-                (r4 + c2, 0)
-            } else {
-                adc(r4, 0, c2)
-            };
-
-            t[0] = n0;
-            t[1] = n1;
-            t[2] = n2;
-            t[3] = n3;
-            t[4] = r5 + c2; // Overflow impossible here
-        }
-
-        let (d0, br) = sbb(t[0], F::MODULUS.0[0], 0);
-        let (d1, br) = sbb(t[1], F::MODULUS.0[1], br);
-        let (d2, br) = sbb(t[2], F::MODULUS.0[2], br);
-        let (d3, br) = sbb(t[3], F::MODULUS.0[3], br);
-
-        if t[4] == 0 && br == 1 {
-            U256::new([t[0], t[1], t[2], t[3]])
-        } else {
-            U256::new([d0, d1, d2, d3])
-        }
+        Self::mul_cios(a, b)
     }
 
     #[inline(always)]
     fn sqr(a: &U256) -> U256 {
-        Self::mul(a, a)
+        if F::MODULUS == crate::backend::Fq::MODULUS {
+            square::square(a)
+        } else {
+            Self::mul(a, a)
+        }
     }
 
     #[inline(always)]
