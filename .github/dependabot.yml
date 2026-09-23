@@ -10,6 +10,13 @@ updates:
     open-pull-requests-limit: 10
     cooldown:
       default-days: 7
+    groups:
+      plonky3:
+        patterns:
+          - "p3-*"
+      arkworks:
+        patterns:
+          - "ark-*"
 
   - package-ecosystem: "github-actions"
     directory: "/"
