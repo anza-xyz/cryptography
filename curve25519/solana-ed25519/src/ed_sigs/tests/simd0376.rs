@@ -241,6 +241,232 @@ fn honest_signatures_are_accepted_by_both_rules() {
     }
 }
 
+/// One of the four vectors under "Signatures with torsion components" in
+/// SIMD-0376, transcribed verbatim from the proposal.
+struct TorsionVector {
+    /// Which small-order point was added to `A`, as its canonical encoding
+    /// and its order, or `None` for the honest `A`.
+    torsion_a: Option<(&'static str, u64)>,
+    /// Which small-order point was added to `R`, likewise.
+    torsion_r: Option<(&'static str, u64)>,
+    a: &'static str,
+    r: &'static str,
+    s: &'static str,
+    /// The "Expected results" table: (`verify_strict`, `verify`, this proposal).
+    expected: (bool, bool, bool),
+}
+
+/// RFC 8032 section 7.1 TEST 1 secret key.
+const SIMD0376_TORSION_SEED: &str =
+    "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
+/// The 9-byte ASCII message `SIMD-0376`.
+const SIMD0376_TORSION_MSG: &[u8] = b"SIMD-0376";
+
+const T_ORDER_8: (&str, u64) = (
+    "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+    8,
+);
+const T_ORDER_4: (&str, u64) = (
+    "0000000000000000000000000000000000000000000000000000000000000080",
+    4,
+);
+const T_ORDER_2: (&str, u64) = (
+    "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    2,
+);
+
+const SIMD0376_TORSION_VECTORS: [TorsionVector; 4] = [
+    // Vector 0: the unmodified RFC-8032 signature, as a control.
+    TorsionVector {
+        torsion_a: None,
+        torsion_r: None,
+        a: "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        r: "378f3448cf68fc54d977c7367d4ef248fd05c1384bc8ab8c90ec3011e3d2cadb",
+        s: "237f8b8042af663b4ad84d04d78aead91668aa243c2598027763ec74312bce0c",
+        expected: (true, true, true),
+    },
+    // Vector 1: `T_A` is the order-8 point, `R` is honest.
+    TorsionVector {
+        torsion_a: Some(T_ORDER_8),
+        torsion_r: None,
+        a: "9158312a9a8d6e3b34c891d6d61444f8b8211c5117ebad15bdb0bd68b07e0245",
+        r: "378f3448cf68fc54d977c7367d4ef248fd05c1384bc8ab8c90ec3011e3d2cadb",
+        s: "ff5bd16bfb12ff7df68015870ff0d9f68fbabb71e811a6b700efa72f1e84cb08",
+        expected: (false, false, true),
+    },
+    // Vector 2: `A` is honest, `T_R` is the order-8 point.
+    TorsionVector {
+        torsion_a: None,
+        torsion_r: Some(T_ORDER_8),
+        a: "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        r: "d6e69141a5921217a696a5ed42292ed014a1ab5e7a982268f0d0716da8d05a55",
+        s: "d51b3303a858f99f17e0418ae47d4198787740e3d2b0bc56a6a7f6d77aeb170a",
+        expected: (false, false, true),
+    },
+    // Vector 3: `T_A` is the order-4 point, `T_R` is the order-2 point.
+    TorsionVector {
+        torsion_a: Some(T_ORDER_4),
+        torsion_r: Some(T_ORDER_2),
+        a: "ad38a8f0b22ab7ca46ecee7bbef12b5f336c182652fac34392f859dbd9666a7d",
+        r: "b670cbb7309703ab268838c982b10db702fa3ec7b43754736f13cfee1c2d3524",
+        s: "3388c63463dd67693a6aa65c3c9153254f23fe91a9d8089ee619a9d7b1c90201",
+        expected: (false, false, true),
+    },
+];
+
+fn decode_hex32(s: &str) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    hex::decode_to_slice(s, &mut out).expect("test vector should be 32 hex-encoded bytes");
+    out
+}
+
+/// The SIMD-0376 "Signatures with torsion components" vectors, checked in
+/// three ways:
+///
+/// 1. each vector is regenerated from the seed and the stated `T_A`/`T_R`, so
+///    the transcribed bytes are the ones the proposal's construction produces;
+/// 2. this crate's `verify` (SIMD-0376) and `verify_dalek` (`verify_strict`)
+///    give the accept/reject results in the proposal's table;
+/// 3. `ed25519-dalek` 2.2.0's `verify_strict` and `verify` give the results
+///    the proposal says were confirmed against that library, and its signer
+///    reproduces vector 0.
+#[test]
+fn simd0376_torsion_component_vectors() {
+    use crate::ed_sigs::scalar_from_sha512;
+    use sha2::{Digest, Sha512, digest::Update};
+
+    let seed = decode_hex32(SIMD0376_TORSION_SEED);
+    let msg = SIMD0376_TORSION_MSG;
+    assert_eq!(hex::encode(msg), "53494d442d30333736");
+
+    // RFC 8032 key expansion, done by hand so that `a` and `r` are available
+    // to the torsion-shift construction below.
+    let expanded = Sha512::digest(seed);
+    let a = {
+        let mut bytes = [0u8; 32];
+        bytes.copy_from_slice(&expanded[..32]);
+        bytes[0] &= 248;
+        bytes[31] &= 127;
+        bytes[31] |= 64;
+        Scalar::from_bytes_mod_order(bytes)
+    };
+    let r = scalar_from_sha512(Sha512::default().chain(&expanded[32..]).chain(msg));
+
+    // The same `a` the crate's signer derives.
+    let sk = SigningKey::from(seed);
+    assert_eq!(
+        (ED25519_BASEPOINT_POINT * a).compress().to_bytes(),
+        <[u8; 32]>::from(VerificationKey::from(&sk)),
+    );
+
+    let dalek_sk = ed25519_dalek::SigningKey::from_bytes(&seed);
+
+    for (i, v) in SIMD0376_TORSION_VECTORS.iter().enumerate() {
+        let A_bytes = decode_hex32(v.a);
+        let R_bytes = decode_hex32(v.r);
+        let s_bytes = decode_hex32(v.s);
+
+        // (1) Regenerate. The torsion encodings are among the canonical
+        // small-order encodings, and have the orders the proposal states.
+        let torsion = |t: Option<(&str, u64)>| -> EdwardsPoint {
+            match t {
+                None => EdwardsPoint::default(),
+                Some((enc, order)) => {
+                    let t = CompressedEdwardsY(decode_hex32(enc))
+                        .decompress()
+                        .expect("torsion encoding decodes");
+                    assert!(EIGHT_TORSION.contains(&t));
+                    assert!((t * Scalar::from(order)).is_identity());
+                    assert!(!(t * Scalar::from(order / 2)).is_identity());
+                    t
+                }
+            }
+        };
+        let (torsion_a, torsion_r) = (torsion(v.torsion_a), torsion(v.torsion_r));
+        let (A_regen, sig_regen) = {
+            let A = ED25519_BASEPOINT_POINT * a + torsion_a;
+            let R = ED25519_BASEPOINT_POINT * r + torsion_r;
+            let A_enc = A.compress().to_bytes();
+            let R_enc = R.compress().to_bytes();
+            let h = challenge_scalar(&R_enc, &A_enc, msg);
+            let s = r + h * a;
+            let mut sig = [0u8; 64];
+            sig[..32].copy_from_slice(&R_enc);
+            sig[32..].copy_from_slice(s.as_bytes());
+            (A_enc, sig)
+        };
+        assert_eq!(
+            hex::encode(A_regen),
+            v.a,
+            "vector {i}: A does not regenerate"
+        );
+        assert_eq!(
+            hex::encode(&sig_regen[..32]),
+            v.r,
+            "vector {i}: R does not regenerate"
+        );
+        assert_eq!(
+            hex::encode(&sig_regen[32..]),
+            v.s,
+            "vector {i}: S does not regenerate"
+        );
+
+        // Steps 1-5 pass on every vector, so only step 7 decides.
+        assert!(CompressedEdwardsY(A_bytes).is_canonical());
+        assert!(CompressedEdwardsY(R_bytes).is_canonical());
+        assert!(Option::<Scalar>::from(Scalar::from_canonical_bytes(s_bytes)).is_some());
+        for bytes in [A_bytes, R_bytes] {
+            let p = CompressedEdwardsY(bytes)
+                .decompress()
+                .expect("on the curve");
+            assert!(!p.is_small_order());
+        }
+
+        // (2) This crate.
+        let mut sig_bytes = [0u8; 64];
+        sig_bytes[..32].copy_from_slice(&R_bytes);
+        sig_bytes[32..].copy_from_slice(&s_bytes);
+        let sig = Signature::from(sig_bytes);
+        let vk = VerificationKey::try_from(A_bytes).expect("A decodes");
+        let (exp_strict, exp_cofactorless, exp_simd) = v.expected;
+        assert_eq!(
+            vk.verify_dalek(&sig, msg).is_ok(),
+            exp_strict,
+            "vector {i}: verify_dalek"
+        );
+        assert_eq!(vk.verify(&sig, msg).is_ok(), exp_simd, "vector {i}: verify");
+        // Tampering with the message must still be rejected by the new rule.
+        assert!(vk.verify(&sig, b"SIMD-0377").is_err());
+
+        #[cfg(all(feature = "alloc", feature = "rand_core"))]
+        {
+            use crate::ed_sigs::batch;
+            let mut bv = batch::Verifier::new();
+            bv.queue((VerificationKeyBytes::from(A_bytes), sig, msg));
+            assert_eq!(bv.verify().is_ok(), exp_simd, "vector {i}: batch");
+        }
+
+        // (3) ed25519-dalek 2.2.0.
+        let dalek_vk = ed25519_dalek::VerifyingKey::from_bytes(&A_bytes).expect("A decodes");
+        let dalek_sig = Signature::from_bytes(&sig_bytes);
+        assert_eq!(
+            dalek_vk.verify_strict(msg, &dalek_sig).is_ok(),
+            exp_strict,
+            "vector {i}: dalek verify_strict"
+        );
+        assert_eq!(
+            ed25519_dalek::Verifier::verify(&dalek_vk, msg, &dalek_sig).is_ok(),
+            exp_cofactorless,
+            "vector {i}: dalek verify"
+        );
+        if i == 0 {
+            use ed25519_dalek::Signer;
+            assert_eq!(dalek_sk.sign(msg).to_bytes(), sig_bytes);
+            assert_eq!(<[u8; 64]>::from(sk.sign(msg)), sig_bytes);
+        }
+    }
+}
+
 /// Batch verification must agree with individual verification on every case,
 /// which is the property the cofactored equation exists to provide.
 #[cfg(all(feature = "alloc", feature = "rand_core"))]
