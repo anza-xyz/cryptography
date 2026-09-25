@@ -26,3 +26,11 @@ pub mod types;
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
 pub use types::FieldElement8x52;
+
+#[cfg(all(
+    target_arch = "x86_64",
+    target_feature = "avx512f",
+    target_feature = "avx512dq",
+    target_feature = "avx512ifma"
+))]
+pub(crate) mod fq;

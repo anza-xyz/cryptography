@@ -16,8 +16,10 @@ exclude = ["scripts/*"]
 criterion = { workspace = true }
 rand = { workspace = true }
 ark-ff = { workspace = true }
+ark-ec = { workspace = true }
 ark-bn254 = { workspace = true }
 light-poseidon = { workspace = true }
+num-bigint = { workspace = true }
 
 [[bench]]
 name = "poseidon_bench"

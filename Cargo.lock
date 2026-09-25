@@ -2101,9 +2101,11 @@ name = "solana-bn254"
 version = "0.1.0"
 dependencies = [
  "ark-bn254",
+ "ark-ec",
  "ark-ff",
  "criterion",
  "light-poseidon",
+ "num-bigint",
  "rand 0.10.2",
 ]
 
