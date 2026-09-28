@@ -4,8 +4,8 @@
 //! Algorithm 14.16; this implementation accumulates by output column:
 //! <https://cacr.uwaterloo.ca/hac/about/chap14.pdf>.
 
-use super::{adc, mac, sbb};
-use crate::backend::{Field, Fq, U256};
+use super::{adc, fq_reduction};
+use crate::backend::U256;
 
 // Dedicated integer squaring: ten distinct 64x64 products. Cross terms are
 // accumulated twice through a 192-bit column accumulator, so doubling never
@@ -63,43 +63,17 @@ fn square_product(a: &U256) -> [u64; 8] {
     result
 }
 
-// Requires 0<=self<qR. Classical REDC adds Mq with M<R, so its
-// quotient is below 2q<R and a single conditional subtraction suffices.
-#[inline]
-fn reduce(input: [u64; 8]) -> U256 {
-    let mut t = [0; 9];
-    t[..8].copy_from_slice(&input);
-    for i in 0..4 {
-        let m = t[i].wrapping_mul(Fq::INV);
-        let mut carry = 0;
-        for j in 0..4 {
-            (t[i + j], carry) = mac(t[i + j], m, Fq::MODULUS.0[j], carry);
-        }
-        for limb in &mut t[i + 4..] {
-            (*limb, carry) = adc(*limb, 0, carry);
-        }
-        debug_assert_eq!(carry, 0);
-    }
-    debug_assert_eq!(t[8], 0);
-    let mut d = [0; 4];
-    let mut borrow = 0;
-    for i in 0..4 {
-        (d[i], borrow) = sbb(t[i + 4], Fq::MODULUS.0[i], borrow);
-    }
-    let mask = 0u64.wrapping_sub(borrow);
-    U256::new(core::array::from_fn(|i| (t[i + 4] & mask) | (d[i] & !mask)))
-}
-
 /// Canonical Fq input implies a²<q²<qR, the reducer's private range.
 #[inline]
 pub(super) fn square(a: &U256) -> U256 {
-    reduce(square_product(a))
+    fq_reduction::reduce(square_product(a))
 }
 
 #[cfg(test)]
 mod tests {
     extern crate std;
     use super::*;
+    use crate::backend::{Field, Fq};
     use ark_bn254::Fq as ArkFq;
     use ark_ff::{BigInteger, Field as _, PrimeField};
     use num_bigint::BigUint;

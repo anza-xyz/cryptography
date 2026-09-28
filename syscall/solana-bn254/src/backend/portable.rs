@@ -42,6 +42,7 @@ pub struct PortableBackend<F: Field>(PhantomData<F>);
 mod adx;
 mod fq2_sum;
 pub(super) mod fq2_wide;
+mod fq_reduction;
 mod inversion;
 pub(crate) mod small_multiple;
 mod square;
