@@ -121,3 +121,51 @@ jobs:
         run: |
           cargo build -p solana-ed25519 --target "$AVX512_TARGET" \
             --features avx512 --all-targets
+
+      - name: Build BN254 tests and benchmarks
+        run: |
+          cargo test -p solana-bn254 --target "$AVX512_TARGET" \
+            --all-targets --no-run
+
+  bn254-avx512-tests:
+    name: BN254 AVX-512 tests under Intel SDE
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RUSTFLAGS: -C target-feature=+avx512f,+avx512dq,+avx512ifma
+      AVX512_TARGET: x86_64-unknown-linux-gnu
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Install Intel SDE
+        run: |
+          curl --fail --location --retry 3 \
+            https://downloadmirror.intel.com/924984/sde-external-10.13.1-2026-07-28-lin.tar.xz \
+            --output "$RUNNER_TEMP/sde.tar.xz"
+          printf '%s  %s\n' \
+            94e97d623fec54385686e1e7ba65ebc9941748c05ee451423948334892bf2b50 \
+            "$RUNNER_TEMP/sde.tar.xz" | sha256sum --check
+          mkdir "$RUNNER_TEMP/sde"
+          tar -xJf "$RUNNER_TEMP/sde.tar.xz" -C "$RUNNER_TEMP/sde" --strip-components=1
+
+      - name: Check Intel SDE
+        run: |
+          sudo sysctl -w kernel.yama.ptrace_scope=0
+          test "$("$RUNNER_TEMP/sde/sde64" -icl -- /bin/echo ready 2>&1)" = ready
+          if "$RUNNER_TEMP/sde/sde64" -icl -- /bin/false; then
+            exit 1
+          fi
+
+      - name: Test BN254
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: ${{ runner.temp }}/sde/sde64 -icl --
+        run: cargo test -p solana-bn254 --target "$AVX512_TARGET" --lib --tests

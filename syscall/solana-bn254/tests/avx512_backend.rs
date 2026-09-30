@@ -1,4 +1,4 @@
-//! Direct tests for the AVX-512 IFMA backend, checked against the portable one.
+//! Direct tests for the AVX-512 IFMA backend, checked against the portable one and arkworks.
 //!
 //! Compiles to an empty binary unless the SIMD path is active:
 //!
@@ -9,9 +9,9 @@
 
 #![cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
 
-use ark_ff::PrimeField;
+use ark_ff::{BigInt, Field as _, PrimeField};
 use rand::RngExt;
-use solana_bn254::backend::avx512::math::{mul_8x, sbox_8x};
+use solana_bn254::backend::avx512::math::{mul_8x, sbox_8x, sum_of_products_8x};
 use solana_bn254::backend::avx512::pack::{pack_8x, unpack_8x};
 use solana_bn254::backend::{Backend, Field, Fr, MontgomeryBackend, U256};
 use solana_bn254::poseidon::sbox;
@@ -94,4 +94,59 @@ fn sbox_matches_portable_backend() {
             assert!(is_canonical(&got[lane]), "lane {lane} left unreduced");
         }
     }
+}
+
+fn near_modulus() -> U256 {
+    let mut m = <Fr as Field>::MODULUS;
+    m.0[0] -= u64::from(rand::rng().random::<u32>()) + 1;
+    m
+}
+
+fn ark(value: &U256) -> ark_bn254::Fr {
+    ark_bn254::Fr::from_bigint(BigInt(value.0)).expect("reduced test operand")
+}
+
+/// `sum(a * b) * R^-1`, independent of both backends.
+fn ark_sum_of_products(a: &[U256], b: &[U256]) -> U256 {
+    let r_inverse = ark_bn254::Fr::from(2u64).pow([256]).inverse().unwrap();
+    let sum: ark_bn254::Fr = a.iter().zip(b).map(|(x, y)| ark(x) * ark(y)).sum();
+    U256::new((sum * r_inverse).into_bigint().0)
+}
+
+fn check_lanes<const N: usize>(a: &[[U256; 8]; N], b: &[[U256; 8]; N]) {
+    let got = unsafe {
+        unpack_8x(&sum_of_products_8x(
+            &a.map(|x| pack_8x(&x)),
+            &b.map(|x| pack_8x(&x)),
+        ))
+    };
+    for lane in 0..8 {
+        let lane_a: [U256; N] = core::array::from_fn(|k| a[k][lane]);
+        let lane_b: [U256; N] = core::array::from_fn(|k| b[k][lane]);
+        assert_eq!(
+            got[lane],
+            ark_sum_of_products(&lane_a, &lane_b),
+            "width {N}, lane {lane}, a={lane_a:?}, b={lane_b:?}"
+        );
+    }
+}
+
+fn check_sum_of_products<const N: usize>() {
+    let top = [[modulus_minus_one(); 8]; N];
+    check_lanes(&top, &top);
+    for operand in [random_element, near_modulus] {
+        for _ in 0..16 {
+            let a: [[U256; 8]; N] = core::array::from_fn(|_| core::array::from_fn(|_| operand()));
+            let b: [[U256; 8]; N] = core::array::from_fn(|_| core::array::from_fn(|_| operand()));
+            check_lanes(&a, &b);
+        }
+    }
+}
+
+#[test]
+fn sum_of_products_matches_arkworks() {
+    macro_rules! widths {
+        ($($n:literal)+) => { $(check_sum_of_products::<$n>();)+ };
+    }
+    widths!(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17);
 }

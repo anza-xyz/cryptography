@@ -30,6 +30,18 @@ const fn mac(a: u64, b: u64, c: u64, carry: u64) -> (u64, u64) {
     (res as u64, (res >> 64) as u64)
 }
 
+/// Adds `s * v + pending * 2^256` into `t[..5]`, returning the carry out of `t[4]`.
+#[inline(always)]
+fn mac_row(t: &mut [u64], s: u64, v: &U256, pending: u64) -> u64 {
+    let mut carry = 0;
+    for (tj, &vj) in t.iter_mut().zip(&v.0) {
+        (*tj, carry) = mac(*tj, s, vj, carry);
+    }
+    let (top, carry_out) = adc(t[4], carry, pending);
+    t[4] = top;
+    carry_out
+}
+
 /// Montgomery arithmetic with a portable fallback and optional native Fq kernel.
 pub struct PortableBackend<F: Field>(PhantomData<F>);
 
@@ -50,6 +62,16 @@ mod square;
 pub(super) use fq2_sum::FqSum;
 
 impl<F: Field> PortableBackend<F> {
+    /// `LAZY_TERMS * MODULUS < 2^256` keeps a chunk sum below `MODULUS * 2^256`.
+    pub(crate) const LAZY_TERMS: usize = {
+        let terms = (1u128 << 64) / (F::MODULUS.0[3] as u128 + 1);
+        if terms > usize::MAX as u128 {
+            usize::MAX
+        } else {
+            terms as usize
+        }
+    };
+
     /// Inverts a canonical Montgomery residue, returning `None` for zero.
     ///
     /// For input `a = x * R mod p`, returns `x^-1 * R mod p`, fully reduced,
@@ -111,13 +133,32 @@ impl<F: Field> PortableBackend<F> {
             t[4] = r5 + c2; // Overflow impossible here
         }
 
-        let (d0, br) = sbb(t[0], F::MODULUS.0[0], 0);
-        let (d1, br) = sbb(t[1], F::MODULUS.0[1], br);
-        let (d2, br) = sbb(t[2], F::MODULUS.0[2], br);
-        let (d3, br) = sbb(t[3], F::MODULUS.0[3], br);
+        Self::reduce_once([t[0], t[1], t[2], t[3]], t[4])
+    }
 
-        if t[4] == 0 && br == 1 {
-            U256::new([t[0], t[1], t[2], t[3]])
+    // Fq curve callers keep `fq_reduction::reduce`, measured faster for them on x86_64.
+    /// Maps `t < MODULUS * 2^256` to `t * R^-1 mod MODULUS`.
+    #[inline(always)]
+    fn montgomery_reduce(mut t: [u64; 8]) -> U256 {
+        let mut pending = 0;
+        for i in 0..4 {
+            let m = t[i].wrapping_mul(F::INV);
+            pending = mac_row(&mut t[i..], m, &F::MODULUS, pending);
+        }
+        Self::reduce_once([t[4], t[5], t[6], t[7]], pending)
+    }
+
+    /// Maps `x + hi * 2^256 < 2 * MODULUS` to `(x + hi * 2^256) mod MODULUS`.
+    #[inline(always)]
+    fn reduce_once(x: [u64; 4], hi: u64) -> U256 {
+        let (d0, br) = sbb(x[0], F::MODULUS.0[0], 0);
+        let (d1, br) = sbb(x[1], F::MODULUS.0[1], br);
+        let (d2, br) = sbb(x[2], F::MODULUS.0[2], br);
+        let (d3, br) = sbb(x[3], F::MODULUS.0[3], br);
+
+        // If no carry out and subtraction underflowed, x < MODULUS.
+        if hi == 0 && br == 1 {
+            U256::new(x)
         } else {
             U256::new([d0, d1, d2, d3])
         }
@@ -139,17 +180,7 @@ impl<F: Field> MontgomeryBackend<F> for PortableBackend<F> {
             adc(a.0[3], b.0[3], c)
         };
 
-        let (d0, br) = sbb(r0, F::MODULUS.0[0], 0);
-        let (d1, br) = sbb(r1, F::MODULUS.0[1], br);
-        let (d2, br) = sbb(r2, F::MODULUS.0[2], br);
-        let (d3, br) = sbb(r3, F::MODULUS.0[3], br);
-
-        // If no carry out and subtraction underflowed, a + b < MODULUS.
-        if c == 0 && br == 1 {
-            U256::new([r0, r1, r2, r3])
-        } else {
-            U256::new([d0, d1, d2, d3])
-        }
+        Self::reduce_once([r0, r1, r2, r3], c)
     }
 
     #[inline(always)]
@@ -183,6 +214,27 @@ impl<F: Field> MontgomeryBackend<F> for PortableBackend<F> {
         } else {
             Self::mul(a, a)
         }
+    }
+
+    #[inline(always)]
+    fn sum_of_products<const N: usize>(a: &[U256; N], b: &[U256; N]) -> U256 {
+        let mut sum = None;
+        for (k, a) in a.chunks(Self::LAZY_TERMS).enumerate() {
+            let mut t = [0u64; 8];
+            for (x, y) in a.iter().zip(&b[k * Self::LAZY_TERMS..]) {
+                // A chunk sum stays below 2^512, so the last row carries nothing out.
+                let mut pending = 0;
+                for (i, &xi) in x.0.iter().enumerate() {
+                    pending = mac_row(&mut t[i..], xi, y, pending);
+                }
+            }
+            let chunk = Self::montgomery_reduce(t);
+            sum = Some(match sum {
+                Some(sum) => Self::add(&sum, &chunk),
+                None => chunk,
+            });
+        }
+        sum.unwrap_or_default()
     }
 
     #[inline(always)]

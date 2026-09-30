@@ -41,4 +41,9 @@ impl FieldElement8x52 {
             }
         }
     }
+
+    #[inline(always)]
+    pub fn limbs(&self) -> [__m512i; 5] {
+        [self.l0, self.l1, self.l2, self.l3, self.l4]
+    }
 }

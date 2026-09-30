@@ -41,6 +41,9 @@ pub trait MontgomeryBackend<F: Field> {
     /// Computes `(a * a * R^-1) mod MODULUS`.
     fn sqr(a: &U256) -> U256;
 
+    /// Computes `sum(a[k] * b[k] * R^-1) mod MODULUS`.
+    fn sum_of_products<const N: usize>(a: &[U256; N], b: &[U256; N]) -> U256;
+
     /// Computes `(-a) mod MODULUS`.
     fn neg(a: &U256) -> U256;
 

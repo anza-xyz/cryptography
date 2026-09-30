@@ -4,6 +4,7 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
 use super::types::FieldElement8x52;
+use crate::backend::{Fr, portable::PortableBackend};
 use core::arch::x86_64::*;
 
 // Mathematically pre-computed 52-bit modulus constants for the BN254 Fr field.
@@ -112,11 +113,7 @@ unsafe fn scale_by_16(x: &FieldElement8x52) -> FieldElement8x52 {
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 unsafe fn cond_sub_modulus(x: &FieldElement8x52) -> FieldElement8x52 {
     let mask_52 = _mm512_set1_epi64(0xFFFFFFFFFFFFF);
-    let mod0 = _mm512_set1_epi64(FR_MOD_L0);
-    let mod1 = _mm512_set1_epi64(FR_MOD_L1);
-    let mod2 = _mm512_set1_epi64(FR_MOD_L2);
-    let mod3 = _mm512_set1_epi64(FR_MOD_L3);
-    let mod4 = _mm512_set1_epi64(FR_MOD_L4);
+    let [mod0, mod1, mod2, mod3, mod4] = modulus_8x().limbs();
 
     // Compute `x - MODULUS`, rippling the borrow across the 52-bit limbs. Each
     // limb difference lands in `(-2^52, 2^52)`, so its sign bit is exactly the
@@ -173,83 +170,93 @@ pub unsafe fn mul_8x(a: &FieldElement8x52, b: &FieldElement8x52) -> FieldElement
     // 64-bit accumulators holding the in-flight summation.
     let mut t = [_mm512_setzero_si512(); 6];
 
-    // Broadcast the 52-bit field constants into the AVX-512 lanes.
-    let inv_vec = _mm512_set1_epi64(FR_INV_52);
-    let mod0 = _mm512_set1_epi64(FR_MOD_L0);
-    let mod1 = _mm512_set1_epi64(FR_MOD_L1);
-    let mod2 = _mm512_set1_epi64(FR_MOD_L2);
-    let mod3 = _mm512_set1_epi64(FR_MOD_L3);
-    let mod4 = _mm512_set1_epi64(FR_MOD_L4);
-
     // Radix correction, see the note above.
     let a_scaled = scale_by_16(a);
-    let a_limbs = [
-        a_scaled.l0,
-        a_scaled.l1,
-        a_scaled.l2,
-        a_scaled.l3,
-        a_scaled.l4,
-    ];
 
     // CIOS Algorithm: Loop is fully unrolled by the LLVM compiler.
-    for i in 0..5 {
-        let ai = a_limbs[i];
-
-        // 1. Accumulate the multiplication of `ai` against all limbs of `b`.
-        // `_mm512_madd52lo` adds the lower 52 bits of the product into the accumulator.
-        // `_mm512_madd52hi` adds the upper 52 bits of the product into the accumulator.
-        t[0] = _mm512_madd52lo_epu64(t[0], ai, b.l0);
-        t[1] = _mm512_madd52hi_epu64(t[1], ai, b.l0);
-
-        t[1] = _mm512_madd52lo_epu64(t[1], ai, b.l1);
-        t[2] = _mm512_madd52hi_epu64(t[2], ai, b.l1);
-
-        t[2] = _mm512_madd52lo_epu64(t[2], ai, b.l2);
-        t[3] = _mm512_madd52hi_epu64(t[3], ai, b.l2);
-
-        t[3] = _mm512_madd52lo_epu64(t[3], ai, b.l3);
-        t[4] = _mm512_madd52hi_epu64(t[4], ai, b.l3);
-
-        t[4] = _mm512_madd52lo_epu64(t[4], ai, b.l4);
-        t[5] = _mm512_madd52hi_epu64(t[5], ai, b.l4);
-
-        // 2. Compute Montgomery Multiplier: `m = (t[0] * INV) mod 2^52`
-        // `madd52lo` automatically masks the inputs to 52 bits and ignores the high bits.
-        let m = _mm512_madd52lo_epu64(_mm512_setzero_si512(), t[0], inv_vec);
-
-        // 3. Accumulate Reduction: `t += m * Modulus`
-        // Mathematically forces the bottom 52 bits of t[0] to exactly 0.
-        t[0] = _mm512_madd52lo_epu64(t[0], m, mod0);
-        t[1] = _mm512_madd52hi_epu64(t[1], m, mod0);
-
-        t[1] = _mm512_madd52lo_epu64(t[1], m, mod1);
-        t[2] = _mm512_madd52hi_epu64(t[2], m, mod1);
-
-        t[2] = _mm512_madd52lo_epu64(t[2], m, mod2);
-        t[3] = _mm512_madd52hi_epu64(t[3], m, mod2);
-
-        t[3] = _mm512_madd52lo_epu64(t[3], m, mod3);
-        t[4] = _mm512_madd52hi_epu64(t[4], m, mod3);
-
-        t[4] = _mm512_madd52lo_epu64(t[4], m, mod4);
-        t[5] = _mm512_madd52hi_epu64(t[5], m, mod4);
-
-        // 4. Register shift down. Since the bottom 52 bits of t[0] are zero, we extract
-        // the top carry and add it into the next limb, then rotate the array.
-        let carry = _mm512_srli_epi64(t[0], 52);
-        t[1] = _mm512_add_epi64(t[1], carry);
-
-        t[0] = t[1];
-        t[1] = t[2];
-        t[2] = t[3];
-        t[3] = t[4];
-        t[4] = t[5];
-        t[5] = _mm512_setzero_si512();
+    for ai in a_scaled.limbs() {
+        mac_row_8x(&mut t, ai, b);
+        reduce_limb_8x(&mut t);
+        t = [t[1], t[2], t[3], t[4], t[5], _mm512_setzero_si512()];
     }
 
-    // --- 5. Final Carry Propagation ---
-    // At the end of the CIOS loop, we strictly enforce the 52-bit boundaries
-    // by propagating any overflowing bits from the 64-bit accumulators upwards.
+    canonical_8x(&t)
+}
+
+/// # Safety
+/// Requires AVX-512F, AVX-512DQ and AVX-512 IFMA, plus canonical Fr operands
+/// with normalized 52-bit limbs.
+#[inline]
+#[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
+pub unsafe fn sum_of_products_8x<const N: usize>(
+    a: &[FieldElement8x52; N],
+    b: &[FieldElement8x52; N],
+) -> FieldElement8x52 {
+    const LAZY_TERMS: usize = PortableBackend::<Fr>::LAZY_TERMS;
+    // Nine IFMA halves per column per product keep chunk columns below 2^59.
+    const { assert!(LAZY_TERMS * 9 < 1 << 7) };
+    let mut sum = None;
+    for (k, a) in a.chunks(LAZY_TERMS).enumerate() {
+        let mut w = [_mm512_setzero_si512(); 10];
+        for (x, y) in a.iter().zip(&b[k * LAZY_TERMS..]) {
+            for (i, xi) in x.limbs().into_iter().enumerate() {
+                mac_row_8x(&mut w[i..], xi, y);
+            }
+        }
+        let chunk = montgomery_reduce_8x(w);
+        sum = Some(match sum {
+            Some(sum) => add_8x(&sum, &chunk),
+            None => chunk,
+        });
+    }
+    sum.unwrap_or_else(FieldElement8x52::zero)
+}
+
+// Helpers rely on the module-wide IFMA cfg because `#[target_feature]` rules out `inline(always)`.
+#[inline(always)]
+unsafe fn modulus_8x() -> FieldElement8x52 {
+    FieldElement8x52 {
+        l0: _mm512_set1_epi64(FR_MOD_L0),
+        l1: _mm512_set1_epi64(FR_MOD_L1),
+        l2: _mm512_set1_epi64(FR_MOD_L2),
+        l3: _mm512_set1_epi64(FR_MOD_L3),
+        l4: _mm512_set1_epi64(FR_MOD_L4),
+    }
+}
+
+/// Operand limbs contribute only their low 52 bits.
+#[inline(always)]
+unsafe fn mac_row_8x(t: &mut [__m512i], s: __m512i, v: &FieldElement8x52) {
+    for (k, vk) in v.limbs().into_iter().enumerate() {
+        t[k] = _mm512_madd52lo_epu64(t[k], s, vk);
+        t[k + 1] = _mm512_madd52hi_epu64(t[k + 1], s, vk);
+    }
+}
+
+/// The low 52 bits of `t[0]` cancel, with the remaining carry in `t[1]`.
+#[inline(always)]
+unsafe fn reduce_limb_8x(t: &mut [__m512i]) {
+    let m = _mm512_madd52lo_epu64(_mm512_setzero_si512(), t[0], _mm512_set1_epi64(FR_INV_52));
+    mac_row_8x(t, m, &modulus_8x());
+    t[1] = _mm512_add_epi64(t[1], _mm512_srli_epi64(t[0], 52));
+}
+
+/// Maps columns `w < MODULUS * 2^256`, each below `2^59`, to canonical `w * R^-1`.
+#[inline(always)]
+unsafe fn montgomery_reduce_8x(mut w: [__m512i; 10]) -> FieldElement8x52 {
+    // Five 52-bit steps divide by 2^260 = 2^4 * R.
+    for column in &mut w {
+        *column = _mm512_slli_epi64(*column, 4);
+    }
+    for i in 0..5 {
+        reduce_limb_8x(&mut w[i..]);
+    }
+    canonical_8x(&w[5..])
+}
+
+/// Maps unnormalized limbs `t[..5]` of a value below `2 * MODULUS` to its canonical residue.
+#[inline(always)]
+unsafe fn canonical_8x(t: &[__m512i]) -> FieldElement8x52 {
     let mask_52 = _mm512_set1_epi64(0xFFFFFFFFFFFFF);
     let mut out = FieldElement8x52::zero();
 
@@ -271,7 +278,6 @@ pub unsafe fn mul_8x(a: &FieldElement8x52, b: &FieldElement8x52) -> FieldElement
     let t4_new = _mm512_add_epi64(t[4], carry3);
     out.l4 = _mm512_and_si512(t4_new, mask_52);
 
-    // --- 6. Final Reduction ---
     // CIOS leaves the result below `2r`, not below `r`. The scalar backend's
     // `add` performs a single conditional subtraction and therefore requires
     // both operands to be fully reduced, so normalize before returning.
