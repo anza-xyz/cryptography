@@ -364,7 +364,7 @@ fn simd0376_rejects_all_small_order_combinations() {
                 hex::encode(R_bytes),
             );
 
-            #[cfg(all(feature = "alloc", feature = "rand_core"))]
+            #[cfg(all(feature = "alloc", feature = "getrandom"))]
             {
                 use crate::ed_sigs::batch;
                 let mut bv = batch::Verifier::new();
@@ -496,7 +496,7 @@ fn verify_dalek_matches_dalek_verify_strict_on_small_order_vectors() {
     }
 }
 
-#[cfg(all(feature = "alloc", feature = "rand_core"))]
+#[cfg(all(feature = "alloc", feature = "getrandom"))]
 #[test]
 fn individual_matches_batch_verification() -> Result<(), Report> {
     use crate::ed_sigs::{VerificationKey, VerificationKeyBytes, batch};

@@ -42,7 +42,7 @@ rustc_version.workspace = true
 [[bench]]
 name = "bench"
 harness = false
-required-features = ["alloc", "rand_core"]
+required-features = ["alloc", "getrandom"]
 
 [[bench]]
 name = "dalek_benchmarks"
@@ -55,7 +55,7 @@ ed25519.workspace = true
 ff = { workspace = true, optional = true }
 group = { workspace = true, optional = true }
 rand_core = { workspace = true, optional = true }
-rand = { version = "0.10.2", optional = true, default-features = false, features = ["sys_rng"] }
+getrandom = { workspace = true, optional = true }
 digest = { workspace = true, optional = true }
 hashbrown.workspace = true
 pkcs8 = { workspace = true, optional = true }
@@ -71,11 +71,12 @@ cpufeatures = { workspace = true }
 curve25519-dalek-derive = { workspace = true }
 
 [features]
-default = ["alloc", "precomputed-tables", "zeroize", "rand_core", "digest"]
+default = ["alloc", "precomputed-tables", "zeroize", "rand_core", "getrandom", "digest"]
 alloc = ["zeroize?/alloc"]
 precomputed-tables = []
 legacy_compatibility = []
-rand_core = ["dep:rand_core", "dep:rand"]
+rand_core = ["dep:rand_core"]
+getrandom = ["alloc", "dep:getrandom"]
 std = ["alloc"]
 group = ["dep:group", "rand_core"]
 group-bits = ["group", "ff/bits"]

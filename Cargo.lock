@@ -2105,7 +2105,7 @@ dependencies = [
  "ark-ff",
  "criterion",
  "light-poseidon",
- "num-bigint",
+ "num-bigint 0.4.6",
  "rand 0.10.2",
 ]
 
@@ -2145,6 +2145,7 @@ dependencies = [
  "ed25519",
  "ed25519-dalek",
  "ff 0.14.0",
+ "getrandom 0.4.2",
  "group 0.14.0",
  "hashbrown 0.15.5",
  "hex",

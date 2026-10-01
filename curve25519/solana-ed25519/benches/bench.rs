@@ -20,7 +20,7 @@ fn sigs_with_distinct_pubkeys() -> impl Iterator<Item = (VerificationKeyBytes, S
     })
 }
 
-#[cfg(all(feature = "alloc", feature = "rand_core"))]
+#[cfg(all(feature = "alloc", feature = "getrandom"))]
 fn sigs_with_same_pubkey() -> impl Iterator<Item = (VerificationKeyBytes, Signature)> {
     let sk = signing_key_from_index(0);
     let pk_bytes = VerificationKeyBytes::from(&sk);
@@ -58,7 +58,7 @@ fn bench_batch_verify(c: &mut Criterion) {
                 })
             },
         );
-        #[cfg(all(feature = "alloc", feature = "rand_core"))]
+        #[cfg(all(feature = "alloc", feature = "getrandom"))]
         group.bench_with_input(
             BenchmarkId::new("Signatures with Distinct Pubkeys", n),
             &sigs,
@@ -72,9 +72,9 @@ fn bench_batch_verify(c: &mut Criterion) {
                 })
             },
         );
-        #[cfg(all(feature = "alloc", feature = "rand_core"))]
+        #[cfg(all(feature = "alloc", feature = "getrandom"))]
         let sigs = sigs_with_same_pubkey().take(*n).collect::<Vec<_>>();
-        #[cfg(all(feature = "alloc", feature = "rand_core"))]
+        #[cfg(all(feature = "alloc", feature = "getrandom"))]
         group.bench_with_input(
             BenchmarkId::new("Signatures with the Same Pubkey", n),
             &sigs,

@@ -172,7 +172,8 @@ let (rho, tau, flip_h) = h.heea_decompose();
 | `alloc` | ✓ | Multiscalar multiplication, batch inversion, batch compress, and the Ed25519 batch module. |
 | `zeroize` | ✓ | `Zeroize` for all scalar and point types. |
 | `precomputed-tables` | ✓ | Precomputed basepoint tables (~400 KB, ~4× faster basepoint mul). |
-| `rand_core` | ✓ | `Scalar::random`, `RistrettoPoint::random`, `SigningKey::new`, and randomized batch verification. |
+| `rand_core` | ✓ | `Scalar::random`, `EdwardsPoint::random`, `RistrettoPoint::random`, and `SigningKey::new` with a caller-supplied random number generator. |
+| `getrandom` | ✓ | Operating system randomness for `batch::Verifier::verify`. Also enables `alloc`. |
 | `digest` | ✓ | Hash-to-curve, `Scalar::from_hash`, and Ed25519 hashing. |
 | `std` | | Enables `std::error::Error` impl on `ed_sigs::Error`. |
 | `serde` | | Serialization for all point, scalar, and key types. |
@@ -182,6 +183,28 @@ let (rho, tau, flip_h) = h.heea_decompose();
 | `group` | | `group` and `ff` crate trait impls. |
 | `group-bits` | | `ff::PrimeFieldBits` for `Scalar`. |
 | `lizard` | | Bytestring-to-Ristretto-point injection. |
+
+### Selecting randomness support
+
+The `rand_core` and `getrandom` features are independent. Both are enabled by
+default. Consumers that disable default features must enable `getrandom` to use
+`batch::Verifier::verify`; enabling `rand_core` alone no longer enables that method.
+The `group` feature enables `rand_core`, but does not enable operating system
+randomness.
+
+Consumers that supply their own random bytes can disable both features:
+
+```toml
+solana-ed25519 = { version = "0.2", default-features = false, features = ["alloc", "precomputed-tables", "zeroize", "digest", "serde"] }
+```
+
+Use `Scalar::from_bytes_mod_order_wide` or `RistrettoPoint::from_uniform_bytes` with
+64 secure random bytes, or construct a `SigningKey` from a 32-byte seed. This
+configuration has no normal dependency on `rand`, `rand_core`, or `getrandom`.
+Cargo combines features requested by all dependents, so another dependency can
+enable randomness support again.
+
+`rand` is only a development dependency for tests and benchmarks.
 
 ---
 

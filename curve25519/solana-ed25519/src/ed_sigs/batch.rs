@@ -1,5 +1,8 @@
 //! Performs batch Ed25519 signature verification.
 //!
+//! The `getrandom` feature enables batch verification using operating system
+//! randomness, independently of the `rand_core` feature.
+//!
 //! Batch verification asks whether *all* signatures in some set are valid,
 //! rather than asking whether *each* of them is valid. This allows sharing
 //! computations among all signature verifications, performing less work overall
@@ -57,27 +60,23 @@
 use alloc::vec::Vec;
 use core::convert::TryFrom;
 
-#[cfg(feature = "rand_core")]
+#[cfg(feature = "getrandom")]
 use super::accepts_point_encoding;
 use super::{Error, VerificationKey, VerificationKeyBytes, challenge_scalar};
 use crate::scalar::Scalar;
-#[cfg(feature = "rand_core")]
+#[cfg(feature = "getrandom")]
 use crate::{
     edwards::{CompressedEdwardsY, EdwardsPoint},
     traits::{IsIdentity, VartimeMultiscalarMul},
 };
 use ed25519::Signature;
 use hashbrown::HashMap;
-#[cfg(feature = "rand_core")]
-use rand::rngs::SysRng;
-#[cfg(feature = "rand_core")]
-use rand_core::{Rng, UnwrapErr};
 
-// Shim to generate a u128 without importing `rand`.
-#[cfg(feature = "rand_core")]
-fn gen_u128<R: Rng + ?Sized>(rng: &mut R) -> u128 {
+// Batch coefficients are uniformly sampled 128-bit integers.
+#[cfg(feature = "getrandom")]
+fn random_u128() -> u128 {
     let mut bytes = [0u8; 16];
-    rng.fill_bytes(&mut bytes[..]);
+    getrandom::fill(&mut bytes).expect("secure randomness unavailable");
     u128::from_le_bytes(bytes)
 }
 
@@ -147,7 +146,13 @@ impl Verifier {
 
     /// Perform batch verification, returning `Ok(())` if all signatures were
     /// valid and `Err` otherwise.
-    #[cfg(feature = "rand_core")]
+    ///
+    /// Requires the `getrandom` feature.
+    ///
+    /// # Panics
+    ///
+    /// Panics if operating system randomness is unavailable.
+    #[cfg(feature = "getrandom")]
     #[allow(non_snake_case)]
     pub fn verify(self) -> Result<(), Error> {
         // The batch verification equation is
@@ -174,7 +179,6 @@ impl Verifier {
         // However, when m = 1 and all signatures are from a single verification
         // key, this is nearly twice as fast.
 
-        let mut rng = UnwrapErr(SysRng);
         let m = self.signatures.keys().count();
 
         let mut A_coeffs = Vec::with_capacity(m);
@@ -204,7 +208,7 @@ impl Verifier {
                     .ok_or(Error::InvalidSignature)?;
                 let s = Option::<Scalar>::from(Scalar::from_canonical_bytes(*sig.s_bytes()))
                     .ok_or(Error::InvalidSignature)?;
-                let z = Scalar::from(gen_u128(&mut rng));
+                let z = Scalar::from(random_u128());
                 B_coeff -= z * s;
                 Rs.push(R);
                 R_coeffs.push(z);

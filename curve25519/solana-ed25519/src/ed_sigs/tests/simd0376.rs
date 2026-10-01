@@ -438,7 +438,7 @@ fn simd0376_torsion_component_vectors() {
         // Tampering with the message must still be rejected by the new rule.
         assert!(vk.verify(&sig, b"SIMD-0377").is_err());
 
-        #[cfg(all(feature = "alloc", feature = "rand_core"))]
+        #[cfg(all(feature = "alloc", feature = "getrandom"))]
         {
             use crate::ed_sigs::batch;
             let mut bv = batch::Verifier::new();
@@ -469,7 +469,7 @@ fn simd0376_torsion_component_vectors() {
 
 /// Batch verification must agree with individual verification on every case,
 /// which is the property the cofactored equation exists to provide.
-#[cfg(all(feature = "alloc", feature = "rand_core"))]
+#[cfg(all(feature = "alloc", feature = "getrandom"))]
 #[test]
 fn batch_agrees_with_individual_on_torsion_components() {
     use crate::ed_sigs::batch;

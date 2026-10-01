@@ -1,4 +1,4 @@
-#![cfg(all(feature = "alloc", feature = "rand_core"))]
+#![cfg(all(feature = "alloc", feature = "getrandom"))]
 
 use crate::ed_sigs::*;
 use crate::edwards::CompressedEdwardsY;

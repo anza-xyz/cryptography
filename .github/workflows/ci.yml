@@ -44,6 +44,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          targets: wasm32-unknown-unknown
+
       - name: Install cargo-hack
         uses: taiki-e/install-action@4076c08d76dba979c11a7285295b0716c1d67908 # v2.87.15
         with:
@@ -52,6 +57,12 @@ jobs:
       - name: Check
         run: |
           cargo hack check --each-feature --all-targets
+
+      - name: Check ed25519 randomness features
+        run: bash curve25519/solana-ed25519/tests/check_rng_features.sh
+
+      - name: Test batch verification without rand_core
+        run: cargo test -p solana-ed25519 --no-default-features --features getrandom --lib ed_sigs::
 
       # The public AVX-512 API deliberately supports builds without the target
       # features through its unsupported-build fallback.
