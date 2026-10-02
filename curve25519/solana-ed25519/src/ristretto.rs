@@ -274,6 +274,35 @@ impl CompressedRistretto {
             Some(res)
         }
     }
+
+    /// Attempt to decompress two encodings at once.
+    ///
+    /// Returns `None` if either encoding is invalid, and otherwise exactly
+    /// what `a.decompress()` and `b.decompress()` would return. The two
+    /// inverse square roots are computed with their exponentiations
+    /// interleaved; see `CompressedEdwardsY::decompress_pair`.
+    pub fn decompress_pair(
+        a: &CompressedRistretto,
+        b: &CompressedRistretto,
+    ) -> Option<(RistrettoPoint, RistrettoPoint)> {
+        let (canonical_a, negative_a, sa) = decompress::step_1(a);
+        let (canonical_b, negative_b, sb) = decompress::step_1(b);
+        if (!canonical_a | negative_a | !canonical_b | negative_b).into() {
+            return None;
+        }
+
+        let pa = decompress::prepare(sa);
+        let pb = decompress::prepare(sb);
+        let ((ok_a, Ia), (ok_b, Ib)) = FieldElement::invsqrt_pair(&pa.w, &pb.w);
+        let (t_negative_a, y_zero_a, ra) = decompress::finish(&pa, Ia);
+        let (t_negative_b, y_zero_b, rb) = decompress::finish(&pb, Ib);
+
+        if (!ok_a | t_negative_a | y_zero_a | !ok_b | t_negative_b | y_zero_b).into() {
+            None
+        } else {
+            Some((ra, rb))
+        }
+    }
 }
 
 mod decompress {
@@ -299,7 +328,17 @@ mod decompress {
         (s_encoding_is_canonical, s_is_negative, s)
     }
 
-    pub(super) fn step_2(s: FieldElement) -> (Choice, Choice, Choice, RistrettoPoint) {
+    /// The quantities of step 2 that do not depend on the inverse square root.
+    pub(super) struct Prepared {
+        s: FieldElement,
+        u1: FieldElement,
+        u2: FieldElement,
+        v: FieldElement,
+        /// `v * u2²`, the element whose inverse square root is needed.
+        pub(super) w: FieldElement,
+    }
+
+    pub(super) fn prepare(s: FieldElement) -> Prepared {
         // Step 2.  Compute (X:Y:Z:T).
         let one = FieldElement::ONE;
         let ss = s.square();
@@ -310,33 +349,43 @@ mod decompress {
         // v == ad(1+as²)² - (1-as²)²            where d=-121665/121666
         let v = &(&(-&constants::EDWARDS_D) * &u1.square()) - &u2_sqr;
 
-        let (ok, I) = (&v * &u2_sqr).invsqrt(); // 1/sqrt(v*u_2²)
+        let w = &v * &u2_sqr;
+        Prepared { s, u1, u2, v, w }
+    }
 
-        let Dx = &I * &u2; // 1/sqrt(v)
-        let Dy = &I * &(&Dx * &v); // 1/u2
+    /// Completes step 2 given `I = 1/sqrt(v * u2²)`.
+    pub(super) fn finish(p: &Prepared, I: FieldElement) -> (Choice, Choice, RistrettoPoint) {
+        let Dx = &I * &p.u2; // 1/sqrt(v)
+        let Dy = &I * &(&Dx * &p.v); // 1/u2
 
         // x == | 2s/sqrt(v) | == + sqrt(4s²/(ad(1+as²)² - (1-as²)²))
-        let mut x = &(&s + &s) * &Dx;
+        let mut x = &(&p.s + &p.s) * &Dx;
         let x_neg = x.is_negative();
         x.conditional_negate(x_neg);
 
         // y == (1-as²)/(1+as²)
-        let y = &u1 * &Dy;
+        let y = &p.u1 * &Dy;
 
         // t == ((1+as²) sqrt(4s²/(ad(1+as²)² - (1-as²)²)))/(1-as²)
         let t = &x * &y;
 
         (
-            ok,
             t.is_negative(),
             y.is_zero(),
             RistrettoPoint(EdwardsPoint {
                 X: x,
                 Y: y,
-                Z: one,
+                Z: FieldElement::ONE,
                 T: t,
             }),
         )
+    }
+
+    pub(super) fn step_2(s: FieldElement) -> (Choice, Choice, Choice, RistrettoPoint) {
+        let p = prepare(s);
+        let (ok, I) = p.w.invsqrt(); // 1/sqrt(v*u_2²)
+        let (t_is_negative, y_is_zero, res) = finish(&p, I);
+        (ok, t_is_negative, y_is_zero, res)
     }
 }
 
@@ -1314,6 +1363,56 @@ mod test {
         let sum: RistrettoPoint = mapped.sum();
 
         assert_eq!(sum, P1 * s + P2 * s);
+    }
+
+    /// `decompress_pair` must agree with `decompress` on valid encodings,
+    /// encodings rejected at each step, and random bytes.
+    #[test]
+    fn pair_decompression_matches_single() {
+        use rand::Rng;
+        let mut rng = rand::rng();
+        let mut encodings = std::vec![
+            CompressedRistretto::identity(),
+            constants::RISTRETTO_BASEPOINT_COMPRESSED,
+        ];
+        for _ in 0..64 {
+            let mut wide = [0u8; 64];
+            rng.fill_bytes(&mut wide);
+            let p = RistrettoPoint::mul_base(&Scalar::from_bytes_mod_order_wide(&wide));
+            let mut bytes = p.compress().to_bytes();
+            encodings.push(CompressedRistretto(bytes));
+            // Negative s: rejected in step 1.
+            bytes[0] ^= 1;
+            encodings.push(CompressedRistretto(bytes));
+            // Random bytes: usually rejected in step 2, if not in step 1.
+            rng.fill_bytes(&mut bytes);
+            encodings.push(CompressedRistretto(bytes));
+            bytes[0] &= 0xfe;
+            bytes[31] &= 0x7f;
+            encodings.push(CompressedRistretto(bytes));
+        }
+        // Non-canonical s.
+        let mut non_canonical = [0xffu8; 32];
+        non_canonical[0] = 0xee;
+        non_canonical[31] = 0x7f;
+        encodings.push(CompressedRistretto(non_canonical));
+
+        for a in &encodings {
+            for b in encodings.iter().step_by(5) {
+                let expected = match (a.decompress(), b.decompress()) {
+                    (Some(pa), Some(pb)) => Some((pa, pb)),
+                    _ => None,
+                };
+                let actual = CompressedRistretto::decompress_pair(a, b);
+                assert_eq!(actual.is_some(), expected.is_some());
+                if let (Some((xa, xb)), Some((ea, eb))) = (actual, expected) {
+                    assert_eq!(xa, ea);
+                    assert_eq!(xb, eb);
+                    assert_eq!(xa.0.X.to_bytes(), ea.0.X.to_bytes());
+                    assert_eq!(xb.0.T.to_bytes(), eb.0.T.to_bytes());
+                }
+            }
+        }
     }
 
     #[test]

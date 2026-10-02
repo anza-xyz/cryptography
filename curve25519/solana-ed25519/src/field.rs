@@ -193,6 +193,102 @@ impl FieldElement {
         (t19, t3)
     }
 
+    /// `pow22501` for two independent elements at once, interleaving the
+    /// two squaring chains; see `pow2k_pair`.
+    #[rustfmt::skip] // keep alignment with pow22501
+    fn pow22501_pair(a: &FieldElement, b: &FieldElement) -> ((FieldElement, FieldElement), (FieldElement, FieldElement)) {
+        let (a0, b0) = FieldElement::pow2k_pair(a, b, 1);           // 1
+        let (a1, b1) = FieldElement::pow2k_pair(&a0, &b0, 2);       // 3
+        let (a2, b2) = (a * &a1, b * &b1);                          // 3,0
+        let (a3, b3) = (&a0 * &a2, &b0 * &b2);                      // 3,1,0
+        let (a4, b4) = FieldElement::pow2k_pair(&a3, &b3, 1);       // 4,2,1
+        let (a5, b5) = (&a2 * &a4, &b2 * &b4);                      // 4,3,2,1,0
+        let (a6, b6) = FieldElement::pow2k_pair(&a5, &b5, 5);       // 9,8,7,6,5
+        let (a7, b7) = (&a6 * &a5, &b6 * &b5);                      // 9,8,7,6,5,4,3,2,1,0
+        let (a8, b8) = FieldElement::pow2k_pair(&a7, &b7, 10);      // 19..10
+        let (a9, b9) = (&a8 * &a7, &b8 * &b7);                      // 19..0
+        let (a10, b10) = FieldElement::pow2k_pair(&a9, &b9, 20);    // 39..20
+        let (a11, b11) = (&a10 * &a9, &b10 * &b9);                  // 39..0
+        let (a12, b12) = FieldElement::pow2k_pair(&a11, &b11, 10);  // 49..10
+        let (a13, b13) = (&a12 * &a7, &b12 * &b7);                  // 49..0
+        let (a14, b14) = FieldElement::pow2k_pair(&a13, &b13, 50);  // 99..50
+        let (a15, b15) = (&a14 * &a13, &b14 * &b13);                // 99..0
+        let (a16, b16) = FieldElement::pow2k_pair(&a15, &b15, 100); // 199..100
+        let (a17, b17) = (&a16 * &a15, &b16 * &b15);                // 199..0
+        let (a18, b18) = FieldElement::pow2k_pair(&a17, &b17, 50);  // 249..50
+        let (a19, b19) = (&a18 * &a13, &b18 * &b13);                // 249..0
+
+        ((a19, a3), (b19, b3))
+    }
+
+    /// `pow_p58` for two independent elements at once.
+    #[rustfmt::skip] // keep alignment with pow_p58
+    fn pow_p58_pair(a: &FieldElement, b: &FieldElement) -> (FieldElement, FieldElement) {
+        let ((a19, _), (b19, _)) = FieldElement::pow22501_pair(a, b); // 249..0
+        let (a20, b20) = FieldElement::pow2k_pair(&a19, &b19, 2);     // 251..2
+        (a * &a20, b * &b20)                                          // 251..2,0
+    }
+
+    /// `sqrt_ratio_i` for two independent ratios at once.
+    ///
+    /// Returns `(sqrt_ratio_i(u0, v0), sqrt_ratio_i(u1, v1))`, computed with
+    /// the two exponentiations interleaved. Used where two points are
+    /// decompressed together, which is most of a group-operation syscall.
+    pub(crate) fn sqrt_ratio_i_pair(
+        u0: &FieldElement,
+        v0: &FieldElement,
+        u1: &FieldElement,
+        v1: &FieldElement,
+    ) -> ((Choice, FieldElement), (Choice, FieldElement)) {
+        // r = (u v^3) (u v^7)^((p-5)/8), as in `sqrt_ratio_i`.
+        let v0_3 = &v0.square() * v0;
+        let v0_7 = &v0_3.square() * v0;
+        let v1_3 = &v1.square() * v1;
+        let v1_7 = &v1_3.square() * v1;
+        let (p0, p1) = FieldElement::pow_p58_pair(&(u0 * &v0_7), &(u1 * &v1_7));
+        let r0 = &(u0 * &v0_3) * &p0;
+        let r1 = &(u1 * &v1_3) * &p1;
+        (
+            FieldElement::sqrt_ratio_i_finish(u0, v0, r0),
+            FieldElement::sqrt_ratio_i_finish(u1, v1, r1),
+        )
+    }
+
+    /// Shared tail of `sqrt_ratio_i`: given `r = (u v^3) (u v^7)^((p-5)/8)`,
+    /// pick the correct square root and sign.
+    fn sqrt_ratio_i_finish(
+        u: &FieldElement,
+        v: &FieldElement,
+        mut r: FieldElement,
+    ) -> (Choice, FieldElement) {
+        let check = v * &r.square();
+
+        let i = &constants::SQRT_M1;
+
+        let correct_sign_sqrt = check.ct_eq(u);
+        let flipped_sign_sqrt = check.ct_eq(&(-u));
+        let flipped_sign_sqrt_i = check.ct_eq(&(&(-u) * i));
+
+        let r_prime = &constants::SQRT_M1 * &r;
+        r.conditional_assign(&r_prime, flipped_sign_sqrt | flipped_sign_sqrt_i);
+
+        // Choose the nonnegative square root.
+        let r_is_negative = r.is_negative();
+        r.conditional_negate(r_is_negative);
+
+        let was_nonzero_square = correct_sign_sqrt | flipped_sign_sqrt;
+
+        (was_nonzero_square, r)
+    }
+
+    /// `invsqrt` for two independent elements at once; see `sqrt_ratio_i_pair`.
+    pub(crate) fn invsqrt_pair(
+        a: &FieldElement,
+        b: &FieldElement,
+    ) -> ((Choice, FieldElement), (Choice, FieldElement)) {
+        FieldElement::sqrt_ratio_i_pair(&FieldElement::ONE, a, &FieldElement::ONE, b)
+    }
+
     /// Given a slice of pub(crate)lic `FieldElements`, replace each with its inverse.
     ///
     /// When an input `FieldElement` is zero, its value is unchanged.
@@ -289,6 +385,25 @@ impl FieldElement {
         t21
     }
 
+    /// Given a nonzero field element, compute its inverse in variable time.
+    ///
+    /// Several times faster than `invert`, but the running time depends on
+    /// the value. Use it only for public data, such as the points handled by
+    /// the curve25519 syscalls. Returns zero on input zero, like `invert`.
+    pub(crate) fn invert_vartime(&self) -> FieldElement {
+        backend::serial::u64::inversion::invert_vartime(self)
+    }
+
+    /// The Legendre symbol of this element, in variable time.
+    ///
+    /// `Some(1)` for a nonzero square, `Some(-1)` for a non-square, `Some(0)`
+    /// for zero. `None` means the fast iteration did not converge and the
+    /// caller must decide by another method; this is essentially never hit.
+    /// For public data only.
+    pub(crate) fn jacobi_vartime(&self) -> Option<i8> {
+        backend::serial::u64::jacobi::jacobi_vartime(self)
+    }
+
     /// Raise this field element to the power (p-5)/8 = 2^252 -3.
     #[rustfmt::skip] // keep alignment of explanatory comments
     #[allow(clippy::let_and_return)]
@@ -342,25 +457,8 @@ impl FieldElement {
 
         let v3 = &v.square() * v;
         let v7 = &v3.square() * v;
-        let mut r = &(u * &v3) * &(u * &v7).pow_p58();
-        let check = v * &r.square();
-
-        let i = &constants::SQRT_M1;
-
-        let correct_sign_sqrt = check.ct_eq(u);
-        let flipped_sign_sqrt = check.ct_eq(&(-u));
-        let flipped_sign_sqrt_i = check.ct_eq(&(&(-u) * i));
-
-        let r_prime = &constants::SQRT_M1 * &r;
-        r.conditional_assign(&r_prime, flipped_sign_sqrt | flipped_sign_sqrt_i);
-
-        // Choose the nonnegative square root.
-        let r_is_negative = r.is_negative();
-        r.conditional_negate(r_is_negative);
-
-        let was_nonzero_square = correct_sign_sqrt | flipped_sign_sqrt;
-
-        (was_nonzero_square, r)
+        let r = &(u * &v3) * &(u * &v7).pow_p58();
+        FieldElement::sqrt_ratio_i_finish(u, v, r)
     }
 
     /// Attempt to compute `sqrt(1/self)` in constant time.
