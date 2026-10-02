@@ -281,7 +281,32 @@ impl CompressedEdwardsY {
     /// algorithm that is several times faster than an exponentiation.
     ///
     /// The running time depends on the input, so this is for public data
-    /// only, such as the curve25519 point-validation syscall.
+    /// only.
+    ///
+    /// # Worst case
+    ///
+    /// The symbol computation (posdivsteps) has no proven iteration bound,
+    /// so it gives up after a fixed number of batches and falls back to the
+    /// square root. Random inputs finish well within the cap and take about
+    /// 0.6× the time of `decompress`. An adversary, however, can choose `y`
+    /// so that `u · v` is one of the slow structured values that hit the
+    /// cap, and such an input costs the capped batches plus the full square
+    /// root: about 2.2× the time of `decompress`, which is itself constant
+    /// time and so has no worse case. Measured on one machine:
+    ///
+    /// | input                  | `decompress` | `decompresses_vartime` |
+    /// |------------------------|--------------|------------------------|
+    /// | random                 | 1.8 µs       | 1.1 µs                 |
+    /// | slowest known reachable| 1.8 µs       | 4.0 µs                 |
+    ///
+    /// For a use that pays a fixed price per call, such as the curve25519
+    /// point-validation syscall, the price must cover the worst case, and
+    /// no cap setting brings that below `decompress`: this method lowers the
+    /// average cost of honest inputs but raises the ceiling. Use it where
+    /// the average matters, and `decompress` where the ceiling does. (The
+    /// `add_vartime` and `sub_vartime` paths are different: their only
+    /// variable-time step is an inversion with a proven bound, and both
+    /// their average and their worst case beat the constant-time paths.)
     pub fn decompresses_vartime(&self) -> bool {
         let (_, u, v) = decompress::prepare(self);
         if u.is_zero().into() {
@@ -2464,14 +2489,66 @@ mod test {
         }
     }
 
+    /// A `y` with `(y² - 1)(d y² + 1) = w`, if one exists: the equation is
+    /// a quadratic in `y²`.
+    fn y_with_legendre_input(w: &FieldElement) -> Option<[u8; 32]> {
+        let one = FieldElement::ONE;
+        let d = constants::EDWARDS_D;
+        let b = &one - &d;
+        let four_d = &(&d + &d) + &(&d + &d);
+        let disc = &b.square() + &(&four_d * &(&one + w));
+        let (ok, r) = FieldElement::sqrt_ratio_i(&disc, &one);
+        if !bool::from(ok) {
+            return None;
+        }
+        let inv_2d = (&d + &d).invert();
+        for root in [r, -&r] {
+            let yy = &(&(-&b) + &root) * &inv_2d;
+            let (ok, y) = FieldElement::sqrt_ratio_i(&yy, &one);
+            if bool::from(ok) {
+                return Some(y.to_bytes());
+            }
+        }
+        None
+    }
+
     /// `decompresses_vartime` must agree with `decompress().is_some()` on
     /// valid points, small `y`, the edge values of `y`, non-canonical
-    /// encodings and random bytes.
+    /// encodings, random bytes, and the encodings whose Legendre-symbol
+    /// input is one of the slowest known, which exercise the fallback.
     #[test]
     fn vartime_validation_matches_decompression() {
         use std::vec::Vec;
         let mut rng = rand::rng();
         let mut encodings: Vec<[u8; 32]> = Vec::new();
+        // Products needing 28 posdivsteps batches, beyond the cap.
+        let pow2 = |bit: u32| {
+            let mut bytes = [0u8; 32];
+            bytes[(bit / 8) as usize] = 1 << (bit % 8);
+            FieldElement::from_bytes(&bytes)
+        };
+        let small = |n: u64| {
+            FieldElement::from_bytes(&{
+                let mut bytes = [0u8; 32];
+                bytes[0] = n as u8;
+                bytes
+            })
+        };
+        let slow_products = [
+            &pow2(253) - &small(2),
+            &pow2(254) - &small(9),
+            &pow2(254) + &pow2(250),
+        ];
+        let mut slow_found = 0;
+        for w in &slow_products {
+            if let Some(y) = y_with_legendre_input(w) {
+                let (_, u, v) = decompress::prepare(&CompressedEdwardsY(y));
+                assert_eq!((&u * &v).to_bytes(), w.to_bytes());
+                encodings.push(y);
+                slow_found += 1;
+            }
+        }
+        assert!(slow_found > 0, "no slow product has a square-root preimage");
         for small in 0u8..64 {
             let mut bytes = [0u8; 32];
             bytes[0] = small;

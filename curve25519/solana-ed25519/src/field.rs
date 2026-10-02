@@ -397,9 +397,10 @@ impl FieldElement {
     /// The Legendre symbol of this element, in variable time.
     ///
     /// `Some(1)` for a nonzero square, `Some(-1)` for a non-square, `Some(0)`
-    /// for zero. `None` means the fast iteration did not converge and the
-    /// caller must decide by another method; this is essentially never hit.
-    /// For public data only.
+    /// for zero. `None` means the fast iteration hit its batch cap and the
+    /// caller must decide by another method. Random inputs essentially never
+    /// hit the cap; structured inputs can, which bounds the cost an
+    /// adversarial input can cause. For public data only.
     pub(crate) fn jacobi_vartime(&self) -> Option<i8> {
         backend::serial::u64::jacobi::jacobi_vartime(self)
     }

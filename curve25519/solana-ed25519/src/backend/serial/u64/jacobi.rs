@@ -14,11 +14,19 @@
 //! since `p = 1 (mod 4)`, the symbol of `x` equals that of `p - x` and the
 //! smaller of the two is used; and a value below 2^64 is handled by one
 //! Euclidean step, `(x | p) = ±(p mod x | x)`, followed by a 64-bit binary
-//! Jacobi computation. Of the remaining inputs, random ones converge within
-//! 15 batches and the slowest structured ones found (`2^k - 1` and
-//! `p - 2^k`) within 26; the computation gives up after 28 and reports
-//! `None`, and callers then fall back to an exponentiation, so the worst
-//! case stays bounded. When it does return, the result is exact.
+//! Jacobi computation.
+//!
+//! Of the remaining inputs, random ones converge within 15 batches (one in
+//! two million needs 15), while structured ones can take far longer:
+//! `2^k - 1` needs 26 and `2^253 - 2`, `2^254 - 9` and `2^254 + 2^250`
+//! need 28, and slower inputs may well exist. Since the
+//! callers' inputs are attacker-chosen (any product `(y² - 1)(d y² + 1)`
+//! with a square-root preimage can be reached through `y`), the computation
+//! gives up after [`BATCHES`] batches and reports `None`, and callers fall
+//! back to an exponentiation. The cap is set just above what random inputs
+//! need, so honest inputs essentially never pay for the fallback while the
+//! worst case costs the capped batches plus one exponentiation, about twice
+//! the exponentiation alone. When it does return, the result is exact.
 
 use super::field::FieldElement51;
 
@@ -35,7 +43,8 @@ const MODULUS: [i64; LIMBS] = [
     0x7f,
 ];
 
-const BATCHES: usize = 28;
+/// Batches of posdivsteps before giving up; see the module documentation.
+const BATCHES: usize = 16;
 
 /// `-f^{-1} mod 64` for odd `f`, indexed by `(f >> 1) & 31`.
 const NEG_INV64: [u8; 32] = {
@@ -435,15 +444,56 @@ mod test {
             rng.fill_bytes(&mut bytes);
             inputs.push(FieldElement51::from_bytes(&bytes));
         }
-        let mut fallbacks = 0;
-        for x in inputs {
-            match jacobi_vartime(&x) {
-                Some(symbol) => assert_eq!(symbol, legendre_by_exponentiation(&x), "x = {x:?}"),
-                None => fallbacks += 1,
+        let (mut structured_fallbacks, mut random_fallbacks) = (0, 0);
+        for (i, x) in inputs.iter().enumerate() {
+            match jacobi_vartime(x) {
+                Some(symbol) => assert_eq!(symbol, legendre_by_exponentiation(x), "x = {x:?}"),
+                None => {
+                    // A fallback must be explained by the cap alone: the
+                    // uncapped computation still converges and is exact.
+                    let (symbol, batches) =
+                        jacobi_with_cap(x, 400).expect("converges without the cap");
+                    assert!(batches > BATCHES, "x = {x:?} gave up after {batches}");
+                    assert_eq!(symbol, legendre_by_exponentiation(x), "x = {x:?}");
+                    if i < inputs.len() - 8192 {
+                        structured_fallbacks += 1;
+                    } else {
+                        random_fallbacks += 1;
+                    }
+                }
             }
         }
-        // Every tested input converges within the batch cap; a fallback here
-        // would mean the cap no longer covers the structured inputs above.
-        assert_eq!(fallbacks, 0);
+        // `2^k - 1` and `p - 2^k` need up to 26 batches, so the structured
+        // inputs exercise the fallback; random inputs essentially never do
+        // (one in two million needs 15 batches, none more).
+        assert!(structured_fallbacks > 0);
+        assert!(
+            random_fallbacks <= 2,
+            "{random_fallbacks} random inputs fell back"
+        );
+    }
+
+    /// The slowest structured inputs known need 28 batches, far beyond the
+    /// cap, so they fall back.
+    #[test]
+    fn cap_sits_between_random_and_structured_inputs() {
+        let pow2 = |bit: u32| {
+            let mut bytes = [0u8; 32];
+            bytes[(bit / 8) as usize] = 1 << (bit % 8);
+            FieldElement51::from_bytes(&bytes)
+        };
+        let two = FieldElement51([2, 0, 0, 0, 0]);
+        let nine = FieldElement51([9, 0, 0, 0, 0]);
+        let slow = [
+            &pow2(253) - &two,
+            &pow2(254) - &nine,
+            &pow2(254) + &pow2(250),
+        ];
+        for x in &slow {
+            let (symbol, batches) = jacobi_with_cap(x, 400).expect("converges");
+            assert_eq!(batches, 28, "x = {x:?}");
+            assert_eq!(symbol, legendre_by_exponentiation(x));
+            assert_eq!(jacobi_vartime(x), None);
+        }
     }
 }

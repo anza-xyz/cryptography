@@ -175,9 +175,17 @@ helpers are for public data only:
 
 - `CompressedEdwardsY::decompresses_vartime` answers `decompress().is_some()`
   with a Legendre symbol computed by a binary (posdivsteps) algorithm instead
-  of a square root. If the symbol computation has not converged after 28
-  batches of 62 posdivsteps, it falls back to the square root, bounding the
-  work spent on the fast path.
+  of a square root. Posdivsteps have no proven iteration bound: random inputs
+  converge within 15 batches of 62 steps, but structured inputs such as
+  `2^253 - 2` need 28, and an attacker can reach any such value that has a
+  square-root preimage through `y`. The computation therefore gives up after
+  16 batches and falls back to the square root, so the worst case costs about
+  2.2× the constant-time `decompress` while honest inputs essentially never
+  pay for the fallback. This is a trade-off, not a pure win: a caller that
+  pays a fixed price per call must price the worst case, which is higher
+  than `decompress`, so it only helps where the average cost matters. The
+  add and subtract helpers below have no such caveat, since their only
+  variable-time step has a proven bound.
 - `CompressedEdwardsY::decompress_pair` and `CompressedRistretto::decompress_pair`
   decompress two points with their two exponentiations interleaved, which is
   faster than two separate decompressions because a single squaring chain
