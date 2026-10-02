@@ -376,7 +376,8 @@ mod decompress {
     /// Completes step 2 given `I = 1/sqrt(v * u2²)`.
     pub(super) fn finish(p: &Prepared, I: FieldElement) -> Decoded {
         let Dx = &I * &p.u2; // 1/sqrt(v)
-        let Dy = &I * &(&Dx * &p.v); // 1/u2
+        let sqrt_v = &Dx * &p.v; // sqrt(v), shared with the quartic coordinate
+        let Dy = &I * &sqrt_v; // 1/u2
 
         // x == | 2s/sqrt(v) | == + sqrt(4s²/(ad(1+as²)² - (1-as²)²))
         let mut x = &(&p.s + &p.s) * &Dx;
@@ -393,7 +394,7 @@ mod decompress {
         // under (s, t_J) -> (2 s / (t_J sqrt(a-d)), (1-s²)/(1+s²)), where
         // t_J = sqrt(v) / sqrt(a-d) with sqrt(v) = 1/Dx = v Dx, negated when
         // x was, so that the image has the non-negative x chosen above.
-        let mut quartic_t = &(&constants::INVSQRT_A_MINUS_D * &p.v) * &Dx;
+        let mut quartic_t = &constants::INVSQRT_A_MINUS_D * &sqrt_v;
         quartic_t.conditional_negate(x_neg);
 
         Decoded {

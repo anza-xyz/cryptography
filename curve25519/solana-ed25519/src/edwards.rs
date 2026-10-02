@@ -287,33 +287,20 @@ impl CompressedEdwardsY {
     ///
     /// The symbol computation (posdivsteps) has no proven iteration bound,
     /// so it gives up after a fixed number of batches and falls back to the
-    /// square root. Random inputs finish well within the cap and take about
-    /// 0.6× the time of `decompress`. An adversary, however, can choose `y`
-    /// so that `u · v` is one of the slow structured values that hit the
-    /// cap, and such an input costs the capped batches plus the full square
-    /// root: about 2.2× the time of `decompress`, which is itself constant
-    /// time and so has no worse case. Measured on one machine:
+    /// square root. Once both Jacobi states fit in a machine word, a binary
+    /// algorithm finishes the symbol directly. This improves the usual path,
+    /// but structured inputs can still hit the batch cap and pay for both
+    /// the capped computation and the full square root.
     ///
-    /// | input                  | `decompress` | `decompresses_vartime` |
-    /// |------------------------|--------------|------------------------|
-    /// | random                 | 1.8 µs       | 1.1 µs                 |
-    /// | slowest known reachable| 1.8 µs       | 4.0 µs                 |
-    ///
-    /// For a use that pays a fixed price per call, such as the curve25519
-    /// point-validation syscall, the price must cover the worst case, and
-    /// no cap setting brings that below `decompress`: this method lowers the
-    /// average cost of honest inputs but raises the ceiling. Use it where
-    /// the average matters, and `decompress` where the ceiling does. (The
-    /// `add_vartime` and `sub_vartime` paths are different: their only
-    /// variable-time step is an inversion with a proven bound, and both
-    /// their average and their worst case beat the constant-time paths.)
+    /// A caller that pays a fixed price per call, such as a point-validation
+    /// syscall, must account for this fallback cost rather than average
+    /// timings. The `add_vartime` and `sub_vartime` paths do not use this
+    /// fallback: their variable-time inversion uses bounded divsteps.
     pub fn decompresses_vartime(&self) -> bool {
         let (_, u, v) = decompress::prepare(self);
-        if u.is_zero().into() {
-            return true;
-        }
+        // v is nonzero, so symbol zero means u = 0, which is valid too.
         match (&u * &v).jacobi_vartime() {
-            Some(symbol) => symbol == 1,
+            Some(symbol) => symbol >= 0,
             None => FieldElement::sqrt_ratio_i(&u, &v).0.into(),
         }
     }
@@ -322,17 +309,38 @@ impl CompressedEdwardsY {
     ///
     /// Returns `None` if either encoding is not a curve point, and otherwise
     /// exactly `(a.decompress()? + b.decompress()?).compress()`, computed
-    /// with `decompress_pair` and `compress_vartime`. For public data only.
+    /// with paired decompression, affine addition and variable-time
+    /// inversion. For public data only.
     pub fn add_vartime(&self, other: &CompressedEdwardsY) -> Option<CompressedEdwardsY> {
-        let (a, b) = CompressedEdwardsY::decompress_pair(self, other)?;
-        Some((a + b).compress_vartime())
+        Self::combine_vartime(self, other, false)
     }
 
     /// The encoding of the difference of the two encoded points, in
     /// variable time; see `add_vartime`.
     pub fn sub_vartime(&self, other: &CompressedEdwardsY) -> Option<CompressedEdwardsY> {
-        let (a, b) = CompressedEdwardsY::decompress_pair(self, other)?;
-        Some((a - b).compress_vartime())
+        Self::combine_vartime(self, other, true)
+    }
+
+    fn combine_vartime(a: &Self, b: &Self, subtract: bool) -> Option<Self> {
+        let (a, b) = Self::decompress_pair(a, b)?;
+        // Decompression sets both Z coordinates to one. Construct the affine
+        // Niels operand directly, without an inversion or a Z1*Z2 product.
+        let b = AffineNielsPoint {
+            y_plus_x: &b.Y + &b.X,
+            y_minus_x: &b.Y - &b.X,
+            xy2d: &b.T * &constants::EDWARDS_D2,
+        };
+        let completed = if subtract { &a - &b } else { &a + &b };
+        // Compression needs only X, Y and Z: avoid constructing extended T.
+        let p = completed.as_projective();
+        let recip = p.Z.invert_vartime();
+        Some(
+            AffinePoint {
+                x: &p.X * &recip,
+                y: &p.Y * &recip,
+            }
+            .compress(),
+        )
     }
 
     /// Attempt to decompress two encodings at once.
@@ -2466,6 +2474,10 @@ mod test {
                 };
                 let actual = CompressedEdwardsY::decompress_pair(a, b);
                 assert_eq!(actual.is_some(), expected.is_some());
+                if expected.is_none() {
+                    assert_eq!(a.add_vartime(b), None);
+                    assert_eq!(a.sub_vartime(b), None);
+                }
                 if let (Some((xa, xb)), Some((ea, eb))) = (actual, expected) {
                     assert_eq!(xa.compress(), ea.compress());
                     assert_eq!(xb.compress(), eb.compress());
@@ -2486,6 +2498,18 @@ mod test {
                 p.mul_by_pow_2(3).compress_vartime(),
                 p.mul_by_pow_2(3).compress()
             );
+        }
+    }
+
+    #[test]
+    fn compressed_arithmetic_preserves_torsion() {
+        for a in &constants::EIGHT_TORSION {
+            for b in &constants::EIGHT_TORSION {
+                let ca = a.compress();
+                let cb = b.compress();
+                assert_eq!(ca.add_vartime(&cb), Some((a + b).compress()));
+                assert_eq!(ca.sub_vartime(&cb), Some((a - b).compress()));
+            }
         }
     }
 
@@ -2521,7 +2545,7 @@ mod test {
         use std::vec::Vec;
         let mut rng = rand::rng();
         let mut encodings: Vec<[u8; 32]> = Vec::new();
-        // Products needing 28 posdivsteps batches, beyond the cap.
+        // Structured products needing more posdivsteps batches than the cap.
         let pow2 = |bit: u32| {
             let mut bytes = [0u8; 32];
             bytes[(bit / 8) as usize] = 1 << (bit % 8);

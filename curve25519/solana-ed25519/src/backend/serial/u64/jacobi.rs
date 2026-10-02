@@ -8,25 +8,20 @@
 //! when `f = ±3 (mod 8)`, swapping `f` and `g` flips it when both are
 //! `3 (mod 4)`, and adding a multiple of `f` to `g` leaves it unchanged.
 //!
-//! Unlike divsteps, posdivsteps have no proven iteration bound. Random
-//! inputs need 11 to 15 batches, but small values converge slowly (up to
-//! about 60 batches for values below 2^16), so two reductions run first:
-//! since `p = 1 (mod 4)`, the symbol of `x` equals that of `p - x` and the
-//! smaller of the two is used; and a value below 2^64 is handled by one
-//! Euclidean step, `(x | p) = ±(p mod x | x)`, followed by a 64-bit binary
-//! Jacobi computation.
+//! Unlike divsteps, posdivsteps have no proven iteration bound. Small inputs
+//! can converge slowly, so two reductions run first: since `p = 1 (mod 4)`,
+//! the symbol of `x` equals that of `p - x`, allowing a smaller representative;
+//! and a value below 2^64 is handled by one Euclidean step followed by a
+//! 64-bit binary Jacobi computation. During the batched iteration, we also
+//! finish with binary Jacobi once both states fit in one 62-bit limb.
 //!
-//! Of the remaining inputs, random ones converge within 15 batches (one in
-//! two million needs 15), while structured ones can take far longer:
-//! `2^k - 1` needs 26 and `2^253 - 2`, `2^254 - 9` and `2^254 + 2^250`
-//! need 28, and slower inputs may well exist. Since the
-//! callers' inputs are attacker-chosen (any product `(y² - 1)(d y² + 1)`
-//! with a square-root preimage can be reached through `y`), the computation
-//! gives up after [`BATCHES`] batches and reports `None`, and callers fall
-//! back to an exponentiation. The cap is set just above what random inputs
-//! need, so honest inputs essentially never pay for the fallback while the
-//! worst case costs the capped batches plus one exponentiation, about twice
-//! the exponentiation alone. When it does return, the result is exact.
+//! Structured inputs such as `2^253 - 2`, `2^254 - 9` and `2^254 + 2^250`
+//! still need more than the cap of [`BATCHES`] batches. Since callers' inputs
+//! can be attacker-chosen, the computation reports `None` at the cap and
+//! callers fall back to an exponentiation. The worst case includes both the
+//! capped batches and that exponentiation. The machine-word finish is bounded
+//! by the binary algorithm's shrinking operands. When this function returns
+//! a symbol, it is exact.
 
 use super::field::FieldElement51;
 
@@ -286,8 +281,15 @@ fn jacobi_with_cap(x: &FieldElement51, cap: usize) -> Option<(i8, usize)> {
         }
 
         // Drop the top limb once both values fit without it.
-        if len > 1 && f[len - 1] == 0 && g[len - 1] == 0 {
+        while len > 1 && f[len - 1] == 0 && g[len - 1] == 0 {
             len -= 1;
+        }
+        // Finish with ordinary binary Jacobi once both positive states fit
+        // in a machine word. The tracked invariant is (x|p) = (-1)^jac (g|f).
+        // f stays odd, and a single limb holds at most 62 bits.
+        if len == 1 {
+            let symbol = jacobi_u64(g[0] as u64, f[0] as u64);
+            return Some((if jac & 1 == 0 { symbol } else { -symbol }, batch));
         }
     }
 
@@ -463,9 +465,8 @@ mod test {
                 }
             }
         }
-        // `2^k - 1` and `p - 2^k` need up to 26 batches, so the structured
-        // inputs exercise the fallback; random inputs essentially never do
-        // (one in two million needs 15 batches, none more).
+        // Structured inputs still exercise fallback after the word-sized
+        // finish; random inputs should rarely reach the cap.
         assert!(structured_fallbacks > 0);
         assert!(
             random_fallbacks <= 2,
@@ -473,8 +474,31 @@ mod test {
         );
     }
 
-    /// The slowest structured inputs known need 28 batches, far beyond the
-    /// cap, so they fall back.
+    /// Exercise the transition to machine-word Jacobi and the cap boundary
+    /// on inputs just above the initial small-input shortcut, with both signs.
+    #[test]
+    fn word_finish_and_cap_match_euler_criterion() {
+        let mut positive = 0;
+        let mut negative = 0;
+        for low in 0..128u64 {
+            let x = FieldElement51([low, 1 << 13, 0, 0, 0]); // 2^64 + low
+            let expected = legendre_by_exponentiation(&x);
+            let (actual, batches) = jacobi_with_cap(&x, 400).expect("converges");
+            assert_eq!(actual, expected);
+            assert!(batches > 0);
+            assert_eq!(jacobi_with_cap(&x, batches), Some((expected, batches)));
+            assert_eq!(jacobi_with_cap(&x, batches - 1), None);
+            if actual == 1 {
+                positive += 1;
+            } else {
+                negative += 1;
+            }
+        }
+        assert!(positive > 0 && negative > 0);
+    }
+
+    /// Known slow structured inputs still exceed the cap even with the
+    /// machine-word finish, so they exercise fallback.
     #[test]
     fn cap_sits_between_random_and_structured_inputs() {
         let pow2 = |bit: u32| {
@@ -491,7 +515,7 @@ mod test {
         ];
         for x in &slow {
             let (symbol, batches) = jacobi_with_cap(x, 400).expect("converges");
-            assert_eq!(batches, 28, "x = {x:?}");
+            assert!(batches > BATCHES, "x = {x:?}, batches = {batches}");
             assert_eq!(symbol, legendre_by_exponentiation(x));
             assert_eq!(jacobi_vartime(x), None);
         }
