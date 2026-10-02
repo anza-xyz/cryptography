@@ -165,6 +165,36 @@ let (rho, tau, flip_h) = h.heea_decompose();
 
 ---
 
+## Curve25519 syscall helpers
+
+The `sol_curve_validate_point` and `sol_curve_group_op` syscalls decompress
+their inputs (a square root each) and compress their output (an inversion or
+inverse square root), which is nearly all of their cost. Three variable-time
+entry points, for public data only, cut that down; each returns exactly what
+the constant-time path would:
+
+- `CompressedEdwardsY::decompresses_vartime` answers `decompress().is_some()`
+  with a Legendre symbol computed by a binary (posdivsteps) algorithm instead
+  of a square root. Random inputs take about half the time of `decompress`;
+  the slowest structured inputs found (`2^k - 1`, `p - 2^k`) take about 1.6×
+  the time of `decompress`, and anything slower than that falls back to the
+  square root, so the worst case is bounded.
+- `CompressedEdwardsY::decompress_pair` and `CompressedRistretto::decompress_pair`
+  decompress two points with their two exponentiations interleaved, which is
+  faster than two separate decompressions because a single squaring chain
+  leaves most of the CPU idle.
+- `EdwardsPoint::compress_vartime` replaces the Fermat inversion in `compress`
+  with batched divsteps (Bernstein–Yang), about three times faster.
+
+`benches/syscall_ops.rs` measures the syscall shapes (validate, add, subtract
+for Edwards and Ristretto) against upstream `curve25519-dalek`:
+
+```bash
+cargo bench -p solana-ed25519 --bench syscall_ops
+```
+
+---
+
 ## Feature Flags
 
 | Feature | Default? | Description |
