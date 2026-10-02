@@ -185,6 +185,10 @@ the constant-time path would:
   leaves most of the CPU idle.
 - `EdwardsPoint::compress_vartime` replaces the Fermat inversion in `compress`
   with batched divsteps (Bernstein–Yang), about three times faster.
+- The squaring chain behind every inversion and square root (`pow2k`)
+  propagates carries in two parallel rounds instead of one serial chain,
+  which shortens its critical path by about 8%. This is the only lever left
+  for Ristretto validation and compression, which need a genuine square root.
 
 `benches/syscall_ops.rs` measures the syscall shapes (validate, add, subtract
 for Edwards and Ristretto) against upstream `curve25519-dalek`:
