@@ -293,6 +293,23 @@ impl CompressedEdwardsY {
         }
     }
 
+    /// The encoding of the sum of the two encoded points, in variable time.
+    ///
+    /// Returns `None` if either encoding is not a curve point, and otherwise
+    /// exactly `(a.decompress()? + b.decompress()?).compress()`, computed
+    /// with `decompress_pair` and `compress_vartime`. For public data only.
+    pub fn add_vartime(&self, other: &CompressedEdwardsY) -> Option<CompressedEdwardsY> {
+        let (a, b) = CompressedEdwardsY::decompress_pair(self, other)?;
+        Some((a + b).compress_vartime())
+    }
+
+    /// The encoding of the difference of the two encoded points, in
+    /// variable time; see `add_vartime`.
+    pub fn sub_vartime(&self, other: &CompressedEdwardsY) -> Option<CompressedEdwardsY> {
+        let (a, b) = CompressedEdwardsY::decompress_pair(self, other)?;
+        Some((a - b).compress_vartime())
+    }
+
     /// Attempt to decompress two encodings at once.
     ///
     /// Returns `None` if either encoding is not a curve point, and otherwise
@@ -2431,8 +2448,10 @@ mod test {
                     assert_eq!(xb.X.to_bytes(), eb.X.to_bytes());
                     let sum = xa + xb;
                     assert_eq!(sum.compress_vartime(), sum.compress());
+                    assert_eq!(a.add_vartime(b), Some(sum.compress()));
                     let difference = xa - xb;
                     assert_eq!(difference.compress_vartime(), difference.compress());
+                    assert_eq!(a.sub_vartime(b), Some(difference.compress()));
                 }
             }
         }

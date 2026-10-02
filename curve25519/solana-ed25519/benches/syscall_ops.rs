@@ -71,28 +71,32 @@ mod ours {
         CompressedEdwardsY(*p).decompresses_vartime()
     }
     pub fn edwards_add_fast(a: &[u8; 32], b: &[u8; 32]) -> Option<[u8; 32]> {
-        let (a, b) =
-            CompressedEdwardsY::decompress_pair(&CompressedEdwardsY(*a), &CompressedEdwardsY(*b))?;
-        Some((a + b).compress_vartime().to_bytes())
+        Some(
+            CompressedEdwardsY(*a)
+                .add_vartime(&CompressedEdwardsY(*b))?
+                .to_bytes(),
+        )
     }
     pub fn edwards_sub_fast(a: &[u8; 32], b: &[u8; 32]) -> Option<[u8; 32]> {
-        let (a, b) =
-            CompressedEdwardsY::decompress_pair(&CompressedEdwardsY(*a), &CompressedEdwardsY(*b))?;
-        Some((a - b).compress_vartime().to_bytes())
+        Some(
+            CompressedEdwardsY(*a)
+                .sub_vartime(&CompressedEdwardsY(*b))?
+                .to_bytes(),
+        )
     }
     pub fn ristretto_add_fast(a: &[u8; 32], b: &[u8; 32]) -> Option<[u8; 32]> {
-        let (a, b) = CompressedRistretto::decompress_pair(
-            &CompressedRistretto(*a),
-            &CompressedRistretto(*b),
-        )?;
-        Some((a + b).compress().to_bytes())
+        Some(
+            CompressedRistretto(*a)
+                .add_vartime(&CompressedRistretto(*b))?
+                .to_bytes(),
+        )
     }
     pub fn ristretto_sub_fast(a: &[u8; 32], b: &[u8; 32]) -> Option<[u8; 32]> {
-        let (a, b) = CompressedRistretto::decompress_pair(
-            &CompressedRistretto(*a),
-            &CompressedRistretto(*b),
-        )?;
-        Some((a - b).compress().to_bytes())
+        Some(
+            CompressedRistretto(*a)
+                .sub_vartime(&CompressedRistretto(*b))?
+                .to_bytes(),
+        )
     }
 }
 

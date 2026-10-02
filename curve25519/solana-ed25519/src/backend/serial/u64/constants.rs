@@ -95,6 +95,22 @@ pub(crate) const INVSQRT_A_MINUS_D: FieldElement51 = FieldElement51::from_limbs(
     2118520810568447,
 ]);
 
+/// `2A = 486662` for the Jacobi quartic `t² = s⁴ + 2A s² + 1` that is
+/// 2-isogenous to the Edwards curve; `A = (1 - d) / (1 + d)`.
+pub(crate) const JACOBI_QUARTIC_TWO_A: FieldElement51 =
+    FieldElement51::from_limbs([486662, 0, 0, 0, 0]);
+
+/// `-2 * SQRT_M1 * INVSQRT_A_MINUS_D`: the `t`-coordinate of the point
+/// `(1, t)` of the Jacobi quartic that maps to the order-4 Edwards point
+/// `(SQRT_M1, 0)` under the isogeny `(s, t) -> (2 s / (t sqrt(a-d)), (1-s²)/(1+s²))`.
+pub(crate) const JACOBI_QUARTIC_TORSION_T: FieldElement51 = FieldElement51::from_limbs([
+    1608655899704280,
+    1999971613377227,
+    49908634785720,
+    1873700692181652,
+    353702208628067,
+]);
+
 /// Precomputed value of one of the square roots of -1 (mod p)
 pub(crate) const SQRT_M1: FieldElement51 = FieldElement51::from_limbs([
     1718705420411056,
