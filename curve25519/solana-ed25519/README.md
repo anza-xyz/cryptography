@@ -169,22 +169,21 @@ let (rho, tau, flip_h) = h.heea_decompose();
 
 The `sol_curve_validate_point` and `sol_curve_group_op` syscalls decompress
 their inputs (a square root each) and compress their output (an inversion or
-inverse square root), which is nearly all of their cost. Three variable-time
-entry points, for public data only, cut that down; each returns exactly what
-the constant-time path would:
+inverse square root), which is nearly all of their cost. The helpers below
+reduce that cost while preserving the existing results. The variable-time
+helpers are for public data only:
 
 - `CompressedEdwardsY::decompresses_vartime` answers `decompress().is_some()`
   with a Legendre symbol computed by a binary (posdivsteps) algorithm instead
-  of a square root. Random inputs take about half the time of `decompress`;
-  the slowest structured inputs found (`2^k - 1`, `p - 2^k`) take about 1.6×
-  the time of `decompress`, and anything slower than that falls back to the
-  square root, so the worst case is bounded.
+  of a square root. If the symbol computation has not converged after 28
+  batches of 62 posdivsteps, it falls back to the square root, bounding the
+  work spent on the fast path.
 - `CompressedEdwardsY::decompress_pair` and `CompressedRistretto::decompress_pair`
   decompress two points with their two exponentiations interleaved, which is
   faster than two separate decompressions because a single squaring chain
   leaves most of the CPU idle.
 - `EdwardsPoint::compress_vartime` replaces the Fermat inversion in `compress`
-  with batched divsteps (Bernstein–Yang), about three times faster.
+  with variable-time batched divsteps (Bernstein–Yang).
 - `CompressedEdwardsY::add_vartime` / `sub_vartime` combine the two above.
 - `CompressedRistretto::add_vartime` / `sub_vartime` add on the Jacobi
   quartic `t² = s⁴ + 486662 s² + 1` that is 2-isogenous to the Edwards curve.
@@ -196,12 +195,13 @@ the constant-time path would:
   three. The result is bit-identical to `compress`.
 - The squaring chain behind every inversion and square root (`pow2k`)
   propagates carries in two parallel rounds instead of one serial chain,
-  which shortens its critical path by about 8%. Ristretto validation still
+  which shortens the carry dependency chain. Ristretto validation still
   needs a genuine square root (the sign of `t = x·y` depends on the root), so
   this is its only lever.
 
 `benches/syscall_ops.rs` measures the syscall shapes (validate, add, subtract
-for Edwards and Ristretto) against upstream `curve25519-dalek`:
+for Edwards and Ristretto) against upstream `curve25519-dalek`. Speedups
+depend on the CPU and compiler; record both when reporting measurements:
 
 ```bash
 cargo bench -p solana-ed25519 --bench syscall_ops

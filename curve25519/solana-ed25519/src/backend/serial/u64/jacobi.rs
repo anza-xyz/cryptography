@@ -87,8 +87,16 @@ fn posdivsteps(mut eta: i64, f0: u64, g0: u64, jac: &mut u64) -> (i64, Transitio
         debug_assert_eq!(f & 1, 1);
         debug_assert_eq!(g & 1, 1);
 
-        let (m, w);
-        if eta < 0 {
+        // Keep each cancellation width constant at its call site.
+        #[inline(always)]
+        fn cancellation(eta: i64, i: u32, f: u64, g: u64, mask: u64) -> (u64, u64) {
+            let limit = (eta + 1).min(i64::from(i));
+            debug_assert!(limit > 0 && limit <= 62);
+            let m = (u64::MAX >> (64 - limit)) & mask;
+            let w = g.wrapping_mul(u64::from(NEG_INV64[((f >> 1) & 31) as usize])) & m;
+            (m, w)
+        }
+        let (m, w) = if eta < 0 {
             // Negate eta and swap f and g. Swapping flips the symbol when
             // both are 3 (mod 4).
             eta = -eta;
@@ -98,18 +106,11 @@ fn posdivsteps(mut eta: i64, f0: u64, g0: u64, jac: &mut u64) -> (i64, Transitio
             *jac ^= (f & g) >> 1;
             // Cancel up to 6 low bits of g at once, but no more than eta+1,
             // after which eta would change sign again, and no more than i.
-            let limit = (eta + 1).min(i64::from(i));
-            debug_assert!(limit > 0 && limit <= 62);
-            m = (u64::MAX >> (64 - limit)) & 63;
-            w = g.wrapping_mul(u64::from(NEG_INV64[((f >> 1) & 31) as usize])) & m;
+            cancellation(eta, i, f, g, 63)
         } else {
-            // Here eta tends to be small, so a cheaper formula cancelling up
-            // to 4 bits suffices.
-            let limit = (eta + 1).min(i64::from(i));
-            debug_assert!(limit > 0 && limit <= 62);
-            m = (u64::MAX >> (64 - limit)) & 15;
-            w = g.wrapping_mul(u64::from(NEG_INV64[((f >> 1) & 31) as usize])) & m;
-        }
+            // Here eta tends to be small, so cancelling up to 4 bits suffices.
+            cancellation(eta, i, f, g, 15)
+        };
         // g += w*f leaves (g | f) unchanged.
         g = g.wrapping_add(f.wrapping_mul(w));
         q = q.wrapping_add(u.wrapping_mul(w));

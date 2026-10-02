@@ -285,30 +285,39 @@ impl CompressedRistretto {
         a: &CompressedRistretto,
         b: &CompressedRistretto,
     ) -> Option<(RistrettoPoint, RistrettoPoint)> {
-        let (canonical_a, negative_a, sa) = decompress::step_1(a);
-        let (canonical_b, negative_b, sb) = decompress::step_1(b);
+        let (a, b) = decompress::pair(a, b)?;
+        Some((a.point, b.point))
+    }
+}
+
+mod decompress {
+    use super::*;
+
+    /// Decode and validate both inputs, retaining both curve representations.
+    pub(super) fn pair(
+        a: &CompressedRistretto,
+        b: &CompressedRistretto,
+    ) -> Option<(Decoded, Decoded)> {
+        let (canonical_a, negative_a, sa) = step_1(a);
+        let (canonical_b, negative_b, sb) = step_1(b);
         if (!canonical_a | negative_a | !canonical_b | negative_b).into() {
             return None;
         }
 
-        let pa = decompress::prepare(sa);
-        let pb = decompress::prepare(sb);
+        let pa = prepare(sa);
+        let pb = prepare(sb);
         let ((ok_a, Ia), (ok_b, Ib)) = FieldElement::invsqrt_pair(&pa.w, &pb.w);
-        let da = decompress::finish(&pa, Ia);
-        let db = decompress::finish(&pb, Ib);
+        let da = finish(&pa, Ia);
+        let db = finish(&pb, Ib);
 
         if (!ok_a | da.t_is_negative | da.y_is_zero | !ok_b | db.t_is_negative | db.y_is_zero)
             .into()
         {
             None
         } else {
-            Some((da.point, db.point))
+            Some((da, db))
         }
     }
-}
-
-mod decompress {
-    use super::*;
 
     pub(super) fn step_1(repr: &CompressedRistretto) -> (Choice, Choice, FieldElement) {
         // Step 1. Check s for validity:
@@ -429,7 +438,7 @@ mod decompress {
 /// its result with one field inversion instead of the square root that
 /// `compress` needs to pull a point back through \( \varphi \).
 #[derive(Copy, Clone)]
-pub(crate) struct JacobiQuartic {
+struct JacobiQuartic {
     s: FieldElement,
     t: FieldElement,
 }
@@ -531,7 +540,9 @@ impl JacobiQuarticProjective {
         let two_magic = &constants::INVSQRT_A_MINUS_D + &constants::INVSQRT_A_MINUS_D;
         let x = &(&two_magic * &xz) * &inv_y;
 
-        let torque = (&x * &y).is_negative() | y.is_zero();
+        // The identity check excluded a zero numerator for y, and its denominator
+        // is nonzero, so only the sign of x*y determines the torque here.
+        let torque = (&x * &y).is_negative();
         let (x_final, mut s, mut s_inv) = if torque.into() {
             (
                 &constants::SQRT_M1 * &y,
@@ -574,22 +585,7 @@ impl CompressedRistretto {
         b: &CompressedRistretto,
         subtract: bool,
     ) -> Option<CompressedRistretto> {
-        let (canonical_a, negative_a, sa) = decompress::step_1(a);
-        let (canonical_b, negative_b, sb) = decompress::step_1(b);
-        if (!canonical_a | negative_a | !canonical_b | negative_b).into() {
-            return None;
-        }
-
-        let pa = decompress::prepare(sa);
-        let pb = decompress::prepare(sb);
-        let ((ok_a, Ia), (ok_b, Ib)) = FieldElement::invsqrt_pair(&pa.w, &pb.w);
-        let da = decompress::finish(&pa, Ia);
-        let db = decompress::finish(&pb, Ib);
-        if (!ok_a | da.t_is_negative | da.y_is_zero | !ok_b | db.t_is_negative | db.y_is_zero)
-            .into()
-        {
-            return None;
-        }
+        let (da, db) = decompress::pair(a, b)?;
 
         let qb = if subtract {
             db.quartic.negate()
