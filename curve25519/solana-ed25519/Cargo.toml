@@ -30,6 +30,7 @@ all-features = true
 bincode.workspace = true
 color-eyre.workspace = true
 criterion.workspace = true
+curve25519-dalek.workspace = true
 ed25519-dalek.workspace = true
 hex.workspace = true
 once_cell.workspace = true
@@ -48,6 +49,11 @@ required-features = ["alloc", "rand_core"]
 name = "dalek_benchmarks"
 harness = false
 required-features = ["alloc", "digest", "group", "rand_core"]
+
+[[bench]]
+name = "syscall_ops"
+harness = false
+required-features = ["rand_core", "precomputed-tables"]
 
 [dependencies]
 cfg-if.workspace = true
