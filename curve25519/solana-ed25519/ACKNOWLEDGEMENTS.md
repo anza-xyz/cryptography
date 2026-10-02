@@ -43,11 +43,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 # libsecp256k1
 
-The variable-time Jacobi symbol in `src/backend/serial/u64/jacobi.rs` is a port of
-`secp256k1_jacobi64_maybe_var` and `secp256k1_modinv64_posdivsteps_62_var` from
-[libsecp256k1](https://github.com/bitcoin-core/secp256k1) to the modulus
-2^255 - 19, and the variable-time inversion in `src/backend/serial/u64/inversion.rs`
-follows the same library's safegcd notes. libsecp256k1 is distributed under the
+The variable-time inversion in `src/backend/serial/u64/inversion.rs` follows
+[libsecp256k1](https://github.com/bitcoin-core/secp256k1)'s safegcd notes,
+adapted to the modulus 2^255 - 19. libsecp256k1 is distributed under the
 following licence:
 
 ```

@@ -25,9 +25,6 @@ pub mod field;
 /// Variable-time field inversion for public data.
 pub(crate) mod inversion;
 
-/// Variable-time Jacobi symbol for public data.
-pub(crate) mod jacobi;
-
 pub mod scalar;
 
 pub mod constants;

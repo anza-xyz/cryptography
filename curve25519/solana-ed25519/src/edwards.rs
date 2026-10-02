@@ -271,38 +271,19 @@ impl CompressedEdwardsY {
         }
     }
 
-    /// Whether this encoding decompresses to a curve point, in variable time.
+    /// Whether this encoding decompresses to a curve point, in constant time.
     ///
-    /// Returns exactly `self.decompress().is_some()`, including for
-    /// non-canonical `y`, but without computing the square root: `x` exists
-    /// iff `u = y² - 1` is zero or `u / v = (y² - 1) / (d y² + 1)` is a
-    /// square, i.e. the Legendre symbol of `u · v` is 1 (`v` is never zero
-    /// since `-1/d` is not a square). The symbol is computed with a binary
-    /// algorithm that is several times faster than an exponentiation.
-    ///
-    /// The running time depends on the input, so this is for public data
-    /// only.
-    ///
-    /// # Worst case
-    ///
-    /// The symbol computation (posdivsteps) has no proven iteration bound,
-    /// so it gives up after a fixed number of batches and falls back to the
-    /// square root. Once both Jacobi states fit in a machine word, a binary
-    /// algorithm finishes the symbol directly. This improves the usual path,
-    /// but structured inputs can still hit the batch cap and pay for both
-    /// the capped computation and the full square root.
-    ///
-    /// A caller that pays a fixed price per call, such as a point-validation
-    /// syscall, must account for this fallback cost rather than average
-    /// timings. The `add_vartime` and `sub_vartime` paths do not use this
-    /// fallback: their variable-time inversion uses bounded divsteps.
-    pub fn decompresses_vartime(&self) -> bool {
+    /// Equivalent to `self.decompress().is_some()`, including non-canonical
+    /// encodings, but tests quadratic residuosity without computing a root.
+    /// Uses 253 field squarings and 14 field multiplications, plus additions
+    /// and constant-time equality checks, with no variable-time fallback.
+    /// Suitable for validation with a predictable operation count, for example
+    /// in a fixed-price point-validation syscall.
+    pub fn decompresses(&self) -> bool {
         let (_, u, v) = decompress::prepare(self);
-        // v is nonzero, so symbol zero means u = 0, which is valid too.
-        match (&u * &v).jacobi_vartime() {
-            Some(symbol) => symbol >= 0,
-            None => FieldElement::sqrt_ratio_i(&u, &v).0.into(),
-        }
+        // v never vanishes: -1/d is nonsquare. Thus u/v is square (or zero)
+        // exactly when u*v is square (or zero).
+        (&u * &v).is_square().into()
     }
 
     /// The encoding of the sum of the two encoded points, in variable time.
@@ -2513,66 +2494,20 @@ mod test {
         }
     }
 
-    /// A `y` with `(y² - 1)(d y² + 1) = w`, if one exists: the equation is
-    /// a quadratic in `y²`.
-    fn y_with_legendre_input(w: &FieldElement) -> Option<[u8; 32]> {
-        let one = FieldElement::ONE;
-        let d = constants::EDWARDS_D;
-        let b = &one - &d;
-        let four_d = &(&d + &d) + &(&d + &d);
-        let disc = &b.square() + &(&four_d * &(&one + w));
-        let (ok, r) = FieldElement::sqrt_ratio_i(&disc, &one);
-        if !bool::from(ok) {
-            return None;
-        }
-        let inv_2d = (&d + &d).invert();
-        for root in [r, -&r] {
-            let yy = &(&(-&b) + &root) * &inv_2d;
-            let (ok, y) = FieldElement::sqrt_ratio_i(&yy, &one);
-            if bool::from(ok) {
-                return Some(y.to_bytes());
-            }
-        }
-        None
-    }
-
-    /// `decompresses_vartime` must agree with `decompress().is_some()` on
-    /// valid points, small `y`, the edge values of `y`, non-canonical
-    /// encodings, random bytes, and the encodings whose Legendre-symbol
-    /// input is one of the slowest known, which exercise the fallback.
+    /// Validation agrees with decompression for valid, invalid, non-canonical
+    /// and structured encodings, including both signs of the x-coordinate.
     #[test]
-    fn vartime_validation_matches_decompression() {
+    fn validation_matches_decompression() {
         use std::vec::Vec;
         let mut rng = rand::rng();
         let mut encodings: Vec<[u8; 32]> = Vec::new();
-        // Structured products needing more posdivsteps batches than the cap.
-        let pow2 = |bit: u32| {
-            let mut bytes = [0u8; 32];
-            bytes[(bit / 8) as usize] = 1 << (bit % 8);
-            FieldElement::from_bytes(&bytes)
-        };
-        let small = |n: u64| {
-            FieldElement::from_bytes(&{
-                let mut bytes = [0u8; 32];
-                bytes[0] = n as u8;
-                bytes
-            })
-        };
-        let slow_products = [
-            &pow2(253) - &small(2),
-            &pow2(254) - &small(9),
-            &pow2(254) + &pow2(250),
-        ];
-        let mut slow_found = 0;
-        for w in &slow_products {
-            if let Some(y) = y_with_legendre_input(w) {
-                let (_, u, v) = decompress::prepare(&CompressedEdwardsY(y));
-                assert_eq!((&u * &v).to_bytes(), w.to_bytes());
-                encodings.push(y);
-                slow_found += 1;
-            }
-        }
-        assert!(slow_found > 0, "no slow product has a square-root preimage");
+        // A structured y with (y² - 1)(d*y² + 1) = 2^254 + 2^250.
+        encodings.push(
+            hex::decode("7379fce5984ae7b06649cb0a9134e7439357b9c2fdeb244b527e77755233217f")
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        );
         for small in 0u8..64 {
             let mut bytes = [0u8; 32];
             bytes[0] = small;
@@ -2604,7 +2539,7 @@ mod test {
         for bytes in encodings {
             let compressed = CompressedEdwardsY(bytes);
             let expected = compressed.decompress().is_some();
-            assert_eq!(compressed.decompresses_vartime(), expected, "{bytes:02x?}");
+            assert_eq!(compressed.decompresses(), expected, "{bytes:02x?}");
             if expected {
                 valid += 1;
             } else {

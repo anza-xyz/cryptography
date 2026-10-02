@@ -173,14 +173,12 @@ inverse square root), which is nearly all of their cost. The helpers below
 reduce that cost while preserving the existing results. The variable-time
 helpers are for public data only:
 
-- `CompressedEdwardsY::decompresses_vartime` answers `decompress().is_some()`
-  with a Legendre symbol computed by a binary (posdivsteps) algorithm instead
-  of a square root. It finishes with binary Jacobi once both states fit in a
-  machine word. Posdivsteps have no proven iteration bound, so the computation
-  gives up after 16 batches and falls back to the square root. Structured
-  inputs can still reach the cap: fixed-price callers must account for both
-  the capped computation and the fallback, rather than using average timings.
-  The add and subtract helpers below do not use this fallback.
+- `CompressedEdwardsY::decompresses` answers `decompress().is_some()` with
+  a fixed exponentiation schedule and no fallback. For `w = (y² - 1)(d y² + 1)`,
+  it checks whether `w^((p-1)/4)` is zero or ±1. This accepts exactly the
+  square residues, including zero, without constructing a square root or a
+  point. Use this helper when validation needs a predictable operation count,
+  such as a fixed-price syscall.
 - `CompressedEdwardsY::decompress_pair` and `CompressedRistretto::decompress_pair`
   decompress two points with their two exponentiations interleaved, which is
   faster than two separate decompressions because a single squaring chain
@@ -202,15 +200,19 @@ helpers are for public data only:
 - The squaring chain behind every inversion and square root (`pow2k`)
   propagates carries in two parallel rounds instead of one serial chain,
   which shortens the carry dependency chain. Ristretto validation still
-  needs a genuine square root (the sign of `t = x·y` depends on the root), so
-  this is its only lever.
+  uses decompression because its acceptance checks depend on the sign of
+  `t = x·y`, which requires the square root.
 
 `benches/syscall_ops.rs` measures the syscall shapes (validate, add, subtract
 for Edwards and Ristretto) against upstream `curve25519-dalek`. Speedups
 depend on the CPU and compiler; record both when reporting measurements.
 The `corpus` groups cycle through seeded random inputs and separately measure
-invalid encodings, identities, equal/opposite operands, and a known slow
-validation input. Every case is checked against upstream before timing:
+invalid encodings, identities, equal/opposite operands, and a structured
+validation input. The `validate`, `add`, and `sub` benchmarks use the helpers
+above (Ristretto validation uses decompression). The `_decompress` benchmarks
+measure the decode/operate/encode baseline in this crate, and `_upstream`
+benchmarks measure upstream dalek. Every case is checked against upstream
+before timing:
 
 ```bash
 cargo bench -p solana-ed25519 --bench syscall_ops

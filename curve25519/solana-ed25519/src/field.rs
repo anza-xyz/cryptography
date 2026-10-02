@@ -394,17 +394,6 @@ impl FieldElement {
         backend::serial::u64::inversion::invert_vartime(self)
     }
 
-    /// The Legendre symbol of this element, in variable time.
-    ///
-    /// `Some(1)` for a nonzero square, `Some(-1)` for a non-square, `Some(0)`
-    /// for zero. `None` means the fast iteration hit its batch cap and the
-    /// caller must decide by another method. Random inputs essentially never
-    /// hit the cap; structured inputs can, which bounds the cost an
-    /// adversarial input can cause. For public data only.
-    pub(crate) fn jacobi_vartime(&self) -> Option<i8> {
-        backend::serial::u64::jacobi::jacobi_vartime(self)
-    }
-
     /// Raise this field element to the power (p-5)/8 = 2^252 -3.
     #[rustfmt::skip] // keep alignment of explanatory comments
     #[allow(clippy::let_and_return)]
@@ -417,6 +406,18 @@ impl FieldElement {
         let t21 = self * &t20;             // 251..2,0
 
         t21
+    }
+
+    /// Test quadratic residuosity, accepting zero, with a fixed schedule.
+    pub(crate) fn is_square(&self) -> Choice {
+        // For nonzero w, Euler's criterion says w^((p-1)/2) = 1 iff
+        // w is square. Equivalently, w^((p-1)/4) is 1 or -1. Since
+        // (p-1)/4 = 2 * (p-5)/8 + 1, reuse the square-root exponent chain.
+        // Zero produces zero and is also a square.
+        let quartic = &self.pow_p58().square() * self;
+        quartic.ct_eq(&FieldElement::ONE)
+            | quartic.ct_eq(&FieldElement::MINUS_ONE)
+            | quartic.is_zero()
     }
 
     /// Given `FieldElements` `u` and `v`, compute either `sqrt(u/v)`
@@ -690,6 +691,50 @@ mod test {
         FieldElement::invert_batch_alloc(&mut ainv_list[..]);
         for i in 0..6 {
             assert_eq!(a_list[i].invert(), ainv_list[i]);
+        }
+    }
+
+    #[test]
+    fn square_test_matches_roots_and_known_residue_classes() {
+        use rand::{Rng, SeedableRng, rngs::StdRng};
+        let mut rng = StdRng::seed_from_u64(0x7371_7561_7265);
+        let mut inputs = std::vec![
+            FieldElement::ZERO,
+            FieldElement::ONE,
+            FieldElement::MINUS_ONE,
+            constants::SQRT_M1,
+        ];
+        for bit in 0..255 {
+            let mut bytes = [0u8; 32];
+            bytes[bit / 8] = 1 << (bit % 8);
+            let power = FieldElement::from_bytes(&bytes);
+            inputs.extend([power, &power - &FieldElement::ONE, -&power]);
+        }
+        // Include the non-canonical encoding of zero and the largest encoding.
+        let mut bytes = [0xff; 32];
+        bytes[0] = 0xed;
+        bytes[31] = 0x7f;
+        inputs.push(FieldElement::from_bytes(&bytes));
+        inputs.push(FieldElement::from_bytes(&[0xff; 32]));
+        for _ in 0..4096 {
+            rng.fill_bytes(&mut bytes);
+            inputs.push(FieldElement::from_bytes(&bytes));
+        }
+        for x in inputs {
+            assert_eq!(
+                bool::from(x.is_square()),
+                bool::from(FieldElement::sqrt_ratio_i(&x, &FieldElement::ONE).0),
+                "x = {x:?}"
+            );
+            let square = x.square();
+            assert!(bool::from(square.is_square()));
+            // sqrt(-1) is nonsquare since p = 5 mod 8. Multiplication by it
+            // moves every nonzero square into the nonsquare residue class.
+            assert_eq!(
+                bool::from((&square * &constants::SQRT_M1).is_square()),
+                bool::from(x.is_zero()),
+                "x = {x:?}"
+            );
         }
     }
 

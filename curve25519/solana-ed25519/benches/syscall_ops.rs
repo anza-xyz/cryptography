@@ -1,8 +1,7 @@
 //! The curve25519 syscall operations as `solana-curve25519` performs them:
 //! validate a compressed point, and add or subtract two compressed points,
-//! returning the compressed result. Each operation decompresses its inputs
-//! (a square root per point) and compresses its output (an inversion or
-//! inverse square root), which is where nearly all of the time goes.
+//! returning the compressed result. Compare this crate's optimized helpers
+//! with its decode/operate/encode path and upstream dalek on seeded corpora.
 //!
 //! Every operation is measured on this crate and on upstream
 //! `curve25519-dalek`, which `solana-curve25519` uses today. The two are
@@ -40,15 +39,15 @@ mod ours {
             .compress()
             .to_bytes()
     }
-    pub fn edwards_validate(p: &[u8; 32]) -> bool {
+    pub fn edwards_validate_decompress(p: &[u8; 32]) -> bool {
         CompressedEdwardsY(*p).decompress().is_some()
     }
-    pub fn edwards_add(a: &[u8; 32], b: &[u8; 32]) -> Option<[u8; 32]> {
+    pub fn edwards_add_decompress(a: &[u8; 32], b: &[u8; 32]) -> Option<[u8; 32]> {
         let a = CompressedEdwardsY(*a).decompress()?;
         let b = CompressedEdwardsY(*b).decompress()?;
         Some((a + b).compress().to_bytes())
     }
-    pub fn edwards_sub(a: &[u8; 32], b: &[u8; 32]) -> Option<[u8; 32]> {
+    pub fn edwards_sub_decompress(a: &[u8; 32], b: &[u8; 32]) -> Option<[u8; 32]> {
         let a = CompressedEdwardsY(*a).decompress()?;
         let b = CompressedEdwardsY(*b).decompress()?;
         Some((a - b).compress().to_bytes())
@@ -56,44 +55,43 @@ mod ours {
     pub fn ristretto_validate(p: &[u8; 32]) -> bool {
         CompressedRistretto(*p).decompress().is_some()
     }
-    pub fn ristretto_add(a: &[u8; 32], b: &[u8; 32]) -> Option<[u8; 32]> {
+    pub fn ristretto_add_decompress(a: &[u8; 32], b: &[u8; 32]) -> Option<[u8; 32]> {
         let a = CompressedRistretto(*a).decompress()?;
         let b = CompressedRistretto(*b).decompress()?;
         Some((a + b).compress().to_bytes())
     }
-    pub fn ristretto_sub(a: &[u8; 32], b: &[u8; 32]) -> Option<[u8; 32]> {
+    pub fn ristretto_sub_decompress(a: &[u8; 32], b: &[u8; 32]) -> Option<[u8; 32]> {
         let a = CompressedRistretto(*a).decompress()?;
         let b = CompressedRistretto(*b).decompress()?;
         Some((a - b).compress().to_bytes())
     }
 
-    // The syscall shapes using the Legendre-symbol validation, the paired
-    // decompression and, for Edwards, the variable-time compression.
-    pub fn edwards_validate_fast(p: &[u8; 32]) -> bool {
-        CompressedEdwardsY(*p).decompresses_vartime()
+    // Optimized helpers used by the primary validation and group-op benchmarks.
+    pub fn edwards_validate(p: &[u8; 32]) -> bool {
+        CompressedEdwardsY(*p).decompresses()
     }
-    pub fn edwards_add_fast(a: &[u8; 32], b: &[u8; 32]) -> Option<[u8; 32]> {
+    pub fn edwards_add(a: &[u8; 32], b: &[u8; 32]) -> Option<[u8; 32]> {
         Some(
             CompressedEdwardsY(*a)
                 .add_vartime(&CompressedEdwardsY(*b))?
                 .to_bytes(),
         )
     }
-    pub fn edwards_sub_fast(a: &[u8; 32], b: &[u8; 32]) -> Option<[u8; 32]> {
+    pub fn edwards_sub(a: &[u8; 32], b: &[u8; 32]) -> Option<[u8; 32]> {
         Some(
             CompressedEdwardsY(*a)
                 .sub_vartime(&CompressedEdwardsY(*b))?
                 .to_bytes(),
         )
     }
-    pub fn ristretto_add_fast(a: &[u8; 32], b: &[u8; 32]) -> Option<[u8; 32]> {
+    pub fn ristretto_add(a: &[u8; 32], b: &[u8; 32]) -> Option<[u8; 32]> {
         Some(
             CompressedRistretto(*a)
                 .add_vartime(&CompressedRistretto(*b))?
                 .to_bytes(),
         )
     }
-    pub fn ristretto_sub_fast(a: &[u8; 32], b: &[u8; 32]) -> Option<[u8; 32]> {
+    pub fn ristretto_sub(a: &[u8; 32], b: &[u8; 32]) -> Option<[u8; 32]> {
         Some(
             CompressedRistretto(*a)
                 .sub_vartime(&CompressedRistretto(*b))?
@@ -145,132 +143,6 @@ mod upstream {
     }
 }
 
-fn bench_syscalls(c: &mut Criterion) {
-    let mut rng = rng();
-    let (wa, wb) = (random_wide(&mut rng), random_wide(&mut rng));
-    let (ea, eb) = (ours::edwards_point(&wa), ours::edwards_point(&wb));
-    let (ra, rb) = (ours::ristretto_point(&wa), ours::ristretto_point(&wb));
-    // Guaranteed invalid for both curves, so these measure rejection.
-    let mut junk = [0u8; 32];
-    loop {
-        rng.fill_bytes(&mut junk);
-        if !upstream::edwards_validate(&junk) && !upstream::ristretto_validate(&junk) {
-            break;
-        }
-    }
-
-    // Both libraries must agree on every input before timing.
-    assert_eq!(ea, upstream::edwards_point(&wa));
-    assert_eq!(ra, upstream::ristretto_point(&wa));
-    assert!(ours::edwards_validate(&ea) && upstream::edwards_validate(&ea));
-    assert!(ours::ristretto_validate(&ra) && upstream::ristretto_validate(&ra));
-    assert_eq!(
-        ours::edwards_validate(&junk),
-        upstream::edwards_validate(&junk)
-    );
-    assert_eq!(
-        ours::ristretto_validate(&junk),
-        upstream::ristretto_validate(&junk)
-    );
-    assert_eq!(ours::edwards_add(&ea, &eb), upstream::edwards_add(&ea, &eb));
-    assert_eq!(ours::edwards_sub(&ea, &eb), upstream::edwards_sub(&ea, &eb));
-    assert_eq!(
-        ours::ristretto_add(&ra, &rb),
-        upstream::ristretto_add(&ra, &rb)
-    );
-    assert_eq!(
-        ours::ristretto_sub(&ra, &rb),
-        upstream::ristretto_sub(&ra, &rb)
-    );
-    assert!(ours::edwards_validate_fast(&ea));
-    assert_eq!(
-        ours::edwards_validate_fast(&junk),
-        upstream::edwards_validate(&junk)
-    );
-    assert_eq!(
-        ours::edwards_add_fast(&ea, &eb),
-        upstream::edwards_add(&ea, &eb)
-    );
-    assert_eq!(
-        ours::edwards_sub_fast(&ea, &eb),
-        upstream::edwards_sub(&ea, &eb)
-    );
-    assert_eq!(
-        ours::ristretto_add_fast(&ra, &rb),
-        upstream::ristretto_add(&ra, &rb)
-    );
-    assert_eq!(
-        ours::ristretto_sub_fast(&ra, &rb),
-        upstream::ristretto_sub(&ra, &rb)
-    );
-
-    let mut g = c.benchmark_group("edwards");
-    g.bench_function("validate", |b| {
-        b.iter(|| ours::edwards_validate(black_box(&ea)))
-    });
-    g.bench_function("validate/upstream", |b| {
-        b.iter(|| upstream::edwards_validate(black_box(&ea)))
-    });
-    g.bench_function("validate_invalid", |b| {
-        b.iter(|| ours::edwards_validate(black_box(&junk)))
-    });
-    g.bench_function("add", |b| {
-        b.iter(|| ours::edwards_add(black_box(&ea), black_box(&eb)))
-    });
-    g.bench_function("add/upstream", |b| {
-        b.iter(|| upstream::edwards_add(black_box(&ea), black_box(&eb)))
-    });
-    g.bench_function("sub", |b| {
-        b.iter(|| ours::edwards_sub(black_box(&ea), black_box(&eb)))
-    });
-    g.bench_function("sub/upstream", |b| {
-        b.iter(|| upstream::edwards_sub(black_box(&ea), black_box(&eb)))
-    });
-    g.bench_function("validate_fast", |b| {
-        b.iter(|| ours::edwards_validate_fast(black_box(&ea)))
-    });
-    g.bench_function("validate_invalid_fast", |b| {
-        b.iter(|| ours::edwards_validate_fast(black_box(&junk)))
-    });
-    g.bench_function("add_fast", |b| {
-        b.iter(|| ours::edwards_add_fast(black_box(&ea), black_box(&eb)))
-    });
-    g.bench_function("sub_fast", |b| {
-        b.iter(|| ours::edwards_sub_fast(black_box(&ea), black_box(&eb)))
-    });
-    g.finish();
-
-    let mut g = c.benchmark_group("ristretto");
-    g.bench_function("validate", |b| {
-        b.iter(|| ours::ristretto_validate(black_box(&ra)))
-    });
-    g.bench_function("validate/upstream", |b| {
-        b.iter(|| upstream::ristretto_validate(black_box(&ra)))
-    });
-    g.bench_function("validate_invalid", |b| {
-        b.iter(|| ours::ristretto_validate(black_box(&junk)))
-    });
-    g.bench_function("add", |b| {
-        b.iter(|| ours::ristretto_add(black_box(&ra), black_box(&rb)))
-    });
-    g.bench_function("add/upstream", |b| {
-        b.iter(|| upstream::ristretto_add(black_box(&ra), black_box(&rb)))
-    });
-    g.bench_function("sub", |b| {
-        b.iter(|| ours::ristretto_sub(black_box(&ra), black_box(&rb)))
-    });
-    g.bench_function("sub/upstream", |b| {
-        b.iter(|| upstream::ristretto_sub(black_box(&ra), black_box(&rb)))
-    });
-    g.bench_function("add_fast", |b| {
-        b.iter(|| ours::ristretto_add_fast(black_box(&ra), black_box(&rb)))
-    });
-    g.bench_function("sub_fast", |b| {
-        b.iter(|| ours::ristretto_sub_fast(black_box(&ra), black_box(&rb)))
-    });
-    g.finish();
-}
-
 // Cycle through a seeded corpus instead of repeatedly predicting the branches
 // for one point. Setup and agreement checks are outside the timed region.
 type Encoding = [u8; 32];
@@ -307,8 +179,12 @@ fn bench_corpus(c: &mut Criterion) {
     let mut ristretto_invalid = Vec::new();
     for _ in 0..64 {
         let wide = random_wide(&mut rng);
-        edwards.push(ours::edwards_point(&wide));
-        ristretto.push(ours::ristretto_point(&wide));
+        let ep = ours::edwards_point(&wide);
+        let rp = ours::ristretto_point(&wide);
+        assert_eq!(ep, upstream::edwards_point(&wide));
+        assert_eq!(rp, upstream::ristretto_point(&wide));
+        edwards.push(ep);
+        ristretto.push(rp);
         let mut bytes = [0u8; 32];
         loop {
             rng.fill_bytes(&mut bytes);
@@ -328,8 +204,8 @@ fn bench_corpus(c: &mut Criterion) {
 
     macro_rules! curve {
         ($name:literal, $points:ident, $invalid:ident, $compressed:ident,
-         $validate:ident, $validate_fast:ident, $add:ident, $add_fast:ident,
-         $sub:ident, $sub_fast:ident) => {{
+         $validate:ident, $add:ident, $add_decompress:ident,
+         $sub:ident, $sub_decompress:ident $(, $validate_decompress:ident)?) => {{
             let identity = $compressed::identity().to_bytes();
             for (case, inputs) in [
                 ("random", $points.as_slice()),
@@ -339,12 +215,12 @@ fn bench_corpus(c: &mut Criterion) {
                 for p in inputs {
                     let expected = upstream::$validate(p);
                     assert_eq!(ours::$validate(p), expected);
-                    assert_eq!(ours::$validate_fast(p), expected);
+                    $(assert_eq!(ours::$validate_decompress(p), expected);)?
                 }
                 let mut g = c.benchmark_group(concat!($name, "/corpus/").to_owned() + case);
                 bench_inputs(&mut g, "validate", inputs, ours::$validate);
-                bench_inputs(&mut g, "validate_fast", inputs, ours::$validate_fast);
                 bench_inputs(&mut g, "validate_upstream", inputs, upstream::$validate);
+                $(bench_inputs(&mut g, "validate_decompress", inputs, ours::$validate_decompress);)?
             }
             let random: Vec<Pair> = $points
                 .iter()
@@ -391,18 +267,22 @@ fn bench_corpus(c: &mut Criterion) {
             ] {
                 for (a, b) in inputs {
                     assert_eq!(ours::$add(a, b), upstream::$add(a, b));
-                    assert_eq!(ours::$add_fast(a, b), upstream::$add(a, b));
+                    assert_eq!(ours::$add_decompress(a, b), upstream::$add(a, b));
                     assert_eq!(ours::$sub(a, b), upstream::$sub(a, b));
-                    assert_eq!(ours::$sub_fast(a, b), upstream::$sub(a, b));
+                    assert_eq!(ours::$sub_decompress(a, b), upstream::$sub(a, b));
                 }
                 let mut g = c.benchmark_group(concat!($name, "/corpus/").to_owned() + case);
                 bench_inputs(&mut g, "add", inputs, |(a, b)| ours::$add(a, b));
-                bench_inputs(&mut g, "add_fast", inputs, |(a, b)| ours::$add_fast(a, b));
+                bench_inputs(&mut g, "add_decompress", inputs, |(a, b)| {
+                    ours::$add_decompress(a, b)
+                });
                 bench_inputs(&mut g, "add_upstream", inputs, |(a, b)| {
                     upstream::$add(a, b)
                 });
                 bench_inputs(&mut g, "sub", inputs, |(a, b)| ours::$sub(a, b));
-                bench_inputs(&mut g, "sub_fast", inputs, |(a, b)| ours::$sub_fast(a, b));
+                bench_inputs(&mut g, "sub_decompress", inputs, |(a, b)| {
+                    ours::$sub_decompress(a, b)
+                });
                 bench_inputs(&mut g, "sub_upstream", inputs, |(a, b)| {
                     upstream::$sub(a, b)
                 });
@@ -415,11 +295,11 @@ fn bench_corpus(c: &mut Criterion) {
         edwards_invalid,
         CompressedEdwardsY,
         edwards_validate,
-        edwards_validate_fast,
         edwards_add,
-        edwards_add_fast,
+        edwards_add_decompress,
         edwards_sub,
-        edwards_sub_fast
+        edwards_sub_decompress,
+        edwards_validate_decompress
     );
     curve!(
         "ristretto",
@@ -427,36 +307,38 @@ fn bench_corpus(c: &mut Criterion) {
         ristretto_invalid,
         CompressedRistretto,
         ristretto_validate,
-        ristretto_validate,
         ristretto_add,
-        ristretto_add_fast,
+        ristretto_add_decompress,
         ristretto_sub,
-        ristretto_sub_fast
+        ristretto_sub_decompress
     );
 
-    // y with (y² - 1)(d*y² + 1) = 2^254 + 2^250. This reached the
-    // posdivsteps cap before the machine-word finishing optimization.
-    let slow: Encoding =
+    // A structured y with (y² - 1)(d*y² + 1) = 2^254 + 2^250.
+    let structured: Encoding =
         hex::decode("7379fce5984ae7b06649cb0a9134e7439357b9c2fdeb244b527e77755233217f")
             .unwrap()
             .try_into()
             .unwrap();
     assert_eq!(
-        ours::edwards_validate_fast(&slow),
-        upstream::edwards_validate(&slow)
+        ours::edwards_validate(&structured),
+        upstream::edwards_validate(&structured)
+    );
+    assert_eq!(
+        ours::edwards_validate_decompress(&structured),
+        upstream::edwards_validate(&structured)
     );
     let mut g = c.benchmark_group("edwards/corpus/structured");
-    bench_inputs(&mut g, "validate", &[slow], ours::edwards_validate);
     bench_inputs(
         &mut g,
-        "validate_fast",
-        &[slow],
-        ours::edwards_validate_fast,
+        "validate_decompress",
+        &[structured],
+        ours::edwards_validate_decompress,
     );
+    bench_inputs(&mut g, "validate", &[structured], ours::edwards_validate);
     bench_inputs(
         &mut g,
         "validate_upstream",
-        &[slow],
+        &[structured],
         upstream::edwards_validate,
     );
 }
@@ -470,6 +352,6 @@ fn config() -> Criterion {
 criterion_group! {
     name = benches;
     config = config();
-    targets = bench_syscalls, bench_corpus
+    targets = bench_corpus
 }
 criterion_main!(benches);
