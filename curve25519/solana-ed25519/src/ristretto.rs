@@ -462,14 +462,47 @@ impl JacobiQuartic {
         }
     }
 
-    /// The unified addition law of Billet and Joye for
+    /// The sum of `self` and `other`, in variable time.
+    ///
+    /// Uses the unified addition law of Billet and Joye for
     /// \( t^2 = s^4 + 2A s^2 + 1 \):
     /// \( s_3 = (s_1 t_2 + t_1 s_2) / (1 - s_1^2 s_2^2) \) and
     /// \( t_3 = ((1 + s_1^2 s_2^2)(t_1 t_2 + 2A s_1 s_2) + 2 s_1 s_2 (s_1^2 + s_2^2)) / (1 - s_1^2 s_2^2)^2 \).
     ///
-    /// The only exceptional case is \( s_1 s_2 = \pm 1 \), when the sum
-    /// is a point at infinity; it is returned with `Z = 0`.
-    fn add(&self, other: &Self) -> JacobiQuarticProjective {
+    /// The law is undefined only when \( s_1 s_2 = \pm 1 \), that is for
+    /// \( (s_2, t_2) = (\pm 1/s_1, \pm t_1/s_1^2) \). With equal signs the
+    /// sum is a point at infinity and comes out as `Z = 0` with `X ≠ 0`.
+    /// With opposite signs
+    /// \( \varphi(s_2, t_2) = \varphi(s_1, t_1) + (0, -1) \), so the sum
+    /// is the finite point \( 2\varphi(s_1, t_1) + (0, -1) \), while the
+    /// formulas give `(0:0:0)`. That case is detected and the sum computed
+    /// by doubling `self` and applying \( (s, t) \mapsto (1/s, -t/s^2) \),
+    /// the map on \( \mathcal J \) that adds \( (0, -1) \) downstairs.
+    /// Doubling never produces `(0:0:0)`: \( s^4 = 1 \) forces
+    /// \( t^2 = 2 \pm 2A \neq 0 \), so its `X = 2st` is nonzero.
+    ///
+    /// Decoded Ristretto encodings never reach the degenerate case, since
+    /// there \( \varphi(s_2, t_2) \) would be \( (-x, -y) \), or
+    /// \( (x, -y) \) before `negate`, for \( (x, y) = \varphi(s_1, t_1) \)
+    /// with \( x > 0 \) and \( xy > 0 \), and neither is the
+    /// representative decoding chooses. Handling it anyway keeps this
+    /// function total on \( \mathcal J \).
+    fn add_vartime(&self, other: &Self) -> JacobiQuarticProjective {
+        let sum = self.add_unified(other);
+        if bool::from(sum.Z.is_zero()) && bool::from(sum.X.is_zero()) {
+            let doubled = self.add_unified(self);
+            return JacobiQuarticProjective {
+                X: doubled.Z,
+                Y: -&doubled.Y,
+                Z: doubled.X,
+            };
+        }
+        sum
+    }
+
+    /// The Billet–Joye formulas as written; see `add_vartime` for the
+    /// exceptional cases.
+    fn add_unified(&self, other: &Self) -> JacobiQuarticProjective {
         let ss = &self.s * &other.s;
         let tt = &self.t * &other.t;
         let ss_sq = ss.square();
@@ -592,7 +625,7 @@ impl CompressedRistretto {
         } else {
             db.quartic
         };
-        Some(da.quartic.add(&qb).compress_vartime())
+        Some(da.quartic.add_vartime(&qb).compress_vartime())
     }
 }
 
@@ -1722,7 +1755,7 @@ mod test {
                 s: s_inv,
                 t: &q.t * &s_inv.square(),
             };
-            let sum = q.add(&shifted);
+            let sum = q.add_vartime(&shifted);
             assert!(bool::from(sum.Z.is_zero()));
             assert_eq!(sum.compress_vartime(), CompressedRistretto::identity());
             // The finite identity-coset points: s = 0 and s = ±1.
@@ -1739,6 +1772,62 @@ mod test {
                     Z: FieldElement::ONE,
                 };
                 assert_eq!(point.compress_vartime(), CompressedRistretto::identity());
+            }
+        }
+    }
+
+    /// For `other = (±1/s, ∓t/s²)` the Billet–Joye formulas vanish
+    /// identically although the sum is finite; `add_vartime` must return
+    /// the preimage of `2φ(self) + (0, -1)`, which encodes as `2P`.
+    #[test]
+    fn degenerate_quartic_sum_is_doubling() {
+        use rand::Rng;
+        let mut rng = rand::rng();
+        let one = FieldElement::ONE;
+        for _ in 0..64 {
+            let mut wide = [0u8; 64];
+            rng.fill_bytes(&mut wide);
+            let p = RistrettoPoint::mul_base(&Scalar::from_bytes_mod_order_wide(&wide));
+            let (_, _, s) = decompress::step_1(&p.compress());
+            let prepared = decompress::prepare(s);
+            let (ok, I) = prepared.w.invsqrt();
+            assert!(bool::from(ok));
+            let decoded = decompress::finish(&prepared, I);
+            let q = decoded.quartic;
+            // The two degenerate partners (1/s, -t/s²) and (-1/s, t/s²); the
+            // other two sign choices are the sums at infinity.
+            let s_inv = q.s.invert();
+            let t_shift = &q.t * &s_inv.square();
+            let degenerate = [
+                JacobiQuartic {
+                    s: s_inv,
+                    t: -&t_shift,
+                },
+                JacobiQuartic {
+                    s: -&s_inv,
+                    t: t_shift,
+                },
+            ];
+            // (x, y) = 2φ(q) on the Edwards curve.
+            let doubled = decoded.point.0 + decoded.point.0;
+            let z_inv = doubled.Z.invert();
+            let (x, y) = (&doubled.X * &z_inv, &doubled.Y * &z_inv);
+            for other in degenerate {
+                let raw = q.add_unified(&other);
+                assert!(bool::from(
+                    raw.X.is_zero() & raw.Y.is_zero() & raw.Z.is_zero()
+                ));
+                let sum = q.add_vartime(&other);
+                assert!(!bool::from(sum.Z.is_zero()));
+                // φ(sum) must be 2φ(q) + (0, -1) = (-x, -y).
+                let sum_z_inv = sum.Z.invert();
+                let sum_s = &sum.X * &sum_z_inv;
+                let sum_t = &sum.Y * &sum_z_inv.square();
+                let phi_x = &(&(&sum_s + &sum_s) * &constants::INVSQRT_A_MINUS_D) * &sum_t.invert();
+                let phi_y = &(&one - &sum_s.square()) * &(&one + &sum_s.square()).invert();
+                assert_eq!(phi_x, -&x);
+                assert_eq!(phi_y, -&y);
+                assert_eq!(sum.compress_vartime(), (p + p).compress());
             }
         }
     }
