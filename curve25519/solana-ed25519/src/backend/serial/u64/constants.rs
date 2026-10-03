@@ -95,6 +95,15 @@ pub(crate) const INVSQRT_A_MINUS_D: FieldElement51 = FieldElement51::from_limbs(
     2118520810568447,
 ]);
 
+/// `= 2/sqrt(a-d)`, twice `INVSQRT_A_MINUS_D`.
+pub(crate) const DOUBLE_INVSQRT_A_MINUS_D: FieldElement51 = FieldElement51::from_limbs([
+    557817479725543,
+    1643290402203250,
+    16226468853936,
+    1304118542701054,
+    1985241807451647,
+]);
+
 /// `2A = 486662` for the Jacobi quartic `t² = s⁴ + 2A s² + 1` that is
 /// 2-isogenous to the Edwards curve; `A = (1 - d) / (1 + d)`.
 pub(crate) const JACOBI_QUARTIC_TWO_A: FieldElement51 =
@@ -118,6 +127,15 @@ pub(crate) const SQRT_M1: FieldElement51 = FieldElement51::from_limbs([
     2233514472574048,
     2117202627021982,
     765476049583133,
+]);
+
+/// `-SQRT_M1`, the other square root of -1 (mod p)
+pub(crate) const MINUS_SQRT_M1: FieldElement51 = FieldElement51::from_limbs([
+    533094393274173,
+    2016890930128738,
+    18285341111199,
+    134597186663265,
+    1486323764102114,
 ]);
 
 /// `APLUS2_OVER_FOUR` is (A+2)/4. (This is used internally within the Montgomery ladder.)

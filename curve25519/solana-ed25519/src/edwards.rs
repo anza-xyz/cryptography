@@ -262,10 +262,10 @@ impl CompressedEdwardsY {
     /// Returns `None` if the input is not the \\(y\\)-coordinate of a
     /// curve point.
     pub fn decompress(&self) -> Option<EdwardsPoint> {
-        let (is_valid_y_coord, X, Y, Z) = decompress::step_1(self);
+        let (is_valid_y_coord, X, Y) = decompress::step_1(self);
 
         if is_valid_y_coord.into() {
-            Some(decompress::step_2(self, X, Y, Z))
+            Some(decompress::step_2(self, X, Y))
         } else {
             None
         }
@@ -343,10 +343,7 @@ impl CompressedEdwardsY {
         let (Yb, ub, vb) = decompress::prepare(b);
         let ((ok_a, Xa), (ok_b, Xb)) = FieldElement::sqrt_ratio_i_pair(&ua, &va, &ub, &vb);
         if (ok_a & ok_b).into() {
-            Some((
-                decompress::step_2(a, Xa, Ya, FieldElement::ONE),
-                decompress::step_2(b, Xb, Yb, FieldElement::ONE),
-            ))
+            Some((decompress::step_2(a, Xa, Ya), decompress::step_2(b, Xb, Yb)))
         } else {
             None
         }
@@ -367,31 +364,29 @@ mod decompress {
         (Y, u, v)
     }
 
-    pub(super) fn step_1(
-        repr: &CompressedEdwardsY,
-    ) -> (Choice, FieldElement, FieldElement, FieldElement) {
+    /// `(valid, |x|, y)`: the affine coordinates, with `x` still unsigned.
+    pub(super) fn step_1(repr: &CompressedEdwardsY) -> (Choice, FieldElement, FieldElement) {
         let (Y, u, v) = prepare(repr);
         let (is_valid_y_coord, X) = FieldElement::sqrt_ratio_i(&u, &v);
 
-        (is_valid_y_coord, X, Y, FieldElement::ONE)
+        (is_valid_y_coord, X, Y)
     }
 
-    #[rustfmt::skip]
+    /// The affine point `(±X, Y)` with the sign taken from the encoding.
     pub(super) fn step_2(
         repr: &CompressedEdwardsY,
         mut X: FieldElement,
         Y: FieldElement,
-        Z: FieldElement,
     ) -> EdwardsPoint {
-         // FieldElement::sqrt_ratio_i always returns the nonnegative square root,
-         // so we negate according to the supplied sign bit.
+        // FieldElement::sqrt_ratio_i always returns the nonnegative square root,
+        // so we negate according to the supplied sign bit.
         let compressed_sign_bit = Choice::from(repr.as_bytes()[31] >> 7);
         X.conditional_negate(compressed_sign_bit);
 
         EdwardsPoint {
             X,
             Y,
-            Z,
+            Z: FieldElement::ONE,
             T: &X * &Y,
         }
     }
@@ -1666,8 +1661,8 @@ impl GroupEncoding for EdwardsPoint {
 
     fn from_bytes(bytes: &Self::Repr) -> CtOption<Self> {
         let repr = CompressedEdwardsY(*bytes);
-        let (is_valid_y_coord, X, Y, Z) = decompress::step_1(&repr);
-        CtOption::new(decompress::step_2(&repr, X, Y, Z), is_valid_y_coord)
+        let (is_valid_y_coord, X, Y) = decompress::step_1(&repr);
+        CtOption::new(decompress::step_2(&repr, X, Y), is_valid_y_coord)
     }
 
     fn from_bytes_unchecked(bytes: &Self::Repr) -> CtOption<Self> {
@@ -2503,9 +2498,9 @@ mod test {
         // A structured y with (y² - 1)(d*y² + 1) = 2^254 + 2^250.
         encodings.push(
             hex::decode("7379fce5984ae7b06649cb0a9134e7439357b9c2fdeb244b527e77755233217f")
-                .unwrap()
+                .expect("valid hex")
                 .try_into()
-                .unwrap(),
+                .expect("32 bytes"),
         );
         for small in 0u8..64 {
             let mut bytes = [0u8; 32];

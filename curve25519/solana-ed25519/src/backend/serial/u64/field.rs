@@ -614,41 +614,44 @@ impl FieldElement51 {
     /// Each squaring depends on the previous one, so this uses the parallel
     /// carry schedule, which has the shorter dependency chain. For a single
     /// squaring use `square`, which has fewer instructions.
-    pub fn pow2k(&self, mut k: u32) -> FieldElement51 {
-        debug_assert!(k > 0);
-
-        let mut a: [u64; 5] = self.0;
-
-        loop {
-            a = carry_parallel(square_columns(&a));
-            // Now a = self^(2^k) for the squarings done so far, with all
-            // a[i] < 2^51 + 2^17.
-
-            k -= 1;
-            if k == 0 {
-                break;
-            }
-        }
-
-        FieldElement51(a)
+    #[inline(always)]
+    pub fn pow2k(&self, k: u32) -> FieldElement51 {
+        let [r] = FieldElement51::pow2k_many(&[*self], k);
+        r
     }
 
-    /// Given `k > 0`, return `(a^(2^k), b^(2^k))`.
+    /// Given `k > 0`, return `(a^(2^k), b^(2^k))`; see `pow2k_many`.
+    #[inline(always)]
+    pub fn pow2k_pair(a: &FieldElement51, b: &FieldElement51, k: u32) -> (Self, Self) {
+        let [x, y] = FieldElement51::pow2k_many(&[*a, *b], k);
+        (x, y)
+    }
+
+    /// Given `k > 0`, return `x^(2^k)` for each element of `xs`.
     ///
-    /// The two squaring chains are independent, so interleaving them lets
-    /// the CPU overlap their dependency chains; each chain on its own leaves
-    /// the multiplier idle most of the time. With two chains in flight the
-    /// latency of the carry no longer matters, so this uses the shorter
-    /// serial schedule. Used when two points are decompressed together.
-    pub fn pow2k_pair(a: &FieldElement51, b: &FieldElement51, mut k: u32) -> (Self, Self) {
+    /// The squaring chains are independent, so interleaving them lets the
+    /// CPU overlap their dependency chains; each chain on its own leaves
+    /// the multiplier idle most of the time. A single chain therefore uses
+    /// the parallel carry schedule, which has the shorter critical path,
+    /// while two or more chains in flight already hide the carry latency
+    /// and use the shorter serial schedule. Used when two points are
+    /// decompressed together.
+    #[inline(always)]
+    pub fn pow2k_many<const N: usize>(xs: &[FieldElement51; N], mut k: u32) -> [Self; N] {
         debug_assert!(k > 0);
 
-        let mut x: [u64; 5] = a.0;
-        let mut y: [u64; 5] = b.0;
+        let mut a: [[u64; 5]; N] = core::array::from_fn(|i| xs[i].0);
 
         loop {
-            x = carry_serial(square_columns(&x));
-            y = carry_serial(square_columns(&y));
+            for x in a.iter_mut() {
+                *x = if N == 1 {
+                    carry_parallel(square_columns(x))
+                } else {
+                    carry_serial(square_columns(x))
+                };
+            }
+            // Now a[j] = xs[j]^(2^k) for the squarings done so far, with all
+            // limbs < 2^51 + 2^17.
 
             k -= 1;
             if k == 0 {
@@ -656,7 +659,7 @@ impl FieldElement51 {
             }
         }
 
-        (FieldElement51(x), FieldElement51(y))
+        core::array::from_fn(|i| FieldElement51(a[i]))
     }
 
     /// Returns the square of this field element.

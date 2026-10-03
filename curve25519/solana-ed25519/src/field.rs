@@ -156,77 +156,69 @@ impl FieldElement {
 
     /// Compute (self^(2^250-1), self^11), used as a helper function
     /// within invert() and pow22523().
-    #[rustfmt::skip] // keep alignment of explanatory comments
+    #[inline(always)]
     fn pow22501(&self) -> (FieldElement, FieldElement) {
+        let ([t19], [t3]) = FieldElement::pow22501_many(&[*self]);
+        (t19, t3)
+    }
+
+    /// `pow22501` for `N` independent elements at once.
+    ///
+    /// Returns `(x^(2^250-1), x^11)` for each element of `xs`. The squaring
+    /// chains are interleaved by `pow2k_many`, so two elements cost much less
+    /// than twice one; see there. This is the only copy of the addition chain.
+    #[rustfmt::skip] // keep alignment of explanatory comments
+    fn pow22501_many<const N: usize>(
+        xs: &[FieldElement; N],
+    ) -> ([FieldElement; N], [FieldElement; N]) {
         // Instead of managing which temporary variables are used
         // for what, we define as many as we need and leave stack
         // allocation to the compiler
         //
-        // Each temporary variable t_i is of the form (self)^e_i.
+        // Each temporary variable t_i is of the form (x)^e_i.
         // Squaring t_i corresponds to multiplying e_i by 2,
         // so the pow2k function shifts e_i left by k places.
         // Multiplying t_i and t_j corresponds to adding e_i + e_j.
+        fn mul<const N: usize>(a: &[FieldElement; N], b: &[FieldElement; N]) -> [FieldElement; N] {
+            core::array::from_fn(|i| &a[i] * &b[i])
+        }
+        let pow2k = FieldElement::pow2k_many::<N>;
         //
         // Temporary t_i                      Nonzero bits of e_i
         //
-        let t0  = self.square();           // 1         e_0 = 2^1
-        let t1  = t0.square().square();    // 3         e_1 = 2^3
-        let t2  = self * &t1;              // 3,0       e_2 = 2^3 + 2^0
-        let t3  = &t0 * &t2;               // 3,1,0
-        let t4  = t3.square();             // 4,2,1
-        let t5  = &t2 * &t4;               // 4,3,2,1,0
-        let t6  = t5.pow2k(5);             // 9,8,7,6,5
-        let t7  = &t6 * &t5;               // 9,8,7,6,5,4,3,2,1,0
-        let t8  = t7.pow2k(10);            // 19..10
-        let t9  = &t8 * &t7;               // 19..0
-        let t10 = t9.pow2k(20);            // 39..20
-        let t11 = &t10 * &t9;              // 39..0
-        let t12 = t11.pow2k(10);           // 49..10
-        let t13 = &t12 * &t7;              // 49..0
-        let t14 = t13.pow2k(50);           // 99..50
-        let t15 = &t14 * &t13;             // 99..0
-        let t16 = t15.pow2k(100);          // 199..100
-        let t17 = &t16 * &t15;             // 199..0
-        let t18 = t17.pow2k(50);           // 249..50
-        let t19 = &t18 * &t13;             // 249..0
+        let t0  = pow2k(xs, 1);            // 1         e_0 = 2^1
+        let t1  = pow2k(&t0, 2);           // 3         e_1 = 2^3
+        let t2  = mul(xs, &t1);            // 3,0       e_2 = 2^3 + 2^0
+        let t3  = mul(&t0, &t2);           // 3,1,0
+        let t4  = pow2k(&t3, 1);           // 4,2,1
+        let t5  = mul(&t2, &t4);           // 4,3,2,1,0
+        let t6  = pow2k(&t5, 5);           // 9,8,7,6,5
+        let t7  = mul(&t6, &t5);           // 9,8,7,6,5,4,3,2,1,0
+        let t8  = pow2k(&t7, 10);          // 19..10
+        let t9  = mul(&t8, &t7);           // 19..0
+        let t10 = pow2k(&t9, 20);          // 39..20
+        let t11 = mul(&t10, &t9);          // 39..0
+        let t12 = pow2k(&t11, 10);         // 49..10
+        let t13 = mul(&t12, &t7);          // 49..0
+        let t14 = pow2k(&t13, 50);         // 99..50
+        let t15 = mul(&t14, &t13);         // 99..0
+        let t16 = pow2k(&t15, 100);        // 199..100
+        let t17 = mul(&t16, &t15);         // 199..0
+        let t18 = pow2k(&t17, 50);         // 249..50
+        let t19 = mul(&t18, &t13);         // 249..0
 
         (t19, t3)
     }
 
-    /// `pow22501` for two independent elements at once, interleaving the
-    /// two squaring chains; see `pow2k_pair`.
-    #[rustfmt::skip] // keep alignment with pow22501
-    fn pow22501_pair(a: &FieldElement, b: &FieldElement) -> ((FieldElement, FieldElement), (FieldElement, FieldElement)) {
-        let (a0, b0) = FieldElement::pow2k_pair(a, b, 1);           // 1
-        let (a1, b1) = FieldElement::pow2k_pair(&a0, &b0, 2);       // 3
-        let (a2, b2) = (a * &a1, b * &b1);                          // 3,0
-        let (a3, b3) = (&a0 * &a2, &b0 * &b2);                      // 3,1,0
-        let (a4, b4) = FieldElement::pow2k_pair(&a3, &b3, 1);       // 4,2,1
-        let (a5, b5) = (&a2 * &a4, &b2 * &b4);                      // 4,3,2,1,0
-        let (a6, b6) = FieldElement::pow2k_pair(&a5, &b5, 5);       // 9,8,7,6,5
-        let (a7, b7) = (&a6 * &a5, &b6 * &b5);                      // 9,8,7,6,5,4,3,2,1,0
-        let (a8, b8) = FieldElement::pow2k_pair(&a7, &b7, 10);      // 19..10
-        let (a9, b9) = (&a8 * &a7, &b8 * &b7);                      // 19..0
-        let (a10, b10) = FieldElement::pow2k_pair(&a9, &b9, 20);    // 39..20
-        let (a11, b11) = (&a10 * &a9, &b10 * &b9);                  // 39..0
-        let (a12, b12) = FieldElement::pow2k_pair(&a11, &b11, 10);  // 49..10
-        let (a13, b13) = (&a12 * &a7, &b12 * &b7);                  // 49..0
-        let (a14, b14) = FieldElement::pow2k_pair(&a13, &b13, 50);  // 99..50
-        let (a15, b15) = (&a14 * &a13, &b14 * &b13);                // 99..0
-        let (a16, b16) = FieldElement::pow2k_pair(&a15, &b15, 100); // 199..100
-        let (a17, b17) = (&a16 * &a15, &b16 * &b15);                // 199..0
-        let (a18, b18) = FieldElement::pow2k_pair(&a17, &b17, 50);  // 249..50
-        let (a19, b19) = (&a18 * &a13, &b18 * &b13);                // 249..0
-
-        ((a19, a3), (b19, b3))
-    }
-
-    /// `pow_p58` for two independent elements at once.
-    #[rustfmt::skip] // keep alignment with pow_p58
-    fn pow_p58_pair(a: &FieldElement, b: &FieldElement) -> (FieldElement, FieldElement) {
-        let ((a19, _), (b19, _)) = FieldElement::pow22501_pair(a, b); // 249..0
-        let (a20, b20) = FieldElement::pow2k_pair(&a19, &b19, 2);     // 251..2
-        (a * &a20, b * &b20)                                          // 251..2,0
+    /// `pow_p58` for `N` independent elements at once.
+    #[rustfmt::skip] // keep alignment of explanatory comments
+    fn pow_p58_many<const N: usize>(xs: &[FieldElement; N]) -> [FieldElement; N] {
+        // The bits of (p-5)/8 are 101111.....11.
+        //
+        //                                         nonzero bits of exponent
+        let (t19, _) = FieldElement::pow22501_many(xs);  // 249..0
+        let t20 = FieldElement::pow2k_many(&t19, 2);     // 251..2
+        core::array::from_fn(|i| &xs[i] * &t20[i])       // 251..2,0
     }
 
     /// `sqrt_ratio_i` for two independent ratios at once.
@@ -245,7 +237,7 @@ impl FieldElement {
         let v0_7 = &v0_3.square() * v0;
         let v1_3 = &v1.square() * v1;
         let v1_7 = &v1_3.square() * v1;
-        let (p0, p1) = FieldElement::pow_p58_pair(&(u0 * &v0_7), &(u1 * &v1_7));
+        let [p0, p1] = FieldElement::pow_p58_many(&[u0 * &v0_7, u1 * &v1_7]);
         let r0 = &(u0 * &v0_3) * &p0;
         let r1 = &(u1 * &v1_3) * &p1;
         (
@@ -286,7 +278,39 @@ impl FieldElement {
         a: &FieldElement,
         b: &FieldElement,
     ) -> ((Choice, FieldElement), (Choice, FieldElement)) {
-        FieldElement::sqrt_ratio_i_pair(&FieldElement::ONE, a, &FieldElement::ONE, b)
+        let a3 = &a.square() * a;
+        let a7 = &a3.square() * a;
+        let b3 = &b.square() * b;
+        let b7 = &b3.square() * b;
+        let [pa, pb] = FieldElement::pow_p58_many(&[a7, b7]);
+        (
+            FieldElement::invsqrt_finish(a, &a3 * &pa),
+            FieldElement::invsqrt_finish(b, &b3 * &pb),
+        )
+    }
+
+    /// Shared tail of `invsqrt`: given `r = v^3 (v^7)^((p-5)/8)`, pick the
+    /// correct square root and sign. This is `sqrt_ratio_i_finish` with
+    /// `u = 1`, without the multiplications by one.
+    fn invsqrt_finish(v: &FieldElement, mut r: FieldElement) -> (Choice, FieldElement) {
+        // r^2 = ±1/v or ±i/v, so v r^2 is 1, -1, i or -i.
+        let check = v * &r.square();
+        let check_bytes = check.to_bytes();
+
+        let correct_sign_sqrt = check_bytes.ct_eq(&FieldElement::ONE.to_bytes());
+        let flipped_sign_sqrt = check_bytes.ct_eq(&FieldElement::MINUS_ONE.to_bytes());
+        let flipped_sign_sqrt_i = check_bytes.ct_eq(&constants::MINUS_SQRT_M1.to_bytes());
+
+        let r_prime = &constants::SQRT_M1 * &r;
+        r.conditional_assign(&r_prime, flipped_sign_sqrt | flipped_sign_sqrt_i);
+
+        // Choose the nonnegative square root.
+        let r_is_negative = r.is_negative();
+        r.conditional_negate(r_is_negative);
+
+        let was_nonzero_square = correct_sign_sqrt | flipped_sign_sqrt;
+
+        (was_nonzero_square, r)
     }
 
     /// Given a slice of pub(crate)lic `FieldElements`, replace each with its inverse.
@@ -465,7 +489,8 @@ impl FieldElement {
 
     /// Attempt to compute `sqrt(1/self)` in constant time.
     ///
-    /// Convenience wrapper around `sqrt_ratio_i`.
+    /// The same computation as `sqrt_ratio_i(1, self)`, without the
+    /// multiplications by one.
     ///
     /// This function always returns the nonnegative square root.
     ///
@@ -476,7 +501,10 @@ impl FieldElement {
     /// - `(Choice(0), +sqrt(i/self))  ` if `self` is a nonzero nonsquare;
     ///
     pub(crate) fn invsqrt(&self) -> (Choice, FieldElement) {
-        FieldElement::sqrt_ratio_i(&FieldElement::ONE, self)
+        // 1/sqrt(v) = v^3 (v^7)^((p-5)/8), as in `sqrt_ratio_i` with u = 1.
+        let v3 = &self.square() * self;
+        let v7 = &v3.square() * self;
+        FieldElement::invsqrt_finish(self, &v3 * &v7.pow_p58())
     }
 
     #[cfg(feature = "digest")]
@@ -775,6 +803,51 @@ mod test {
         assert!(bool::from(choice));
         assert_eq!(&sqrt.square() * &four, one);
         assert!(bool::from(!sqrt.is_negative()));
+    }
+
+    /// `invsqrt` and `invsqrt_pair` are `sqrt_ratio_i(1, v)`, and the
+    /// paired chains agree with the single ones, on zero, squares,
+    /// nonsquares and a deterministic walk of random-looking elements.
+    #[test]
+    fn invsqrt_matches_sqrt_ratio() {
+        let one = FieldElement::ONE;
+        let two = &one + &one;
+        let mut inputs = [
+            FieldElement::ZERO,
+            one,
+            FieldElement::MINUS_ONE,
+            two,
+            &two + &two,
+            constants::SQRT_M1,
+            FieldElement::from_bytes(&A_BYTES),
+            FieldElement::from_bytes(&AINV_BYTES),
+        ];
+        let mut walk = FieldElement::from_bytes(&A_BYTES);
+        for _ in 0..8 {
+            for pair in inputs.chunks_exact(2) {
+                let (a, b) = (pair[0], pair[1]);
+                let (ok_a, ra) = FieldElement::sqrt_ratio_i(&one, &a);
+                let (ok_b, rb) = FieldElement::sqrt_ratio_i(&one, &b);
+                let (ok, r) = a.invsqrt();
+                assert_eq!((bool::from(ok), r), (bool::from(ok_a), ra));
+                let ((pok_a, pra), (pok_b, prb)) = FieldElement::invsqrt_pair(&a, &b);
+                assert_eq!((bool::from(pok_a), pra), (bool::from(ok_a), ra));
+                assert_eq!((bool::from(pok_b), prb), (bool::from(ok_b), rb));
+                let ((sok_a, sra), (sok_b, srb)) = FieldElement::sqrt_ratio_i_pair(&a, &b, &b, &a);
+                assert_eq!((bool::from(sok_a), sra), {
+                    let (c, r) = FieldElement::sqrt_ratio_i(&a, &b);
+                    (bool::from(c), r)
+                });
+                assert_eq!((bool::from(sok_b), srb), {
+                    let (c, r) = FieldElement::sqrt_ratio_i(&b, &a);
+                    (bool::from(c), r)
+                });
+            }
+            for x in inputs.iter_mut() {
+                walk = &walk.square() + &one;
+                *x = walk;
+            }
+        }
     }
 
     #[test]

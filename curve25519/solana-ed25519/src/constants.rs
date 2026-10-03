@@ -116,6 +116,16 @@ mod test {
         assert!(bool::from(!constants::SQRT_M1.is_negative()));
     }
 
+    /// The derived constants agree with the ones they are derived from.
+    #[test]
+    fn test_derived_constants() {
+        assert_eq!(constants::MINUS_SQRT_M1, -&constants::SQRT_M1);
+        assert_eq!(
+            constants::DOUBLE_INVSQRT_A_MINUS_D,
+            &constants::INVSQRT_A_MINUS_D + &constants::INVSQRT_A_MINUS_D
+        );
+    }
+
     #[test]
     fn test_sqrt_constants_sign() {
         let minus_one = FieldElement::MINUS_ONE;

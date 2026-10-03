@@ -365,18 +365,35 @@ mod decompress {
     }
 
     /// The outcome of step 2: the decoded point, the flags that may still
-    /// reject it, and the same point on the Jacobi quartic.
+    /// reject it, and what `quartic` needs to place it on the Jacobi quartic.
     pub(super) struct Decoded {
         pub(super) t_is_negative: Choice,
         pub(super) y_is_zero: Choice,
         pub(super) point: RistrettoPoint,
-        pub(super) quartic: JacobiQuartic,
+        s: FieldElement,
+        sqrt_v: FieldElement,
+        x_neg: Choice,
+    }
+
+    impl Decoded {
+        /// The decoded point as a point of the Jacobi quartic.
+        ///
+        /// The point is the image of (s, t_J) under
+        /// (s, t_J) -> (2 s / (t_J sqrt(a-d)), (1-s²)/(1+s²)), where
+        /// t_J = sqrt(v) / sqrt(a-d), negated when x was, so that the image
+        /// has the non-negative x chosen by `finish`. Only the variable-time
+        /// group operations need this, so it is not computed in `finish`.
+        pub(super) fn quartic(&self) -> JacobiQuartic {
+            let mut t = &constants::INVSQRT_A_MINUS_D * &self.sqrt_v;
+            t.conditional_negate(self.x_neg);
+            JacobiQuartic { s: self.s, t }
+        }
     }
 
     /// Completes step 2 given `I = 1/sqrt(v * u2²)`.
     pub(super) fn finish(p: &Prepared, I: FieldElement) -> Decoded {
         let Dx = &I * &p.u2; // 1/sqrt(v)
-        let sqrt_v = &Dx * &p.v; // sqrt(v), shared with the quartic coordinate
+        let sqrt_v = &Dx * &p.v; // sqrt(v), kept for the quartic coordinate
         let Dy = &I * &sqrt_v; // 1/u2
 
         // x == | 2s/sqrt(v) | == + sqrt(4s²/(ad(1+as²)² - (1-as²)²))
@@ -390,13 +407,6 @@ mod decompress {
         // t == ((1+as²) sqrt(4s²/(ad(1+as²)² - (1-as²)²)))/(1-as²)
         let t = &x * &y;
 
-        // The decoded point is the image of (s, t_J) on the Jacobi quartic
-        // under (s, t_J) -> (2 s / (t_J sqrt(a-d)), (1-s²)/(1+s²)), where
-        // t_J = sqrt(v) / sqrt(a-d) with sqrt(v) = 1/Dx = v Dx, negated when
-        // x was, so that the image has the non-negative x chosen above.
-        let mut quartic_t = &constants::INVSQRT_A_MINUS_D * &sqrt_v;
-        quartic_t.conditional_negate(x_neg);
-
         Decoded {
             t_is_negative: t.is_negative(),
             y_is_zero: y.is_zero(),
@@ -406,10 +416,9 @@ mod decompress {
                 Z: FieldElement::ONE,
                 T: t,
             }),
-            quartic: JacobiQuartic {
-                s: p.s,
-                t: quartic_t,
-            },
+            s: p.s,
+            sqrt_v,
+            x_neg,
         }
     }
 
@@ -542,10 +551,11 @@ impl JacobiQuarticProjective {
         let torqued_num = &(&constants::JACOBI_QUARTIC_TORSION_T * &xz) + &self.Y;
 
         // Identity coset: a point at infinity (maps to (0,-1)), s = 0 (maps
-        // to (0,1)), or s = ±1 (maps to (±i, 0)). `torqued_num = 0` means
-        // the torqued point is the identity, which is the s = ±1 case again.
-        let identity =
-            self.Z.is_zero() | self.X.is_zero() | one_minus_ss.is_zero() | torqued_num.is_zero();
+        // to (0,1)), or s = ±1 (maps to (±i, 0)). These eight points are the
+        // whole coset, so for a point on the curve `torqued_num = 0` (the
+        // torqued point in the coset) can only be the s = ±1 case again and
+        // needs no separate check.
+        let identity = self.Z.is_zero() | self.X.is_zero() | one_minus_ss.is_zero();
         if identity.into() {
             return CompressedRistretto([0u8; 32]);
         }
@@ -571,24 +581,23 @@ impl JacobiQuarticProjective {
 
         // The affine Edwards coordinates of φ(self).
         let y = &one_minus_ss * &inv_one_plus_ss;
-        let two_magic = &constants::INVSQRT_A_MINUS_D + &constants::INVSQRT_A_MINUS_D;
-        let x = &(&two_magic * &xz) * &inv_y;
+        let x = &(&constants::DOUBLE_INVSQRT_A_MINUS_D * &xz) * &inv_y;
 
         // The identity check excluded a zero numerator for y, and its denominator
         // is nonzero, so only the sign of x*y determines the torque here.
         let torque = (&x * &y).is_negative();
-        let (x_final, mut s, mut s_inv) = if torque.into() {
-            (
-                &constants::SQRT_M1 * &y,
-                &torqued_num * &inv_one_minus_ss,
-                &one_minus_ss * &inv_torqued_num,
-            )
+        // Negating (x, y) maps s to 1/s; only the one needed is computed.
+        let mut s = if torque.into() {
+            if (&constants::SQRT_M1 * &y).is_negative().into() {
+                &one_minus_ss * &inv_torqued_num
+            } else {
+                &torqued_num * &inv_one_minus_ss
+            }
+        } else if x.is_negative().into() {
+            &self.Z * &inv_x
         } else {
-            (x, &self.X * &inv_z, &self.Z * &inv_x)
+            &self.X * &inv_z
         };
-        if x_final.is_negative().into() {
-            core::mem::swap(&mut s, &mut s_inv);
-        }
         let s_is_negative = s.is_negative();
         s.conditional_negate(s_is_negative);
         CompressedRistretto(s.to_bytes())
@@ -622,11 +631,11 @@ impl CompressedRistretto {
         let (da, db) = decompress::pair(a, b)?;
 
         let qb = if subtract {
-            db.quartic.negate()
+            db.quartic().negate()
         } else {
-            db.quartic
+            db.quartic()
         };
-        Some(da.quartic.add_vartime(&qb).compress_vartime())
+        Some(da.quartic().add_vartime(&qb).compress_vartime())
     }
 }
 
@@ -1748,7 +1757,7 @@ mod test {
             let prepared = decompress::prepare(s);
             let (ok, I) = prepared.w.invsqrt();
             assert!(bool::from(ok));
-            let q = decompress::finish(&prepared, I).quartic;
+            let q = decompress::finish(&prepared, I).quartic();
             // (1/s, t/s²) is on the quartic and maps into -p's coset, so the
             // sum lands at infinity.
             let s_inv = q.s.invert();
@@ -1794,7 +1803,7 @@ mod test {
             let (ok, I) = prepared.w.invsqrt();
             assert!(bool::from(ok));
             let decoded = decompress::finish(&prepared, I);
-            let q = decoded.quartic;
+            let q = decoded.quartic();
             // The two degenerate partners (1/s, -t/s²) and (-1/s, t/s²); the
             // other two sign choices are the sums at infinity.
             let s_inv = q.s.invert();
