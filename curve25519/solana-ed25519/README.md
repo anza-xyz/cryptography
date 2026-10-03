@@ -165,6 +165,81 @@ let (rho, tau, flip_h) = h.heea_decompose();
 
 ---
 
+## Curve25519 syscall helpers
+
+The `sol_curve_validate_point` and `sol_curve_group_op` syscalls decompress
+their inputs (a square root each) and compress their output (an inversion or
+inverse square root), which is nearly all of their cost. The helpers below
+reduce that cost while preserving the existing results. The variable-time
+helpers are for public data only:
+
+- `CompressedEdwardsY::decompresses` answers `decompress().is_some()` with
+  a fixed exponentiation schedule and no fallback. For `w = (y² - 1)(d y² + 1)`,
+  it checks whether `w^((p-1)/4)` is zero or ±1. This accepts exactly the
+  square residues, including zero, without constructing a square root or a
+  point. Use this helper when validation needs a predictable operation count,
+  such as a fixed-price syscall.
+- `CompressedEdwardsY::decompress_pair` and `CompressedRistretto::decompress_pair`
+  decompress two points with their two exponentiations interleaved, which is
+  faster than two separate decompressions because a single squaring chain
+  leaves most of the CPU idle.
+- `EdwardsPoint::compress_vartime` replaces the Fermat inversion in `compress`
+  with variable-time batched divsteps (Bernstein–Yang).
+- `CompressedEdwardsY::add_vartime` / `sub_vartime` use paired decompression,
+  specialize addition for the decoded inputs with `Z = 1`, and compress from
+  projective coordinates with a variable-time inversion, without constructing
+  an unused extended `T` coordinate.
+- `CompressedRistretto::add_vartime` / `sub_vartime` add on the Jacobi
+  quartic `t² = s⁴ + 486662 s² + 1` that is 2-isogenous to the Edwards curve.
+  Ristretto decoding already lands on the quartic (the square root it takes
+  is the quartic's `t`), and the Ristretto encoding is the `s`-coordinate of
+  a representative of a coset on the quartic, so the result is encoded with
+  one inversion instead of the square root `compress` needs to pull a point
+  back through the isogeny: two exponentiations per operation instead of
+  three. The result is bit-identical to `compress`.
+- The squaring chain behind every inversion and square root (`pow2k`)
+  propagates carries in two parallel rounds instead of one serial chain,
+  which shortens the carry dependency chain. Ristretto validation still
+  uses decompression because its acceptance checks depend on the sign of
+  `t = x·y`, which requires the square root.
+
+`benches/syscall_ops.rs` measures the syscall shapes (validate, add, subtract
+for Edwards and Ristretto) against upstream `curve25519-dalek`. Speedups
+depend on the CPU and compiler; record both when reporting measurements.
+The `corpus` groups cycle through seeded random inputs and separately measure
+invalid encodings, identities, equal/opposite operands, and a structured
+validation input. The `validate`, `add`, and `sub` benchmarks use the helpers
+above (Ristretto validation uses decompression). The `_decompress` benchmarks
+measure the decode/operate/encode baseline in this crate, and `_upstream`
+benchmarks measure upstream dalek. Every case is checked against upstream
+before timing:
+
+```bash
+cargo bench -p solana-ed25519 --bench syscall_ops
+```
+
+The syscalls charge a fixed compute-unit (CU) price per call, so the useful
+figure is wall time per CU charged: how much validator time one CU buys for
+each operation. Today every one of these syscalls costs about 16.5 ns per CU
+with upstream dalek. With the helpers above, on the random corpus of one
+machine:
+
+| Syscall operation        | CU today | ns/CU today (dalek) | ns/CU with these helpers |
+|--------------------------|---------:|--------------------:|-------------------------:|
+| Edwards `validate_point` |      159 |               16.74 |                    13.84 |
+| Edwards `add`            |      473 |               16.59 |                    10.51 |
+| Edwards `subtract`       |      475 |               16.49 |                    10.47 |
+| Ristretto `validate_point` |    169 |               16.59 |                    14.74 |
+| Ristretto `add`          |      521 |               16.37 |                    11.05 |
+| Ristretto `subtract`     |      519 |               16.42 |                    11.10 |
+
+Every path here is either constant time or variable time with a proven
+bound (the divsteps inversion needs at most 12 batches), so these figures
+hold for adversarial inputs as well as random ones, and the CU prices can be
+lowered in the same proportions.
+
+---
+
 ## Feature Flags
 
 | Feature | Default? | Description |

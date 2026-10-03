@@ -209,6 +209,170 @@ impl<'a> Mul<&'a FieldElement51> for &FieldElement51 {
     }
 }
 
+const LOW_51_BIT_MASK: u64 = (1u64 << 51) - 1;
+
+/// The five 128-bit columns of `a^2`, before carrying.
+///
+/// Requires `a[i] < 2^(51 + b)` with `b < 3`; see the comments inside for
+/// the resulting column bounds, which both carry schedules rely on.
+#[inline(always)]
+#[rustfmt::skip] // keep alignment of c* calculations
+fn square_columns(a: &[u64; 5]) -> [u128; 5] {
+    /// Multiply two 64-bit integers with 128 bits of output.
+    #[inline(always)]
+    fn m(x: u64, y: u64) -> u128 {
+        (x as u128) * (y as u128)
+    }
+
+    // Precondition: assume input limbs a[i] are bounded as
+    //
+    // a[i] < 2^(51 + b)
+    //
+    // where b is a real parameter measuring the "bit excess" of the limbs.
+
+    // Precomputation: 64-bit multiply by 19.
+    //
+    // This fits into a u64 whenever 51 + b + lg(19) < 64.
+    //
+    // Since 51 + b + lg(19) < 51 + 4.25 + b
+    //                       = 55.25 + b,
+    // this fits if b < 8.75.
+    let a3_19 = 19 * a[3];
+    let a4_19 = 19 * a[4];
+
+    // Multiply to get 128-bit coefficients of output.
+    //
+    // The 128-bit multiplications by 2 turn into 1 slr + 1 slrd each,
+    // which doesn't seem any better or worse than doing them as precomputations
+    // on the 64-bit inputs.
+    let c0: u128 = m(a[0],  a[0]) + 2*( m(a[1], a4_19) + m(a[2], a3_19) );
+    let c1: u128 = m(a[3], a3_19) + 2*( m(a[0],  a[1]) + m(a[2], a4_19) );
+    let c2: u128 = m(a[1],  a[1]) + 2*( m(a[0],  a[2]) + m(a[4], a3_19) );
+    let c3: u128 = m(a[4], a4_19) + 2*( m(a[0],  a[3]) + m(a[1],  a[2]) );
+    let c4: u128 = m(a[2],  a[2]) + 2*( m(a[0],  a[4]) + m(a[1],  a[3]) );
+
+    // Same bound as in multiply:
+    //    c[i] < 2^(102 + 2*b) * (1+i + (4-i)*19)
+    //         < 2^(102 + lg(1 + 4*19) + 2*b)
+    //         < 2^(108.27 + 2*b)
+    //
+    // The carry (c[i] >> 51) fits into a u64 when
+    //    108.27 + 2*b - 51 < 64
+    //    2*b < 6.73
+    //    b < 3.365.
+    //
+    // So we require b < 3 to ensure this fits.
+    debug_assert!(a[0] < (1 << 54));
+    debug_assert!(a[1] < (1 << 54));
+    debug_assert!(a[2] < (1 << 54));
+    debug_assert!(a[3] < (1 << 54));
+    debug_assert!(a[4] < (1 << 54));
+
+    [c0, c1, c2, c3, c4]
+}
+
+/// Carries the columns of a square into five limbs, serially:
+/// `c0 -> c1 -> c2 -> c3 -> c4 -> a[0] -> a[1]`.
+///
+/// This is the shorter instruction sequence, used for a single squaring,
+/// where the CPU overlaps it with neighbouring independent operations.
+/// The result has `a[1] < 2^51 + 2^13` and `a[i] < 2^51` otherwise.
+#[inline(always)]
+fn carry_serial(c: [u128; 5]) -> [u64; 5] {
+    let [c0, mut c1, mut c2, mut c3, mut c4] = c;
+    let mut a = [0u64; 5];
+
+    // Casting to u64 and back tells the compiler that the carry is bounded by 2^64, so
+    // that the addition is a u128 + u64 rather than u128 + u128.
+    c1 += ((c0 >> 51) as u64) as u128;
+    a[0] = (c0 as u64) & LOW_51_BIT_MASK;
+
+    c2 += ((c1 >> 51) as u64) as u128;
+    a[1] = (c1 as u64) & LOW_51_BIT_MASK;
+
+    c3 += ((c2 >> 51) as u64) as u128;
+    a[2] = (c2 as u64) & LOW_51_BIT_MASK;
+
+    c4 += ((c3 >> 51) as u64) as u128;
+    a[3] = (c3 as u64) & LOW_51_BIT_MASK;
+
+    let carry: u64 = (c4 >> 51) as u64;
+    a[4] = (c4 as u64) & LOW_51_BIT_MASK;
+
+    // To see that this does not overflow, we need a[0] + carry * 19 < 2^64.
+    //
+    // c4 < a2^2 + 2*a0*a4 + 2*a1*a3 + (carry from c3)
+    //    < 2^(102 + 2*b + lg(5)) + 2^64.
+    //
+    // When b < 3 we get
+    //
+    // c4 < 2^110.33  so that carry < 2^59.33
+    //
+    // so that
+    //
+    // a[0] + carry * 19 < 2^51 + 19 * 2^59.33 < 2^63.58
+    //
+    // and there is no overflow.
+    a[0] += carry * 19;
+
+    // Now a[1] < 2^51 + 2^(64 -51) = 2^51 + 2^13 < 2^(51 + epsilon).
+    a[1] += a[0] >> 51;
+    a[0] &= LOW_51_BIT_MASK;
+
+    // Now all a[i] < 2^(51 + epsilon).
+    a
+}
+
+/// Carries the columns of a square into five limbs in two rounds, each of
+/// which handles the five limbs independently of one another.
+///
+/// Each round is one shift, one mask and one add deep instead of the
+/// five-step chain of `carry_serial`, at the cost of a few more
+/// instructions. It is used for the long dependent squaring chains of
+/// `pow2k` (inversion and square roots), where that latency is the
+/// bottleneck. The value `sum(c[i] * 2^(51*i)) mod p` is unchanged by
+/// either round, because a carry out of the top column re-enters at the
+/// bottom times `2^255 = 19 (mod p)`.
+///
+/// Requires the column bounds of `square_columns`. The result satisfies
+/// `a[i] < 2^51 + 2^17` for every `i`.
+#[inline(always)]
+fn carry_parallel(c: [u128; 5]) -> [u64; 5] {
+    #[inline(always)]
+    fn lo(c: u128) -> u64 {
+        (c as u64) & LOW_51_BIT_MASK
+    }
+    #[inline(always)]
+    fn hi(c: u128) -> u64 {
+        (c >> 51) as u64
+    }
+
+    // Round one splits each column into its low 51 bits and its carry.
+    // c[i] >> 51 < 2^(57.27 + 2*b) fits a u64 when b < 3.36. The top
+    // column has no 19-weighted terms, so for b < 3 its carry is below
+    // 2^59.33 and 19 * (c[4] >> 51) < 2^63.6. Every round-one limb is
+    // therefore below 2^51 + 2^63.6 < 2^64 and no addition overflows.
+    let mut a = [
+        lo(c[0]) + 19 * hi(c[4]),
+        lo(c[1]) + hi(c[0]),
+        lo(c[2]) + hi(c[1]),
+        lo(c[3]) + hi(c[2]),
+        lo(c[4]) + hi(c[3]),
+    ];
+
+    // Round two propagates the remaining carries, which are now small:
+    // a[i] >> 51 < 2^12.6 for every i, so 19 * carry[4] < 2^17.
+    let carry = a.map(|limb| limb >> 51);
+    a[0] = (a[0] & LOW_51_BIT_MASK) + 19 * carry[4];
+    a[1] = (a[1] & LOW_51_BIT_MASK) + carry[0];
+    a[2] = (a[2] & LOW_51_BIT_MASK) + carry[1];
+    a[3] = (a[3] & LOW_51_BIT_MASK) + carry[2];
+    a[4] = (a[4] & LOW_51_BIT_MASK) + carry[3];
+
+    // Now a[i] < 2^51 + 2^17 < 2^(51 + epsilon) for all i.
+    a
+}
+
 impl Neg for &FieldElement51 {
     type Output = FieldElement51;
     fn neg(self) -> FieldElement51 {
@@ -446,104 +610,48 @@ impl FieldElement51 {
     }
 
     /// Given `k > 0`, return `self^(2^k)`.
-    #[rustfmt::skip] // keep alignment of c* calculations
-    pub fn pow2k(&self, mut k: u32) -> FieldElement51 {
+    ///
+    /// Each squaring depends on the previous one, so this uses the parallel
+    /// carry schedule, which has the shorter dependency chain. For a single
+    /// squaring use `square`, which has fewer instructions.
+    #[inline(always)]
+    pub fn pow2k(&self, k: u32) -> FieldElement51 {
+        let [r] = FieldElement51::pow2k_many(&[*self], k);
+        r
+    }
 
-        debug_assert!( k > 0 );
+    /// Given `k > 0`, return `(a^(2^k), b^(2^k))`; see `pow2k_many`.
+    #[inline(always)]
+    pub fn pow2k_pair(a: &FieldElement51, b: &FieldElement51, k: u32) -> (Self, Self) {
+        let [x, y] = FieldElement51::pow2k_many(&[*a, *b], k);
+        (x, y)
+    }
 
-        /// Multiply two 64-bit integers with 128 bits of output.
-        #[inline(always)]
-        fn m(x: u64, y: u64) -> u128 {
-            (x as u128) * (y as u128)
-        }
+    /// Given `k > 0`, return `x^(2^k)` for each element of `xs`.
+    ///
+    /// The squaring chains are independent, so interleaving them lets the
+    /// CPU overlap their dependency chains; each chain on its own leaves
+    /// the multiplier idle most of the time. A single chain therefore uses
+    /// the parallel carry schedule, which has the shorter critical path,
+    /// while two or more chains in flight already hide the carry latency
+    /// and use the shorter serial schedule. Used when two points are
+    /// decompressed together.
+    #[inline(always)]
+    pub fn pow2k_many<const N: usize>(xs: &[FieldElement51; N], mut k: u32) -> [Self; N] {
+        debug_assert!(k > 0);
 
-        let mut a: [u64; 5] = self.0;
+        let mut a: [[u64; 5]; N] = core::array::from_fn(|i| xs[i].0);
 
         loop {
-            // Precondition: assume input limbs a[i] are bounded as
-            //
-            // a[i] < 2^(51 + b)
-            //
-            // where b is a real parameter measuring the "bit excess" of the limbs.
-
-            // Precomputation: 64-bit multiply by 19.
-            //
-            // This fits into a u64 whenever 51 + b + lg(19) < 64.
-            //
-            // Since 51 + b + lg(19) < 51 + 4.25 + b
-            //                       = 55.25 + b,
-            // this fits if b < 8.75.
-            let a3_19 = 19 * a[3];
-            let a4_19 = 19 * a[4];
-
-            // Multiply to get 128-bit coefficients of output.
-            //
-            // The 128-bit multiplications by 2 turn into 1 slr + 1 slrd each,
-            // which doesn't seem any better or worse than doing them as precomputations
-            // on the 64-bit inputs.
-            let     c0: u128 = m(a[0],  a[0]) + 2*( m(a[1], a4_19) + m(a[2], a3_19) );
-            let mut c1: u128 = m(a[3], a3_19) + 2*( m(a[0],  a[1]) + m(a[2], a4_19) );
-            let mut c2: u128 = m(a[1],  a[1]) + 2*( m(a[0],  a[2]) + m(a[4], a3_19) );
-            let mut c3: u128 = m(a[4], a4_19) + 2*( m(a[0],  a[3]) + m(a[1],  a[2]) );
-            let mut c4: u128 = m(a[2],  a[2]) + 2*( m(a[0],  a[4]) + m(a[1],  a[3]) );
-
-            // Same bound as in multiply:
-            //    c[i] < 2^(102 + 2*b) * (1+i + (4-i)*19)
-            //         < 2^(102 + lg(1 + 4*19) + 2*b)
-            //         < 2^(108.27 + 2*b)
-            //
-            // The carry (c[i] >> 51) fits into a u64 when
-            //    108.27 + 2*b - 51 < 64
-            //    2*b < 6.73
-            //    b < 3.365.
-            //
-            // So we require b < 3 to ensure this fits.
-            debug_assert!(a[0] < (1 << 54));
-            debug_assert!(a[1] < (1 << 54));
-            debug_assert!(a[2] < (1 << 54));
-            debug_assert!(a[3] < (1 << 54));
-            debug_assert!(a[4] < (1 << 54));
-
-            const LOW_51_BIT_MASK: u64 = (1u64 << 51) - 1;
-
-            // Casting to u64 and back tells the compiler that the carry is bounded by 2^64, so
-            // that the addition is a u128 + u64 rather than u128 + u128.
-            c1 += ((c0 >> 51) as u64) as u128;
-            a[0] = (c0 as u64) & LOW_51_BIT_MASK;
-
-            c2 += ((c1 >> 51) as u64) as u128;
-            a[1] = (c1 as u64) & LOW_51_BIT_MASK;
-
-            c3 += ((c2 >> 51) as u64) as u128;
-            a[2] = (c2 as u64) & LOW_51_BIT_MASK;
-
-            c4 += ((c3 >> 51) as u64) as u128;
-            a[3] = (c3 as u64) & LOW_51_BIT_MASK;
-
-            let carry: u64 = (c4 >> 51) as u64;
-            a[4] = (c4 as u64) & LOW_51_BIT_MASK;
-
-            // To see that this does not overflow, we need a[0] + carry * 19 < 2^64.
-            //
-            // c4 < a2^2 + 2*a0*a4 + 2*a1*a3 + (carry from c3)
-            //    < 2^(102 + 2*b + lg(5)) + 2^64.
-            //
-            // When b < 3 we get
-            //
-            // c4 < 2^110.33  so that carry < 2^59.33
-            //
-            // so that
-            //
-            // a[0] + carry * 19 < 2^51 + 19 * 2^59.33 < 2^63.58
-            //
-            // and there is no overflow.
-            a[0] += carry * 19;
-
-            // Now a[1] < 2^51 + 2^(64 -51) = 2^51 + 2^13 < 2^(51 + epsilon).
-            a[1] += a[0] >> 51;
-            a[0] &= LOW_51_BIT_MASK;
-
-            // Now all a[i] < 2^(51 + epsilon) and a = self^(2^k).
+            for x in a.iter_mut() {
+                *x = if N == 1 {
+                    carry_parallel(square_columns(x))
+                } else {
+                    carry_serial(square_columns(x))
+                };
+            }
+            // Now a[j] = xs[j]^(2^k) for the squarings done so far, with all
+            // limbs < 2^51 + 2^17.
 
             k -= 1;
             if k == 0 {
@@ -551,21 +659,110 @@ impl FieldElement51 {
             }
         }
 
-        FieldElement51(a)
+        core::array::from_fn(|i| FieldElement51(a[i]))
     }
 
     /// Returns the square of this field element.
     pub fn square(&self) -> FieldElement51 {
-        self.pow2k(1)
+        FieldElement51(carry_serial(square_columns(&self.0)))
     }
 
     /// Returns 2 times the square of this field element.
     pub fn square2(&self) -> FieldElement51 {
-        let mut square = self.pow2k(1);
+        let mut square = self.square();
         for i in 0..5 {
             square.0[i] *= 2;
         }
 
         square
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    const MASK: u64 = (1u64 << 51) - 1;
+
+    /// Bit-serial reference product using only limb additions and the weak
+    /// reduction, independent of the column arithmetic.
+    fn reference_mul(a: &FieldElement51, b: &FieldElement51) -> FieldElement51 {
+        let a = FieldElement51::reduce(a.0);
+        let b_bytes = b.to_bytes();
+        let mut r = FieldElement51::ZERO;
+        for i in (0..255).rev() {
+            r = FieldElement51::reduce([
+                r.0[0] + r.0[0],
+                r.0[1] + r.0[1],
+                r.0[2] + r.0[2],
+                r.0[3] + r.0[3],
+                r.0[4] + r.0[4],
+            ]);
+            if (b_bytes[i / 8] >> (i % 8)) & 1 == 1 {
+                r = FieldElement51::reduce([
+                    r.0[0] + a.0[0],
+                    r.0[1] + a.0[1],
+                    r.0[2] + a.0[2],
+                    r.0[3] + a.0[3],
+                    r.0[4] + a.0[4],
+                ]);
+            }
+        }
+        r
+    }
+
+    fn check(a: &FieldElement51) {
+        let expected = reference_mul(a, a).to_bytes();
+        let serial = a.square();
+        let parallel = a.pow2k(1);
+        assert_eq!(serial.to_bytes(), expected);
+        assert_eq!(parallel.to_bytes(), expected);
+        assert_eq!(
+            a.pow2k(3).to_bytes(),
+            reference_mul(&a.pow2k(2), &a.pow2k(2)).to_bytes()
+        );
+        for limb in serial.0.iter().chain(parallel.0.iter()) {
+            assert!(*limb < (1u64 << 51) + (1u64 << 17), "output limb bound");
+        }
+    }
+
+    /// Both carry schedules must match the reference on inputs whose limbs
+    /// sit at the documented 2^54 excess bound, where the carries are
+    /// largest, as well as on canonical and random inputs.
+    #[test]
+    fn serial_and_parallel_squarings_match_reference_at_limb_bounds() {
+        let max = (1u64 << 54) - 1;
+        let inputs = [
+            FieldElement51::ZERO,
+            FieldElement51::ONE,
+            FieldElement51::MINUS_ONE,
+            FieldElement51([max; 5]),
+            FieldElement51([max, 0, 0, 0, 0]),
+            FieldElement51([0, 0, 0, 0, max]),
+            FieldElement51([max, MASK, max, MASK, max]),
+            FieldElement51([MASK; 5]),
+            FieldElement51([1 << 53; 5]),
+        ];
+        for a in &inputs {
+            check(a);
+        }
+
+        // Deterministic pseudo-random limbs with the full 54-bit excess.
+        let mut state = 0x9e37_79b9_7f4a_7c15u64;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        for _ in 0..512 {
+            check(&FieldElement51([
+                next() & max,
+                next() & max,
+                next() & max,
+                next() & max,
+                next() & max,
+            ]));
+        }
     }
 }

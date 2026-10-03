@@ -274,10 +274,50 @@ impl CompressedRistretto {
             Some(res)
         }
     }
+
+    /// Attempt to decompress two encodings at once.
+    ///
+    /// Returns `None` if either encoding is invalid, and otherwise exactly
+    /// what `a.decompress()` and `b.decompress()` would return. The two
+    /// inverse square roots are computed with their exponentiations
+    /// interleaved; see `CompressedEdwardsY::decompress_pair`.
+    pub fn decompress_pair(
+        a: &CompressedRistretto,
+        b: &CompressedRistretto,
+    ) -> Option<(RistrettoPoint, RistrettoPoint)> {
+        let (a, b) = decompress::pair(a, b)?;
+        Some((a.point, b.point))
+    }
 }
 
 mod decompress {
     use super::*;
+
+    /// Decode and validate both inputs, retaining both curve representations.
+    pub(super) fn pair(
+        a: &CompressedRistretto,
+        b: &CompressedRistretto,
+    ) -> Option<(Decoded, Decoded)> {
+        let (canonical_a, negative_a, sa) = step_1(a);
+        let (canonical_b, negative_b, sb) = step_1(b);
+        if (!canonical_a | negative_a | !canonical_b | negative_b).into() {
+            return None;
+        }
+
+        let pa = prepare(sa);
+        let pb = prepare(sb);
+        let ((ok_a, Ia), (ok_b, Ib)) = FieldElement::invsqrt_pair(&pa.w, &pb.w);
+        let da = finish(&pa, Ia);
+        let db = finish(&pb, Ib);
+
+        if (!ok_a | da.t_is_negative | da.y_is_zero | !ok_b | db.t_is_negative | db.y_is_zero)
+            .into()
+        {
+            None
+        } else {
+            Some((da, db))
+        }
+    }
 
     pub(super) fn step_1(repr: &CompressedRistretto) -> (Choice, Choice, FieldElement) {
         // Step 1. Check s for validity:
@@ -299,7 +339,17 @@ mod decompress {
         (s_encoding_is_canonical, s_is_negative, s)
     }
 
-    pub(super) fn step_2(s: FieldElement) -> (Choice, Choice, Choice, RistrettoPoint) {
+    /// The quantities of step 2 that do not depend on the inverse square root.
+    pub(super) struct Prepared {
+        s: FieldElement,
+        u1: FieldElement,
+        u2: FieldElement,
+        v: FieldElement,
+        /// `v * u2²`, the element whose inverse square root is needed.
+        pub(super) w: FieldElement,
+    }
+
+    pub(super) fn prepare(s: FieldElement) -> Prepared {
         // Step 2.  Compute (X:Y:Z:T).
         let one = FieldElement::ONE;
         let ss = s.square();
@@ -310,33 +360,282 @@ mod decompress {
         // v == ad(1+as²)² - (1-as²)²            where d=-121665/121666
         let v = &(&(-&constants::EDWARDS_D) * &u1.square()) - &u2_sqr;
 
-        let (ok, I) = (&v * &u2_sqr).invsqrt(); // 1/sqrt(v*u_2²)
+        let w = &v * &u2_sqr;
+        Prepared { s, u1, u2, v, w }
+    }
 
-        let Dx = &I * &u2; // 1/sqrt(v)
-        let Dy = &I * &(&Dx * &v); // 1/u2
+    /// The outcome of step 2: the decoded point, the flags that may still
+    /// reject it, and what `quartic` needs to place it on the Jacobi quartic.
+    pub(super) struct Decoded {
+        pub(super) t_is_negative: Choice,
+        pub(super) y_is_zero: Choice,
+        pub(super) point: RistrettoPoint,
+        s: FieldElement,
+        sqrt_v: FieldElement,
+        x_neg: Choice,
+    }
+
+    impl Decoded {
+        /// The decoded point as a point of the Jacobi quartic.
+        ///
+        /// The point is the image of (s, t_J) under
+        /// (s, t_J) -> (2 s / (t_J sqrt(a-d)), (1-s²)/(1+s²)), where
+        /// t_J = sqrt(v) / sqrt(a-d), negated when x was, so that the image
+        /// has the non-negative x chosen by `finish`. Only the variable-time
+        /// group operations need this, so it is not computed in `finish`.
+        pub(super) fn quartic(&self) -> JacobiQuartic {
+            let mut t = &constants::INVSQRT_A_MINUS_D * &self.sqrt_v;
+            t.conditional_negate(self.x_neg);
+            JacobiQuartic { s: self.s, t }
+        }
+    }
+
+    /// Completes step 2 given `I = 1/sqrt(v * u2²)`.
+    pub(super) fn finish(p: &Prepared, I: FieldElement) -> Decoded {
+        let Dx = &I * &p.u2; // 1/sqrt(v)
+        let sqrt_v = &Dx * &p.v; // sqrt(v), kept for the quartic coordinate
+        let Dy = &I * &sqrt_v; // 1/u2
 
         // x == | 2s/sqrt(v) | == + sqrt(4s²/(ad(1+as²)² - (1-as²)²))
-        let mut x = &(&s + &s) * &Dx;
+        let mut x = &(&p.s + &p.s) * &Dx;
         let x_neg = x.is_negative();
         x.conditional_negate(x_neg);
 
         // y == (1-as²)/(1+as²)
-        let y = &u1 * &Dy;
+        let y = &p.u1 * &Dy;
 
         // t == ((1+as²) sqrt(4s²/(ad(1+as²)² - (1-as²)²)))/(1-as²)
         let t = &x * &y;
 
-        (
-            ok,
-            t.is_negative(),
-            y.is_zero(),
-            RistrettoPoint(EdwardsPoint {
+        Decoded {
+            t_is_negative: t.is_negative(),
+            y_is_zero: y.is_zero(),
+            point: RistrettoPoint(EdwardsPoint {
                 X: x,
                 Y: y,
-                Z: one,
+                Z: FieldElement::ONE,
                 T: t,
             }),
-        )
+            s: p.s,
+            sqrt_v,
+            x_neg,
+        }
+    }
+
+    pub(super) fn step_2(s: FieldElement) -> (Choice, Choice, Choice, RistrettoPoint) {
+        let p = prepare(s);
+        let (ok, I) = p.w.invsqrt(); // 1/sqrt(v*u_2²)
+        let decoded = finish(&p, I);
+        (ok, decoded.t_is_negative, decoded.y_is_zero, decoded.point)
+    }
+}
+
+// ------------------------------------------------------------------------
+// Group operations on the Jacobi quartic, for compressed inputs
+// ------------------------------------------------------------------------
+
+/// An affine point `(s, t)` on the Jacobi quartic
+/// \( \mathcal J: t^2 = s^4 + 2A s^2 + 1 \), \( 2A = 486662 \), which is
+/// 2-isogenous to the Edwards curve via
+/// \( \varphi(s, t) = (2s / (t \sqrt{a-d}), (1-s^2)/(1+s^2)) \).
+///
+/// The Ristretto decoding of `s` is \( \varphi(s, t) \) for the `t` that
+/// gives a non-negative `x`, so decoding produces a point of
+/// \( \mathcal J \) at no extra cost, and the Ristretto encoding is the
+/// `s`-coordinate of a chosen representative of the coset of
+/// \( \varphi^{-1}(\mathcal E[4]) \). Adding on \( \mathcal J \)
+/// instead of on the Edwards curve therefore lets `add_vartime` encode
+/// its result with one field inversion instead of the square root that
+/// `compress` needs to pull a point back through \( \varphi \).
+#[derive(Copy, Clone)]
+struct JacobiQuartic {
+    s: FieldElement,
+    t: FieldElement,
+}
+
+/// A point of the Jacobi quartic in weighted projective coordinates,
+/// `s = X/Z`, `t = Y/Z²`; `Z = 0` is one of the two points at infinity,
+/// which map to the order-2 Edwards point `(0, -1)`.
+#[derive(Copy, Clone)]
+struct JacobiQuarticProjective {
+    X: FieldElement,
+    Y: FieldElement,
+    Z: FieldElement,
+}
+
+impl JacobiQuartic {
+    /// The point mapping to `-φ(self)`.
+    fn negate(&self) -> Self {
+        JacobiQuartic {
+            s: -&self.s,
+            t: self.t,
+        }
+    }
+
+    /// The sum of `self` and `other`, in variable time.
+    ///
+    /// Uses the unified addition law of Billet and Joye for
+    /// \( t^2 = s^4 + 2A s^2 + 1 \):
+    /// \( s_3 = (s_1 t_2 + t_1 s_2) / (1 - s_1^2 s_2^2) \) and
+    /// \( t_3 = ((1 + s_1^2 s_2^2)(t_1 t_2 + 2A s_1 s_2) + 2 s_1 s_2 (s_1^2 + s_2^2)) / (1 - s_1^2 s_2^2)^2 \).
+    ///
+    /// The law is undefined only when \( s_1 s_2 = \pm 1 \), that is for
+    /// \( (s_2, t_2) = (\pm 1/s_1, \pm t_1/s_1^2) \). With equal signs the
+    /// sum is a point at infinity and comes out as `Z = 0` with `X ≠ 0`.
+    /// With opposite signs
+    /// \( \varphi(s_2, t_2) = \varphi(s_1, t_1) + (0, -1) \), so the sum
+    /// is the finite point \( 2\varphi(s_1, t_1) + (0, -1) \), while the
+    /// formulas give `(0:0:0)`. That case is detected and the sum computed
+    /// by doubling `self` and applying \( (s, t) \mapsto (1/s, -t/s^2) \),
+    /// the map on \( \mathcal J \) that adds \( (0, -1) \) downstairs.
+    /// Doubling never produces `(0:0:0)`: \( s^4 = 1 \) forces
+    /// \( t^2 = 2 \pm 2A \neq 0 \), so its `X = 2st` is nonzero.
+    ///
+    /// Decoded Ristretto encodings never reach the degenerate case, since
+    /// there \( \varphi(s_2, t_2) \) would be \( (-x, -y) \), or
+    /// \( (x, -y) \) before `negate`, for \( (x, y) = \varphi(s_1, t_1) \)
+    /// with \( x > 0 \) and \( xy > 0 \), and neither is the
+    /// representative decoding chooses. Handling it anyway keeps this
+    /// function total on \( \mathcal J \).
+    fn add_vartime(&self, other: &Self) -> JacobiQuarticProjective {
+        let sum = self.add_unified(other);
+        if bool::from(sum.Z.is_zero()) && bool::from(sum.X.is_zero()) {
+            let doubled = self.add_unified(self);
+            return JacobiQuarticProjective {
+                X: doubled.Z,
+                Y: -&doubled.Y,
+                Z: doubled.X,
+            };
+        }
+        sum
+    }
+
+    /// The Billet–Joye formulas as written; see `add_vartime` for the
+    /// exceptional cases.
+    fn add_unified(&self, other: &Self) -> JacobiQuarticProjective {
+        let ss = &self.s * &other.s;
+        let tt = &self.t * &other.t;
+        let ss_sq = ss.square();
+        let s1_sq = self.s.square();
+        let s2_sq = other.s.square();
+
+        let X = &(&self.s * &other.t) + &(&self.t * &other.s);
+        let Z = &FieldElement::ONE - &ss_sq;
+        let left =
+            &(&FieldElement::ONE + &ss_sq) * &(&tt + &(&constants::JACOBI_QUARTIC_TWO_A * &ss));
+        let right = &(&ss + &ss) * &(&s1_sq + &s2_sq);
+        let Y = &left + &right;
+
+        JacobiQuarticProjective { X, Y, Z }
+    }
+}
+
+impl JacobiQuarticProjective {
+    /// The Ristretto encoding of \( \varphi(\text{self}) \), in variable time.
+    ///
+    /// Follows the encoding specification: let \( (x, y) = \varphi(s, t) \);
+    /// if `x·y` is negative or `y = 0`, replace the point by its torque
+    /// `(i y, i x)`, which on \( \mathcal J \) is the sum with the
+    /// 4-torsion preimage `(1, T)`; if `x` is then negative, replace
+    /// `(x, y)` by `(-x, -y)`, which maps `s` to `1/s`; the encoding is
+    /// `|s|`. All of these are rational in `(X, Y, Z)`, so one batched
+    /// inversion suffices. Every exceptional case (`Z = 0`, `s = 0`,
+    /// `s = ±1`) is the coset of the identity, whose encoding is zero.
+    fn compress_vartime(&self) -> CompressedRistretto {
+        let zz = self.Z.square();
+        let xx = self.X.square();
+        let one_plus_ss = &zz + &xx; // (1 + s²) Z²
+        let one_minus_ss = &zz - &xx; // (1 - s²) Z²
+        let xz = &self.X * &self.Z;
+        // Numerator of the torqued s' = (T s + t) / (1 - s²), times Z².
+        let torqued_num = &(&constants::JACOBI_QUARTIC_TORSION_T * &xz) + &self.Y;
+
+        // Identity coset: a point at infinity (maps to (0,-1)), s = 0 (maps
+        // to (0,1)), or s = ±1 (maps to (±i, 0)). These eight points are the
+        // whole coset, so for a point on the curve `torqued_num = 0` (the
+        // torqued point in the coset) can only be the s = ±1 case again and
+        // needs no separate check.
+        let identity = self.Z.is_zero() | self.X.is_zero() | one_minus_ss.is_zero();
+        if identity.into() {
+            return CompressedRistretto([0u8; 32]);
+        }
+
+        // Valid points never have t = 0 or 1 + s² = 0, so everything below
+        // is invertible. Batch the six inversions into one.
+        let p1 = &self.Z * &self.Y;
+        let p2 = &p1 * &one_plus_ss;
+        let p3 = &p2 * &one_minus_ss;
+        let p4 = &p3 * &self.X;
+        let p5 = &p4 * &torqued_num;
+        let mut inv = p5.invert_vartime();
+        let inv_torqued_num = &inv * &p4;
+        inv = &inv * &torqued_num;
+        let inv_x = &inv * &p3;
+        inv = &inv * &self.X;
+        let inv_one_minus_ss = &inv * &p2;
+        inv = &inv * &one_minus_ss;
+        let inv_one_plus_ss = &inv * &p1;
+        inv = &inv * &one_plus_ss;
+        let inv_y = &inv * &self.Z;
+        let inv_z = &inv * &self.Y;
+
+        // The affine Edwards coordinates of φ(self).
+        let y = &one_minus_ss * &inv_one_plus_ss;
+        let x = &(&constants::DOUBLE_INVSQRT_A_MINUS_D * &xz) * &inv_y;
+
+        // The identity check excluded a zero numerator for y, and its denominator
+        // is nonzero, so only the sign of x*y determines the torque here.
+        let torque = (&x * &y).is_negative();
+        // Negating (x, y) maps s to 1/s; only the one needed is computed.
+        let mut s = if torque.into() {
+            if (&constants::SQRT_M1 * &y).is_negative().into() {
+                &one_minus_ss * &inv_torqued_num
+            } else {
+                &torqued_num * &inv_one_minus_ss
+            }
+        } else if x.is_negative().into() {
+            &self.Z * &inv_x
+        } else {
+            &self.X * &inv_z
+        };
+        let s_is_negative = s.is_negative();
+        s.conditional_negate(s_is_negative);
+        CompressedRistretto(s.to_bytes())
+    }
+}
+
+impl CompressedRistretto {
+    /// The encoding of the sum of the two encoded points, in variable time.
+    ///
+    /// Returns `None` if either encoding is invalid, and otherwise exactly
+    /// `(a.decompress()? + b.decompress()?).compress()`. The two decodings
+    /// share their exponentiations, the addition happens on the Jacobi
+    /// quartic and the result is encoded with one inversion instead of a
+    /// square root, so this costs two exponentiations rather than three.
+    /// For public data only.
+    pub fn add_vartime(&self, other: &CompressedRistretto) -> Option<CompressedRistretto> {
+        Self::combine_vartime(self, other, false)
+    }
+
+    /// The encoding of the difference of the two encoded points, in
+    /// variable time; see `add_vartime`.
+    pub fn sub_vartime(&self, other: &CompressedRistretto) -> Option<CompressedRistretto> {
+        Self::combine_vartime(self, other, true)
+    }
+
+    fn combine_vartime(
+        a: &CompressedRistretto,
+        b: &CompressedRistretto,
+        subtract: bool,
+    ) -> Option<CompressedRistretto> {
+        let (da, db) = decompress::pair(a, b)?;
+
+        let qb = if subtract {
+            db.quartic().negate()
+        } else {
+            db.quartic()
+        };
+        Some(da.quartic().add_vartime(&qb).compress_vartime())
     }
 }
 
@@ -1314,6 +1613,233 @@ mod test {
         let sum: RistrettoPoint = mapped.sum();
 
         assert_eq!(sum, P1 * s + P2 * s);
+    }
+
+    /// `decompress_pair` must agree with `decompress` on valid encodings,
+    /// encodings rejected at each step, and random bytes.
+    #[test]
+    fn pair_decompression_matches_single() {
+        use rand::Rng;
+        let mut rng = rand::rng();
+        let mut encodings = std::vec![
+            CompressedRistretto::identity(),
+            constants::RISTRETTO_BASEPOINT_COMPRESSED,
+        ];
+        for _ in 0..64 {
+            let mut wide = [0u8; 64];
+            rng.fill_bytes(&mut wide);
+            let p = RistrettoPoint::mul_base(&Scalar::from_bytes_mod_order_wide(&wide));
+            let mut bytes = p.compress().to_bytes();
+            encodings.push(CompressedRistretto(bytes));
+            // Negative s: rejected in step 1.
+            bytes[0] ^= 1;
+            encodings.push(CompressedRistretto(bytes));
+            // Random bytes: usually rejected in step 2, if not in step 1.
+            rng.fill_bytes(&mut bytes);
+            encodings.push(CompressedRistretto(bytes));
+            bytes[0] &= 0xfe;
+            bytes[31] &= 0x7f;
+            encodings.push(CompressedRistretto(bytes));
+        }
+        // Non-canonical s.
+        let mut non_canonical = [0xffu8; 32];
+        non_canonical[0] = 0xee;
+        non_canonical[31] = 0x7f;
+        encodings.push(CompressedRistretto(non_canonical));
+
+        for a in &encodings {
+            for b in encodings.iter().step_by(5) {
+                let expected = match (a.decompress(), b.decompress()) {
+                    (Some(pa), Some(pb)) => Some((pa, pb)),
+                    _ => None,
+                };
+                let actual = CompressedRistretto::decompress_pair(a, b);
+                assert_eq!(actual.is_some(), expected.is_some());
+                if let (Some((xa, xb)), Some((ea, eb))) = (actual, expected) {
+                    assert_eq!(xa, ea);
+                    assert_eq!(xb, eb);
+                    assert_eq!(xa.0.X.to_bytes(), ea.0.X.to_bytes());
+                    assert_eq!(xb.0.T.to_bytes(), eb.0.T.to_bytes());
+                }
+            }
+        }
+    }
+
+    /// The Jacobi quartic constants and the isogeny agree with the Edwards
+    /// curve constants.
+    #[test]
+    fn jacobi_quartic_constants() {
+        let one = FieldElement::ONE;
+        let d = constants::EDWARDS_D;
+        let a = &(&one - &d) * &(&one + &d).invert();
+        assert_eq!(&a + &a, constants::JACOBI_QUARTIC_TWO_A);
+        let i = constants::SQRT_M1;
+        let magic = constants::INVSQRT_A_MINUS_D;
+        let expected_t = -&(&(&i + &i) * &magic);
+        assert_eq!(expected_t, constants::JACOBI_QUARTIC_TORSION_T);
+        // (1, T) lies on t² = s⁴ + 2A s² + 1 and maps to (i, 0).
+        let t = constants::JACOBI_QUARTIC_TORSION_T;
+        assert_eq!(
+            t.square(),
+            &(&one + &constants::JACOBI_QUARTIC_TWO_A) + &one
+        );
+        let x = &(&magic + &magic) * &t.invert();
+        assert_eq!(x, i);
+    }
+
+    /// Adding on the Jacobi quartic and encoding with one inversion must
+    /// give the same bytes as decoding, adding on the Edwards curve and
+    /// compressing, for random, equal, opposite and identity inputs.
+    #[test]
+    fn compressed_add_sub_match_point_arithmetic() {
+        use rand::Rng;
+        let mut rng = rand::rng();
+        let random_point = |rng: &mut rand::rngs::ThreadRng| {
+            let mut wide = [0u8; 64];
+            rng.fill_bytes(&mut wide);
+            RistrettoPoint::mul_base(&Scalar::from_bytes_mod_order_wide(&wide))
+        };
+        let identity = RistrettoPoint::identity();
+        for _ in 0..512 {
+            let p = random_point(&mut rng);
+            let q = random_point(&mut rng);
+            let cases = [
+                (p, q),
+                (p, p),
+                (p, -p),
+                (p, identity),
+                (identity, p),
+                (identity, identity),
+                (p, p + p),
+            ];
+            for (lhs, rhs) in cases {
+                let (a, b) = (lhs.compress(), rhs.compress());
+                assert_eq!(
+                    a.add_vartime(&b),
+                    Some((lhs + rhs).compress()),
+                    "{a:?} + {b:?}"
+                );
+                assert_eq!(
+                    a.sub_vartime(&b),
+                    Some((lhs - rhs).compress()),
+                    "{a:?} - {b:?}"
+                );
+                assert_eq!(
+                    b.sub_vartime(&a),
+                    Some((rhs - lhs).compress()),
+                    "{b:?} - {a:?}"
+                );
+            }
+        }
+        // Invalid encodings are rejected exactly as by decompress.
+        let valid = random_point(&mut rng).compress();
+        let mut invalid = valid;
+        invalid.0[0] ^= 1;
+        assert!(invalid.decompress().is_none());
+        assert_eq!(valid.add_vartime(&invalid), None);
+        assert_eq!(invalid.add_vartime(&valid), None);
+        assert_eq!(invalid.sub_vartime(&valid), None);
+    }
+
+    /// Every element of the identity coset must encode as zero, including
+    /// the two points at infinity of the quartic, which the addition law
+    /// produces as `Z = 0` when `s_1 s_2 = ±1`.
+    #[test]
+    fn identity_coset_encodes_as_zero() {
+        use rand::Rng;
+        let mut rng = rand::rng();
+        for _ in 0..64 {
+            let mut wide = [0u8; 64];
+            rng.fill_bytes(&mut wide);
+            let p = RistrettoPoint::mul_base(&Scalar::from_bytes_mod_order_wide(&wide));
+            let compressed = p.compress();
+            let (_, _, s) = decompress::step_1(&compressed);
+            let prepared = decompress::prepare(s);
+            let (ok, I) = prepared.w.invsqrt();
+            assert!(bool::from(ok));
+            let q = decompress::finish(&prepared, I).quartic();
+            // (1/s, t/s²) is on the quartic and maps into -p's coset, so the
+            // sum lands at infinity.
+            let s_inv = q.s.invert();
+            let shifted = JacobiQuartic {
+                s: s_inv,
+                t: &q.t * &s_inv.square(),
+            };
+            let sum = q.add_vartime(&shifted);
+            assert!(bool::from(sum.Z.is_zero()));
+            assert_eq!(sum.compress_vartime(), CompressedRistretto::identity());
+            // The finite identity-coset points: s = 0 and s = ±1.
+            for (s_val, t_val) in [
+                (FieldElement::ZERO, FieldElement::ONE),
+                (FieldElement::ZERO, FieldElement::MINUS_ONE),
+                (FieldElement::ONE, constants::JACOBI_QUARTIC_TORSION_T),
+                (FieldElement::MINUS_ONE, constants::JACOBI_QUARTIC_TORSION_T),
+                (FieldElement::ONE, -&constants::JACOBI_QUARTIC_TORSION_T),
+            ] {
+                let point = JacobiQuarticProjective {
+                    X: s_val,
+                    Y: t_val,
+                    Z: FieldElement::ONE,
+                };
+                assert_eq!(point.compress_vartime(), CompressedRistretto::identity());
+            }
+        }
+    }
+
+    /// For `other = (±1/s, ∓t/s²)` the Billet–Joye formulas vanish
+    /// identically although the sum is finite; `add_vartime` must return
+    /// the preimage of `2φ(self) + (0, -1)`, which encodes as `2P`.
+    #[test]
+    fn degenerate_quartic_sum_is_doubling() {
+        use rand::Rng;
+        let mut rng = rand::rng();
+        let one = FieldElement::ONE;
+        for _ in 0..64 {
+            let mut wide = [0u8; 64];
+            rng.fill_bytes(&mut wide);
+            let p = RistrettoPoint::mul_base(&Scalar::from_bytes_mod_order_wide(&wide));
+            let (_, _, s) = decompress::step_1(&p.compress());
+            let prepared = decompress::prepare(s);
+            let (ok, I) = prepared.w.invsqrt();
+            assert!(bool::from(ok));
+            let decoded = decompress::finish(&prepared, I);
+            let q = decoded.quartic();
+            // The two degenerate partners (1/s, -t/s²) and (-1/s, t/s²); the
+            // other two sign choices are the sums at infinity.
+            let s_inv = q.s.invert();
+            let t_shift = &q.t * &s_inv.square();
+            let degenerate = [
+                JacobiQuartic {
+                    s: s_inv,
+                    t: -&t_shift,
+                },
+                JacobiQuartic {
+                    s: -&s_inv,
+                    t: t_shift,
+                },
+            ];
+            // (x, y) = 2φ(q) on the Edwards curve.
+            let doubled = decoded.point.0 + decoded.point.0;
+            let z_inv = doubled.Z.invert();
+            let (x, y) = (&doubled.X * &z_inv, &doubled.Y * &z_inv);
+            for other in degenerate {
+                let raw = q.add_unified(&other);
+                assert!(bool::from(
+                    raw.X.is_zero() & raw.Y.is_zero() & raw.Z.is_zero()
+                ));
+                let sum = q.add_vartime(&other);
+                assert!(!bool::from(sum.Z.is_zero()));
+                // φ(sum) must be 2φ(q) + (0, -1) = (-x, -y).
+                let sum_z_inv = sum.Z.invert();
+                let sum_s = &sum.X * &sum_z_inv;
+                let sum_t = &sum.Y * &sum_z_inv.square();
+                let phi_x = &(&(&sum_s + &sum_s) * &constants::INVSQRT_A_MINUS_D) * &sum_t.invert();
+                let phi_y = &(&one - &sum_s.square()) * &(&one + &sum_s.square()).invert();
+                assert_eq!(phi_x, -&x);
+                assert_eq!(phi_y, -&y);
+                assert_eq!(sum.compress_vartime(), (p + p).compress());
+            }
+        }
     }
 
     #[test]
