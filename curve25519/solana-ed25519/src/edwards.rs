@@ -314,14 +314,18 @@ impl CompressedEdwardsY {
         let completed = if subtract { &a - &b } else { &a + &b };
         // Compression needs only X, Y and Z: avoid constructing extended T.
         let p = completed.as_projective();
-        let recip = p.Z.invert_vartime();
-        Some(
-            AffinePoint {
-                x: &p.X * &recip,
-                y: &p.Y * &recip,
-            }
-            .compress(),
-        )
+        Some(Self::from_projective_vartime(&p.X, &p.Y, &p.Z))
+    }
+
+    /// Encode a valid public point represented by (X:Y:Z), in variable time.
+    #[inline]
+    fn from_projective_vartime(X: &FieldElement, Y: &FieldElement, Z: &FieldElement) -> Self {
+        let recip = Z.invert_vartime();
+        AffinePoint {
+            x: X * &recip,
+            y: Y * &recip,
+        }
+        .compress()
     }
 
     /// Attempt to decompress two encodings at once.
@@ -758,12 +762,7 @@ impl EdwardsPoint {
     /// that depends on its value. Use it only for public points, such as the
     /// results of the curve25519 group-operation syscalls.
     pub fn compress_vartime(&self) -> CompressedEdwardsY {
-        let recip = self.Z.invert_vartime();
-        AffinePoint {
-            x: &self.X * &recip,
-            y: &self.Y * &recip,
-        }
-        .compress()
+        CompressedEdwardsY::from_projective_vartime(&self.X, &self.Y, &self.Z)
     }
 
     /// Compress several `EdwardsPoint`s into `CompressedEdwardsY` format, using a batch inversion
