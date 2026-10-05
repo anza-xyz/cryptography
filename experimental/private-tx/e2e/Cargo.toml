@@ -1,0 +1,33 @@
+[package]
+name = "private-tx-e2e"
+description = "End-to-end checks of the private-tx gnark circuits against the Solana Groth16 verifier program"
+version = "0.0.0"
+edition = "2021"
+authors = { workspace = true }
+repository = { workspace = true }
+license = { workspace = true }
+publish = false
+
+[dependencies]
+# Verifier program library and gnark/arkworks format bridge, pinned (in the
+# workspace manifest) to one revision so the fixtures and the on-chain format
+# move together.
+solana-groth16-verify = { workspace = true, features = ["verify", "instruction"] }
+groth16-convert = { workspace = true }
+
+# The Poseidon reference the Solana syscall (and syscall/solana-bn254) are
+# generated from; the circuit gadget must agree with it.
+light-poseidon = { workspace = true }
+ark-bn254 = { workspace = true }
+ark-ff = { workspace = true }
+
+serde = { workspace = true, features = ["derive", "std"] }
+serde_json = { workspace = true }
+hex = { workspace = true }
+
+[dev-dependencies]
+mollusk-svm = { workspace = true }
+solana-account = { workspace = true }
+solana-address = { workspace = true }
+solana-instruction = { workspace = true }
+solana-program-error = { workspace = true }
