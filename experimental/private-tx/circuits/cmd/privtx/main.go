@@ -1,13 +1,17 @@
 // privtx builds circuits, keys and proofs for the private-tx protocol.
 //
 //	privtx smoke-fixture [-out DIR]
+//	privtx mint-fixture  [-out DIR] [-value N] [-seed STRING]
 //
-// compiles the smoke circuit, runs a (development) Groth16 setup, proves
-// 3·5 = 15, self-verifies, and writes vk.bin, proof.bin and public.bin in
-// gnark's native encodings into DIR for the Rust e2e tests.
+// Each subcommand compiles its circuit, runs a (development) Groth16 setup,
+// proves a fixed witness, self-verifies, and writes vk.bin, proof.bin and
+// public.bin in gnark's native encodings into DIR for the Rust e2e tests.
+// smoke-fixture proves 3·5 = 15; mint-fixture proves a deterministic note
+// derived from -seed and also writes note.json (the opening).
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -20,6 +24,8 @@ import (
 	"github.com/consensys/gnark/frontend"
 
 	"github.com/anza-xyz/cryptography/experimental/private-tx/circuits/export"
+	"github.com/anza-xyz/cryptography/experimental/private-tx/circuits/mint"
+	"github.com/anza-xyz/cryptography/experimental/private-tx/circuits/note"
 	"github.com/anza-xyz/cryptography/experimental/private-tx/circuits/smoke"
 )
 
@@ -31,6 +37,8 @@ func main() {
 	switch os.Args[1] {
 	case "smoke-fixture":
 		err = smokeFixture(os.Args[2:])
+	case "mint-fixture":
+		err = mintFixture(os.Args[2:])
 	default:
 		usage()
 	}
@@ -42,6 +50,7 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: privtx smoke-fixture [-out DIR]")
+	fmt.Fprintln(os.Stderr, "       privtx mint-fixture [-out DIR] [-value N] [-seed STRING]")
 	os.Exit(2)
 }
 
@@ -56,6 +65,36 @@ func smokeFixture(args []string) error {
 		return fmt.Errorf("compile: %w", err)
 	}
 	return proveAndWrite("smoke", ccs, smoke.Assignment(3, 5), *out)
+}
+
+func mintFixture(args []string) error {
+	fs := flag.NewFlagSet("mint-fixture", flag.ExitOnError)
+	out := fs.String("out", "../fixtures/mint", "output directory")
+	value := fs.Uint64("value", 1_000_000, "note value")
+	seed := fs.String("seed", "private-tx mint fixture", "seed for the deterministic note")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	ccs, err := mint.Compile()
+	if err != nil {
+		return fmt.Errorf("compile: %w", err)
+	}
+	n := note.FromSeed([]byte(*seed), *value)
+	if err := proveAndWrite("C_mint", ccs, mint.Assignment(&n), *out); err != nil {
+		return err
+	}
+	opening, err := json.MarshalIndent(n.ToOpening(), "", "  ")
+	if err != nil {
+		return err
+	}
+	opening = append(opening, '\n')
+	path := filepath.Join(*out, "note.json")
+	if err := os.WriteFile(path, opening, 0o644); err != nil {
+		return err
+	}
+	fmt.Printf("wrote %s (%d bytes)\n", path, len(opening))
+	fmt.Printf("commitment %s\n", n.ToOpening().Commitment)
+	return nil
 }
 
 // proveAndWrite runs a development setup, proves assignment, self-verifies

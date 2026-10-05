@@ -6,9 +6,10 @@ commitments, gnark circuits, verified on-chain by the generic
 Background: [goals.md](goals.md), [high_level_design.md](high_level_design.md),
 tracker [anza-xyz/cryptography#123](https://github.com/anza-xyz/cryptography/issues/123).
 
-This directory holds the framework: Go module, Poseidon library choice,
-fixture tooling, Rust end-to-end harness against the verifier program, and
-CI. Circuits are added on top of it.
+Status: milestone 1. The framework (Go module, Poseidon library choice,
+fixture tooling, Rust end-to-end harness against the verifier program, CI) is
+in place and `C_mint` is implemented; its proof verifies through the verifier
+program under Mollusk.
 
 ## Layout
 
@@ -17,6 +18,8 @@ CI. Circuits are added on top of it.
 | `circuits/` | Go module (gnark): circuits, gadgets, fixture CLI |
 | `circuits/poseidon/` | thin adapter over third-party circom-compatible Poseidon (native and gadget) |
 | `circuits/smoke/` | trivial `A·B = C` circuit that exercises the pipeline end to end |
+| `circuits/note/` | note format and commitment |
+| `circuits/mint/` | `C_mint` |
 | `circuits/export/` | writes gnark's native `vk.bin` / `proof.bin` / `public.bin` |
 | `circuits/cmd/privtx/` | `privtx <circuit>-fixture`: setup, prove, export |
 | `fixtures/<circuit>/` | a key, proof and public witness per circuit, consumed by `e2e/` |
@@ -43,6 +46,40 @@ for 1 to 5 inputs, and the Rust e2e crate exposes light-poseidon (the source
 `syscall/solana-bn254` generates its constants from) for circuits to check
 their in-circuit hashes against.
 
+## Note
+
+```
+note = (value, owner_pk, rho, r)
+cm   = Poseidon(value, owner_pk, rho, r)        // width 5
+```
+
+- `value`: `u64`.
+- `owner_pk`: the recipient's key as an opaque field element. The key
+  hierarchy is spec work (Epic 1); fixtures use the provisional
+  `owner_pk = Poseidon(sk)`.
+- `rho`: per-note uniqueness, later the nullifier input.
+- `r`: commitment randomness.
+
+No asset field: the pool fixes the asset.
+
+## C_mint
+
+Issuance of one note with a public amount. The issuer proves the published
+commitment opens to a well-formed note carrying exactly the published value,
+so the pool program can account for minted supply (and match a vault deposit
+for a wrapped asset, design §2.2) while the recipient stays hidden. Who may
+mint is the pool program's business (issuer authority), not the circuit's.
+
+| | |
+| --- | --- |
+| public inputs | `commitment`, `value` (in that order) |
+| witness | `owner_pk`, `rho`, `r` |
+| constraints | `value ∈ [0, 2^64)` by bit decomposition; `commitment = Poseidon(value, owner_pk, rho, r)` |
+| size | 363 R1CS constraints |
+
+A confidential-issuance variant (hidden amount, design §7) is the same circuit
+with `Value` moved to the private witness.
+
 ## Circuit rules
 
 - Plain Groth16 only. No `std/rangecheck` or anything else built on
@@ -57,7 +94,7 @@ their in-circuit hashes against.
 ## Running
 
 ```bash
-make test-go        # Go: Poseidon vectors, gadget == native, circuit prove/verify
+make test-go        # Go: Poseidon vectors, gadget == native, C_mint prove/verify
 make test-e2e       # Rust (release): host-path verification of the fixtures
 make verifier-sbf   # clone + build the verifier program (needs cargo build-sbf)
 make test-e2e       # now also verifies the proofs inside the SBF program
@@ -73,3 +110,11 @@ only.
 CI (`.github/workflows/ci.yml`, job `private-tx`) runs the Go tests, builds
 the verifier program at the pinned revision, and runs the e2e crate with the
 SBF test enabled.
+
+## Next
+
+- `C_transfer`: Merkle gadget (Poseidon width 3), nullifiers, 2-in/2-out
+  conservation, auditor ciphertexts (Baby Jubjub ElGamal gadget).
+- `C_burn`.
+- Key hierarchy and domain separation of the Poseidon uses in the spec.
+- Pool program and client glue (Epic 4).

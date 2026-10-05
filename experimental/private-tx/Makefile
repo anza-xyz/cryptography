@@ -24,10 +24,11 @@ test-e2e:
 
 test: test-go test-e2e
 
-# Regenerate fixtures/smoke/*. The trusted setup is random, so the bytes change
-# on every run; the witness itself is fixed.
+# Regenerate fixtures/*. The trusted setup is random, so the bytes change on
+# every run; the witnesses themselves are fixed.
 fixtures:
 	cd circuits && go run ./cmd/privtx smoke-fixture -out ../fixtures/smoke
+	cd circuits && go run ./cmd/privtx mint-fixture -out ../fixtures/mint
 
 # Clone the verifier program at the pinned revision and build its SBF artifact.
 verifier-sbf:
