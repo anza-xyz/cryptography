@@ -218,6 +218,14 @@ before timing:
 cargo bench -p solana-ed25519 --bench syscall_ops
 ```
 
+The seeded corpus and adapters live in `tests/support/syscall_ops.rs` and
+are shared with ordinary integration tests. Run the upstream agreement checks
+without running benchmarks:
+
+```bash
+cargo test -p solana-ed25519 --test syscall_ops
+```
+
 The syscalls charge a fixed compute-unit (CU) price per call, so the useful
 figure is wall time per CU charged: how much validator time one CU buys for
 each operation. Today every one of these syscalls costs about 16.5 ns per CU
