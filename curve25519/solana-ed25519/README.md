@@ -226,25 +226,11 @@ without running benchmarks:
 cargo test -p solana-ed25519 --test syscall_ops
 ```
 
-The syscalls charge a fixed compute-unit (CU) price per call, so the useful
-figure is wall time per CU charged: how much validator time one CU buys for
-each operation. Today every one of these syscalls costs about 16.5 ns per CU
-with upstream dalek. With the helpers above, on the random corpus of one
-machine:
-
-| Syscall operation        | CU today | ns/CU today (dalek) | ns/CU with these helpers |
-|--------------------------|---------:|--------------------:|-------------------------:|
-| Edwards `validate_point` |      159 |               16.74 |                    13.84 |
-| Edwards `add`            |      473 |               16.59 |                    10.51 |
-| Edwards `subtract`       |      475 |               16.49 |                    10.47 |
-| Ristretto `validate_point` |    169 |               16.59 |                    14.74 |
-| Ristretto `add`          |      521 |               16.37 |                    11.05 |
-| Ristretto `subtract`     |      519 |               16.42 |                    11.10 |
-
-Every path here is either constant time or variable time with a proven
-bound (the divsteps inversion needs at most 12 batches), so these figures
-hold for adversarial inputs as well as random ones, and the CU prices can be
-lowered in the same proportions.
+Report wall time per operation with the CPU model, operating system,
+`rustc -Vv` output, enabled Cargo features, and `RUSTFLAGS` (including any
+CPU/backend overrides). Keep random, invalid, and exceptional-input results
+separate; random-input timings do not establish worst-case latency.
+Compute-unit pricing belongs to the runtime integrating these helpers.
 
 ---
 
