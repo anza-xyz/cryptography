@@ -257,9 +257,11 @@ impl FieldElement {
 
         let i = &constants::SQRT_M1;
 
-        let correct_sign_sqrt = check.ct_eq(u);
-        let flipped_sign_sqrt = check.ct_eq(&(-u));
-        let flipped_sign_sqrt_i = check.ct_eq(&(&(-u) * i));
+        let check_bytes = check.to_bytes();
+        let minus_u = -u;
+        let correct_sign_sqrt = check_bytes.ct_eq(&u.to_bytes());
+        let flipped_sign_sqrt = check_bytes.ct_eq(&minus_u.to_bytes());
+        let flipped_sign_sqrt_i = check_bytes.ct_eq(&(&minus_u * i).to_bytes());
 
         let r_prime = &constants::SQRT_M1 * &r;
         r.conditional_assign(&r_prime, flipped_sign_sqrt | flipped_sign_sqrt_i);
