@@ -143,6 +143,7 @@ impl Corpus {
         point: fn(&[u8; 64]) -> Encoding,
         upstream_point: fn(&[u8; 64]) -> Encoding,
         validate: fn(&Encoding) -> bool,
+        prepare_invalid: fn(&mut Encoding) -> bool,
         identity: Encoding,
         negate: fn(&Encoding) -> Encoding,
     ) -> Self {
@@ -157,7 +158,7 @@ impl Corpus {
             loop {
                 let mut bytes = [0; 32];
                 rng.fill_bytes(&mut bytes);
-                if !validate(&bytes) {
+                if prepare_invalid(&mut bytes) && !validate(&bytes) {
                     invalid.push(bytes);
                     break;
                 }
@@ -207,6 +208,7 @@ impl Corpus {
             ours::edwards_point,
             upstream::edwards_point,
             upstream::edwards_validate,
+            |_| true,
             CompressedEdwardsY::identity().to_bytes(),
             |a| {
                 (-CompressedEdwardsY(*a).decompress().unwrap())
@@ -230,6 +232,17 @@ impl Corpus {
             ours::ristretto_point,
             upstream::ristretto_point,
             upstream::ristretto_validate,
+            |bytes| {
+                // Reach the inverse-square-root step: s must be nonnegative
+                // (even) and canonically encoded. Clearing the top bit alone
+                // still leaves the 19 encodings at or above p = 2^255 - 19.
+                bytes[0] &= 0xfe;
+                bytes[31] &= 0x7f;
+                let mut p = [0xff; 32];
+                p[0] = 0xed;
+                p[31] = 0x7f;
+                bytes.iter().rev().lt(p.iter().rev())
+            },
             CompressedRistretto::identity().to_bytes(),
             |a| {
                 (-CompressedRistretto(*a).decompress().unwrap())

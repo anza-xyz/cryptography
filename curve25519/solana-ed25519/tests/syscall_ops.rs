@@ -83,3 +83,28 @@ fn ristretto_sub_matches_dalek() {
         upstream::ristretto_sub,
     );
 }
+
+#[test]
+fn ristretto_invalid_corpus_reaches_square_root_checks() {
+    let corpus = Corpus::ristretto();
+    let (_, inputs) = corpus
+        .validation
+        .iter()
+        .find(|(case, _)| *case == "invalid")
+        .unwrap();
+    assert_eq!(inputs.len(), 64);
+    let modulus: [u8; 32] =
+        hex::decode("edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")
+            .unwrap()
+            .try_into()
+            .unwrap();
+    for input in inputs {
+        assert_eq!(input[0] & 1, 0, "s must be nonnegative");
+        assert!(
+            input.iter().rev().lt(modulus.iter().rev()),
+            "s must be canonical"
+        );
+        assert!(!upstream::ristretto_validate(input));
+        assert!(!ours::ristretto_validate(input));
+    }
+}
