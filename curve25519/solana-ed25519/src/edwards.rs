@@ -279,7 +279,7 @@ impl CompressedEdwardsY {
     /// and constant-time equality checks, with no variable-time fallback.
     /// Suitable for validation with a predictable operation count, for example
     /// in a fixed-price point-validation syscall.
-    pub fn decompresses(&self) -> bool {
+    pub fn is_valid(&self) -> bool {
         let (_, u, v) = decompress::prepare(self);
         // v never vanishes: -1/d is nonsquare. Thus u/v is square (or zero)
         // exactly when u*v is square (or zero).
@@ -2533,7 +2533,7 @@ mod test {
         for bytes in encodings {
             let compressed = CompressedEdwardsY(bytes);
             let expected = compressed.decompress().is_some();
-            assert_eq!(compressed.decompresses(), expected, "{bytes:02x?}");
+            assert_eq!(compressed.is_valid(), expected, "{bytes:02x?}");
             if expected {
                 valid += 1;
             } else {

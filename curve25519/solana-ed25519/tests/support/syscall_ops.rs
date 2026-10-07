@@ -55,7 +55,7 @@ pub mod ours {
 
     // Optimized helpers used by the primary validation and group-op benchmarks.
     pub fn edwards_validate(p: &[u8; 32]) -> bool {
-        CompressedEdwardsY(*p).decompresses()
+        CompressedEdwardsY(*p).is_valid()
     }
     pub fn edwards_add(a: &[u8; 32], b: &[u8; 32]) -> Option<[u8; 32]> {
         Some(

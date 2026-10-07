@@ -173,7 +173,7 @@ inverse square root), which is nearly all of their cost. The helpers below
 reduce that cost while preserving the existing results. The variable-time
 helpers are for public data only:
 
-- `CompressedEdwardsY::decompresses` answers `decompress().is_some()` with
+- `CompressedEdwardsY::is_valid` answers `decompress().is_some()` with
   a fixed exponentiation schedule and no fallback. For `w = (y² - 1)(d y² + 1)`,
   it checks whether `w^((p-1)/4)` is zero or ±1. This accepts exactly the
   square residues, including zero, without constructing a square root or a
