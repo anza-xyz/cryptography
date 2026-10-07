@@ -211,6 +211,7 @@ impl FieldElement {
     }
 
     /// `pow_p58` for `N` independent elements at once.
+    #[inline(always)]
     #[rustfmt::skip] // keep alignment of explanatory comments
     fn pow_p58_many<const N: usize>(xs: &[FieldElement; N]) -> [FieldElement; N] {
         // The bits of (p-5)/8 are 101111.....11.
@@ -421,17 +422,10 @@ impl FieldElement {
     }
 
     /// Raise this field element to the power (p-5)/8 = 2^252 -3.
-    #[rustfmt::skip] // keep alignment of explanatory comments
-    #[allow(clippy::let_and_return)]
+    #[inline(always)]
     pub(crate) fn pow_p58(&self) -> FieldElement {
-        // The bits of (p-5)/8 are 101111.....11.
-        //
-        //                                 nonzero bits of exponent
-        let (t19, _) = self.pow22501();    // 249..0
-        let t20 = t19.pow2k(2);            // 251..2
-        let t21 = self * &t20;             // 251..2,0
-
-        t21
+        let [r] = FieldElement::pow_p58_many(&[*self]);
+        r
     }
 
     /// Test quadratic residuosity, accepting zero, with a fixed schedule.
