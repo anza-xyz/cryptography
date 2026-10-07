@@ -8,7 +8,7 @@ use criterion::{
     BenchmarkGroup, Criterion, criterion_group, criterion_main, measurement::WallTime,
 };
 use std::{hint::black_box, time::Duration};
-use support::{Corpus, Encoding, ours, upstream};
+use support::{Corpus, Encoding, check_group_op, check_validation, ours, upstream};
 
 fn bench_inputs<T, R>(
     g: &mut BenchmarkGroup<'_, WallTime>,
@@ -36,20 +36,18 @@ fn bench_validation(
     corpus: &Corpus,
     operation: &str,
     validate: impl Fn(&Encoding) -> bool,
-    reference: impl Fn(&Encoding) -> bool,
+    reference: Option<fn(&Encoding) -> bool>,
 ) {
+    if let Some(reference) = reference {
+        check_validation(corpus, &validate, reference);
+    }
     for (case, inputs) in &corpus.validation {
-        for input in inputs {
-            assert_eq!(
-                validate(input),
-                reference(input),
-                "{curve}/{case}/{operation}"
-            );
-        }
         let mut group = c.benchmark_group(format!("{curve}/corpus/{case}"));
         bench_inputs(&mut group, operation, inputs, &validate);
     }
 }
+
+type GroupOp = fn(&Encoding, &Encoding) -> Option<Encoding>;
 
 fn bench_group_op(
     c: &mut Criterion,
@@ -57,12 +55,12 @@ fn bench_group_op(
     corpus: &Corpus,
     operation: &str,
     apply: impl Fn(&Encoding, &Encoding) -> Option<Encoding>,
-    reference: impl Fn(&Encoding, &Encoding) -> Option<Encoding>,
+    reference: Option<GroupOp>,
 ) {
+    if let Some(reference) = reference {
+        check_group_op(corpus, &apply, reference);
+    }
     for (case, inputs) in &corpus.pairs {
-        for (a, b) in inputs {
-            assert_eq!(apply(a, b), reference(a, b), "{curve}/{case}/{operation}");
-        }
         let mut group = c.benchmark_group(format!("{curve}/corpus/{case}"));
         bench_inputs(&mut group, operation, inputs, |(a, b)| apply(a, b));
     }
@@ -76,7 +74,7 @@ fn bench_corpus(c: &mut Criterion) {
         &edwards,
         "validate",
         ours::edwards_validate,
-        upstream::edwards_validate,
+        Some(upstream::edwards_validate),
     );
     bench_validation(
         c,
@@ -84,7 +82,7 @@ fn bench_corpus(c: &mut Criterion) {
         &edwards,
         "validate_upstream",
         upstream::edwards_validate,
-        upstream::edwards_validate,
+        None,
     );
     bench_validation(
         c,
@@ -92,7 +90,7 @@ fn bench_corpus(c: &mut Criterion) {
         &edwards,
         "validate_decompress",
         ours::edwards_validate_decompress,
-        upstream::edwards_validate,
+        Some(upstream::edwards_validate),
     );
     bench_group_op(
         c,
@@ -100,7 +98,7 @@ fn bench_corpus(c: &mut Criterion) {
         &edwards,
         "add",
         ours::edwards_add,
-        upstream::edwards_add,
+        Some(upstream::edwards_add),
     );
     bench_group_op(
         c,
@@ -108,7 +106,7 @@ fn bench_corpus(c: &mut Criterion) {
         &edwards,
         "add_decompress",
         ours::edwards_add_decompress,
-        upstream::edwards_add,
+        Some(upstream::edwards_add),
     );
     bench_group_op(
         c,
@@ -116,7 +114,7 @@ fn bench_corpus(c: &mut Criterion) {
         &edwards,
         "add_upstream",
         upstream::edwards_add,
-        upstream::edwards_add,
+        None,
     );
     bench_group_op(
         c,
@@ -124,7 +122,7 @@ fn bench_corpus(c: &mut Criterion) {
         &edwards,
         "sub",
         ours::edwards_sub,
-        upstream::edwards_sub,
+        Some(upstream::edwards_sub),
     );
     bench_group_op(
         c,
@@ -132,7 +130,7 @@ fn bench_corpus(c: &mut Criterion) {
         &edwards,
         "sub_decompress",
         ours::edwards_sub_decompress,
-        upstream::edwards_sub,
+        Some(upstream::edwards_sub),
     );
     bench_group_op(
         c,
@@ -140,7 +138,7 @@ fn bench_corpus(c: &mut Criterion) {
         &edwards,
         "sub_upstream",
         upstream::edwards_sub,
-        upstream::edwards_sub,
+        None,
     );
     let ristretto = Corpus::ristretto();
     bench_validation(
@@ -149,7 +147,7 @@ fn bench_corpus(c: &mut Criterion) {
         &ristretto,
         "validate",
         ours::ristretto_validate,
-        upstream::ristretto_validate,
+        Some(upstream::ristretto_validate),
     );
     bench_validation(
         c,
@@ -157,7 +155,7 @@ fn bench_corpus(c: &mut Criterion) {
         &ristretto,
         "validate_upstream",
         upstream::ristretto_validate,
-        upstream::ristretto_validate,
+        None,
     );
     bench_group_op(
         c,
@@ -165,7 +163,7 @@ fn bench_corpus(c: &mut Criterion) {
         &ristretto,
         "add",
         ours::ristretto_add,
-        upstream::ristretto_add,
+        Some(upstream::ristretto_add),
     );
     bench_group_op(
         c,
@@ -173,7 +171,7 @@ fn bench_corpus(c: &mut Criterion) {
         &ristretto,
         "add_decompress",
         ours::ristretto_add_decompress,
-        upstream::ristretto_add,
+        Some(upstream::ristretto_add),
     );
     bench_group_op(
         c,
@@ -181,7 +179,7 @@ fn bench_corpus(c: &mut Criterion) {
         &ristretto,
         "add_upstream",
         upstream::ristretto_add,
-        upstream::ristretto_add,
+        None,
     );
     bench_group_op(
         c,
@@ -189,7 +187,7 @@ fn bench_corpus(c: &mut Criterion) {
         &ristretto,
         "sub",
         ours::ristretto_sub,
-        upstream::ristretto_sub,
+        Some(upstream::ristretto_sub),
     );
     bench_group_op(
         c,
@@ -197,7 +195,7 @@ fn bench_corpus(c: &mut Criterion) {
         &ristretto,
         "sub_decompress",
         ours::ristretto_sub_decompress,
-        upstream::ristretto_sub,
+        Some(upstream::ristretto_sub),
     );
     bench_group_op(
         c,
@@ -205,7 +203,7 @@ fn bench_corpus(c: &mut Criterion) {
         &ristretto,
         "sub_upstream",
         upstream::ristretto_sub,
-        upstream::ristretto_sub,
+        None,
     );
 }
 

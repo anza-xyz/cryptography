@@ -1,31 +1,7 @@
 //! Agreement with upstream dalek on the same inputs used by the syscall benchmarks.
 #[path = "support/syscall_ops.rs"]
 mod support;
-use support::{Corpus, Encoding, ours, upstream};
-
-fn check_validation(
-    corpus: &Corpus,
-    validate: fn(&Encoding) -> bool,
-    reference: fn(&Encoding) -> bool,
-) {
-    for (case, inputs) in &corpus.validation {
-        for (index, input) in inputs.iter().enumerate() {
-            assert_eq!(validate(input), reference(input), "{case}[{index}]");
-        }
-    }
-}
-
-fn check_group_op(
-    corpus: &Corpus,
-    apply: fn(&Encoding, &Encoding) -> Option<Encoding>,
-    reference: fn(&Encoding, &Encoding) -> Option<Encoding>,
-) {
-    for (case, inputs) in &corpus.pairs {
-        for (index, (a, b)) in inputs.iter().enumerate() {
-            assert_eq!(apply(a, b), reference(a, b), "{case}[{index}]");
-        }
-    }
-}
+use support::{Corpus, check_group_op, check_validation, ours, upstream};
 
 #[test]
 fn edwards_validation_matches_dalek() {

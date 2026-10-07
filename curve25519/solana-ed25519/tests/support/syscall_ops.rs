@@ -252,3 +252,27 @@ impl Corpus {
         )
     }
 }
+
+pub fn check_validation(
+    corpus: &Corpus,
+    validate: impl Fn(&Encoding) -> bool,
+    reference: impl Fn(&Encoding) -> bool,
+) {
+    for (case, inputs) in &corpus.validation {
+        for (index, input) in inputs.iter().enumerate() {
+            assert_eq!(validate(input), reference(input), "{case}[{index}]");
+        }
+    }
+}
+
+pub fn check_group_op(
+    corpus: &Corpus,
+    apply: impl Fn(&Encoding, &Encoding) -> Option<Encoding>,
+    reference: impl Fn(&Encoding, &Encoding) -> Option<Encoding>,
+) {
+    for (case, inputs) in &corpus.pairs {
+        for (index, (a, b)) in inputs.iter().enumerate() {
+            assert_eq!(apply(a, b), reference(a, b), "{case}[{index}]");
+        }
+    }
+}
