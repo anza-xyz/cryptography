@@ -437,9 +437,10 @@ impl FieldElement {
         // (p-1)/4 = 2 * (p-5)/8 + 1, reuse the square-root exponent chain.
         // Zero produces zero and is also a square.
         let quartic = &self.pow_p58().square() * self;
-        quartic.ct_eq(&FieldElement::ONE)
-            | quartic.ct_eq(&FieldElement::MINUS_ONE)
-            | quartic.is_zero()
+        let bytes = quartic.to_bytes();
+        bytes.ct_eq(&FieldElement::ONE.to_bytes())
+            | bytes.ct_eq(&FieldElement::MINUS_ONE.to_bytes())
+            | bytes.ct_eq(&[0u8; 32])
     }
 
     /// Given `FieldElements` `u` and `v`, compute either `sqrt(u/v)`
