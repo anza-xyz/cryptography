@@ -274,20 +274,6 @@ impl CompressedRistretto {
             Some(res)
         }
     }
-
-    /// Attempt to decompress two encodings at once.
-    ///
-    /// Returns `None` if either encoding is invalid, and otherwise exactly
-    /// what `a.decompress()` and `b.decompress()` would return. The two
-    /// inverse square roots are computed with their exponentiations
-    /// interleaved; see `CompressedEdwardsY::decompress_pair`.
-    pub fn decompress_pair(
-        a: &CompressedRistretto,
-        b: &CompressedRistretto,
-    ) -> Option<(RistrettoPoint, RistrettoPoint)> {
-        let (a, b) = decompress::pair(a, b)?;
-        Some((a.point, b.point))
-    }
 }
 
 mod decompress {
@@ -1615,7 +1601,7 @@ mod test {
         assert_eq!(sum, P1 * s + P2 * s);
     }
 
-    /// `decompress_pair` must agree with `decompress` on valid encodings,
+    /// Paired decoding must agree with `decompress` on valid encodings,
     /// encodings rejected at each step, and random bytes.
     #[test]
     fn pair_decompression_matches_single() {
@@ -1653,7 +1639,7 @@ mod test {
                     (Some(pa), Some(pb)) => Some((pa, pb)),
                     _ => None,
                 };
-                let actual = CompressedRistretto::decompress_pair(a, b);
+                let actual = decompress::pair(a, b).map(|(a, b)| (a.point, b.point));
                 assert_eq!(actual.is_some(), expected.is_some());
                 if let (Some((xa, xb)), Some((ea, eb))) = (actual, expected) {
                     assert_eq!(xa, ea);

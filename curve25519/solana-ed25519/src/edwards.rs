@@ -751,15 +751,6 @@ impl EdwardsPoint {
         self.to_affine().compress()
     }
 
-    /// Compress this point to `CompressedEdwardsY` format in variable time.
-    ///
-    /// Identical output to `compress`, but the inversion of `Z` runs in time
-    /// that depends on its value. Use it only for public points, such as the
-    /// results of the curve25519 group-operation syscalls.
-    pub fn compress_vartime(&self) -> CompressedEdwardsY {
-        CompressedEdwardsY::from_projective_vartime(&self.X, &self.Y, &self.Z)
-    }
-
     /// Compress several `EdwardsPoint`s into `CompressedEdwardsY` format, using a batch inversion
     /// for a significant speedup.
     #[cfg(feature = "alloc")]
@@ -2407,10 +2398,10 @@ mod test {
         assert_eq!(p1, bp);
     }
 
-    /// `decompress_pair` and `compress_vartime` must agree with `decompress`
-    /// and `compress` on valid, invalid and non-canonical encodings.
+    /// Paired decompression and compressed arithmetic must agree with the
+    /// single-point operations on valid, invalid and non-canonical encodings.
     #[test]
-    fn pair_decompression_and_vartime_compression_match_single() {
+    fn pair_decompression_and_compressed_arithmetic_match_single() {
         use std::vec::Vec;
         let mut rng = rand::rng();
         let mut encodings: Vec<CompressedEdwardsY> = Vec::new();
@@ -2459,19 +2450,33 @@ mod test {
                     assert_eq!(xa.X.to_bytes(), ea.X.to_bytes());
                     assert_eq!(xb.X.to_bytes(), eb.X.to_bytes());
                     let sum = xa + xb;
-                    assert_eq!(sum.compress_vartime(), sum.compress());
+                    assert_eq!(
+                        CompressedEdwardsY::from_projective_vartime(&sum.X, &sum.Y, &sum.Z),
+                        sum.compress()
+                    );
                     assert_eq!(a.add_vartime(b), Some(sum.compress()));
                     let difference = xa - xb;
-                    assert_eq!(difference.compress_vartime(), difference.compress());
+                    assert_eq!(
+                        CompressedEdwardsY::from_projective_vartime(
+                            &difference.X,
+                            &difference.Y,
+                            &difference.Z
+                        ),
+                        difference.compress()
+                    );
                     assert_eq!(a.sub_vartime(b), Some(difference.compress()));
                 }
             }
         }
         for p in [EdwardsPoint::identity(), constants::ED25519_BASEPOINT_POINT] {
-            assert_eq!(p.compress_vartime(), p.compress());
             assert_eq!(
-                p.mul_by_pow_2(3).compress_vartime(),
-                p.mul_by_pow_2(3).compress()
+                CompressedEdwardsY::from_projective_vartime(&p.X, &p.Y, &p.Z),
+                p.compress()
+            );
+            let doubled = p.mul_by_pow_2(3);
+            assert_eq!(
+                CompressedEdwardsY::from_projective_vartime(&doubled.X, &doubled.Y, &doubled.Z),
+                doubled.compress()
             );
         }
     }

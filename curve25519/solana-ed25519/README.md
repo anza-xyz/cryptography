@@ -179,15 +179,13 @@ helpers are for public data only:
   square residues, including zero, without constructing a square root or a
   point. Use this helper when validation needs a predictable operation count,
   such as a fixed-price syscall.
-- `CompressedEdwardsY::decompress_pair` and `CompressedRistretto::decompress_pair`
-  decompress two points with their two exponentiations interleaved, which is
-  faster than two separate decompressions because a single squaring chain
-  leaves most of the CPU idle.
-- `EdwardsPoint::compress_vartime` replaces the Fermat inversion in `compress`
-  with variable-time batched divsteps (Bernstein–Yang).
+- `CompressedEdwardsY::decompress_pair` decompresses two points with their
+  exponentiations interleaved. The Ristretto arithmetic helpers use the same
+  technique internally to overlap the two squaring chains.
 - `CompressedEdwardsY::add_vartime` / `sub_vartime` use paired decompression,
   specialize addition for the decoded inputs with `Z = 1`, and compress from
-  projective coordinates with a variable-time inversion, without constructing
+  projective coordinates with a variable-time batched-divsteps inversion
+  (Bernstein–Yang), without constructing
   an unused extended `T` coordinate.
 - `CompressedRistretto::add_vartime` / `sub_vartime` add on the Jacobi
   quartic `t² = s⁴ + 486662 s² + 1` that is 2-isogenous to the Edwards curve.
