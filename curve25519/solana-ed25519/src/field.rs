@@ -252,7 +252,7 @@ impl FieldElement {
     fn sqrt_ratio_i_finish(
         u: &FieldElement,
         v: &FieldElement,
-        mut r: FieldElement,
+        r: FieldElement,
     ) -> (Choice, FieldElement) {
         let check = v * &r.square();
 
@@ -264,16 +264,7 @@ impl FieldElement {
         let flipped_sign_sqrt = check_bytes.ct_eq(&minus_u.to_bytes());
         let flipped_sign_sqrt_i = check_bytes.ct_eq(&(&minus_u * i).to_bytes());
 
-        let r_prime = &constants::SQRT_M1 * &r;
-        r.conditional_assign(&r_prime, flipped_sign_sqrt | flipped_sign_sqrt_i);
-
-        // Choose the nonnegative square root.
-        let r_is_negative = r.is_negative();
-        r.conditional_negate(r_is_negative);
-
-        let was_nonzero_square = correct_sign_sqrt | flipped_sign_sqrt;
-
-        (was_nonzero_square, r)
+        Self::select_sqrt(r, correct_sign_sqrt, flipped_sign_sqrt, flipped_sign_sqrt_i)
     }
 
     /// `invsqrt` for two independent elements at once; see `sqrt_ratio_i_pair`.
@@ -295,7 +286,7 @@ impl FieldElement {
     /// Shared tail of `invsqrt`: given `r = v^3 (v^7)^((p-5)/8)`, pick the
     /// correct square root and sign. This is `sqrt_ratio_i_finish` with
     /// `u = 1`, without the multiplications by one.
-    fn invsqrt_finish(v: &FieldElement, mut r: FieldElement) -> (Choice, FieldElement) {
+    fn invsqrt_finish(v: &FieldElement, r: FieldElement) -> (Choice, FieldElement) {
         // r^2 = ±1/v or ±i/v, so v r^2 is 1, -1, i or -i.
         let check = v * &r.square();
         let check_bytes = check.to_bytes();
@@ -304,6 +295,17 @@ impl FieldElement {
         let flipped_sign_sqrt = check_bytes.ct_eq(&FieldElement::MINUS_ONE.to_bytes());
         let flipped_sign_sqrt_i = check_bytes.ct_eq(&constants::MINUS_SQRT_M1.to_bytes());
 
+        Self::select_sqrt(r, correct_sign_sqrt, flipped_sign_sqrt, flipped_sign_sqrt_i)
+    }
+
+    /// Correct the root using the residue checks, then choose its nonnegative sign.
+    #[inline(always)]
+    fn select_sqrt(
+        mut r: FieldElement,
+        correct_sign_sqrt: Choice,
+        flipped_sign_sqrt: Choice,
+        flipped_sign_sqrt_i: Choice,
+    ) -> (Choice, FieldElement) {
         let r_prime = &constants::SQRT_M1 * &r;
         r.conditional_assign(&r_prime, flipped_sign_sqrt | flipped_sign_sqrt_i);
 
