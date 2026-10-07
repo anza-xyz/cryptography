@@ -138,10 +138,10 @@ impl<'a> Mul<&'a FieldElement51> for &FieldElement51 {
 
         // Multiply to get 128-bit coefficients of output
         let     c0: u128 = m(a[0], b[0]) + m(a[4], b1_19) + m(a[3], b2_19) + m(a[2], b3_19) + m(a[1], b4_19);
-        let mut c1: u128 = m(a[1], b[0]) + m(a[0],  b[1]) + m(a[4], b2_19) + m(a[3], b3_19) + m(a[2], b4_19);
-        let mut c2: u128 = m(a[2], b[0]) + m(a[1],  b[1]) + m(a[0],  b[2]) + m(a[4], b3_19) + m(a[3], b4_19);
-        let mut c3: u128 = m(a[3], b[0]) + m(a[2],  b[1]) + m(a[1],  b[2]) + m(a[0],  b[3]) + m(a[4], b4_19);
-        let mut c4: u128 = m(a[4], b[0]) + m(a[3],  b[1]) + m(a[2],  b[2]) + m(a[1],  b[3]) + m(a[0] , b[4]);
+        let     c1: u128 = m(a[1], b[0]) + m(a[0],  b[1]) + m(a[4], b2_19) + m(a[3], b3_19) + m(a[2], b4_19);
+        let     c2: u128 = m(a[2], b[0]) + m(a[1],  b[1]) + m(a[0],  b[2]) + m(a[4], b3_19) + m(a[3], b4_19);
+        let     c3: u128 = m(a[3], b[0]) + m(a[2],  b[1]) + m(a[1],  b[2]) + m(a[0],  b[3]) + m(a[4], b4_19);
+        let     c4: u128 = m(a[4], b[0]) + m(a[3],  b[1]) + m(a[2],  b[2]) + m(a[1],  b[3]) + m(a[0] , b[4]);
 
         // How big are the c[i]? We have
         //
@@ -161,51 +161,7 @@ impl<'a> Mul<&'a FieldElement51> for &FieldElement51 {
         debug_assert!(a[3] < (1 << 54)); debug_assert!(b[3] < (1 << 54));
         debug_assert!(a[4] < (1 << 54)); debug_assert!(b[4] < (1 << 54));
 
-        // Casting to u64 and back tells the compiler that the carry is
-        // bounded by 2^64, so that the addition is a u128 + u64 rather
-        // than u128 + u128.
-
-        const LOW_51_BIT_MASK: u64 = (1u64 << 51) - 1;
-        let mut out = [0u64; 5];
-
-        c1 += ((c0 >> 51) as u64) as u128;
-        out[0] = (c0 as u64) & LOW_51_BIT_MASK;
-
-        c2 += ((c1 >> 51) as u64) as u128;
-        out[1] = (c1 as u64) & LOW_51_BIT_MASK;
-
-        c3 += ((c2 >> 51) as u64) as u128;
-        out[2] = (c2 as u64) & LOW_51_BIT_MASK;
-
-        c4 += ((c3 >> 51) as u64) as u128;
-        out[3] = (c3 as u64) & LOW_51_BIT_MASK;
-
-        let carry: u64 = (c4 >> 51) as u64;
-        out[4] = (c4 as u64) & LOW_51_BIT_MASK;
-
-        // To see that this does not overflow, we need out[0] + carry * 19 < 2^64.
-        //
-        // c4 < a0*b4 + a1*b3 + a2*b2 + a3*b1 + a4*b0 + (carry from c3)
-        //    < 5*(2^(51 + b) * 2^(51 + b)) + (carry from c3)
-        //    < 2^(102 + 2*b + lg(5)) + 2^64.
-        //
-        // When b < 3 we get
-        //
-        // c4 < 2^110.33  so that carry < 2^59.33
-        //
-        // so that
-        //
-        // out[0] + carry * 19 < 2^51 + 19 * 2^59.33 < 2^63.58
-        //
-        // and there is no overflow.
-        out[0] += carry * 19;
-
-        // Now out[1] < 2^51 + 2^(64 -51) = 2^51 + 2^13 < 2^(51 + epsilon).
-        out[1] += out[0] >> 51;
-        out[0] &= LOW_51_BIT_MASK;
-
-        // Now out[i] < 2^(51 + epsilon) for all i.
-        FieldElement51(out)
+        FieldElement51(carry_serial([c0, c1, c2, c3, c4]))
     }
 }
 
@@ -271,11 +227,12 @@ fn square_columns(a: &[u64; 5]) -> [u128; 5] {
     [c0, c1, c2, c3, c4]
 }
 
-/// Carries the columns of a square into five limbs, serially:
+/// Carries multiplication or squaring columns into five limbs, serially:
 /// `c0 -> c1 -> c2 -> c3 -> c4 -> a[0] -> a[1]`.
 ///
-/// This is the shorter instruction sequence, used for a single squaring,
-/// where the CPU overlaps it with neighbouring independent operations.
+/// Requires the column bounds documented in multiplication and `square_columns`.
+/// This is the shorter instruction sequence, used for multiplication and single
+/// squarings, where the CPU overlaps it with neighbouring independent operations.
 /// The result has `a[1] < 2^51 + 2^13` and `a[i] < 2^51` otherwise.
 #[inline(always)]
 fn carry_serial(c: [u128; 5]) -> [u64; 5] {
@@ -301,7 +258,7 @@ fn carry_serial(c: [u128; 5]) -> [u64; 5] {
 
     // To see that this does not overflow, we need a[0] + carry * 19 < 2^64.
     //
-    // c4 < a2^2 + 2*a0*a4 + 2*a1*a3 + (carry from c3)
+    // c4 < a0*b4 + a1*b3 + a2*b2 + a3*b1 + a4*b0 + (carry from c3)
     //    < 2^(102 + 2*b + lg(5)) + 2^64.
     //
     // When b < 3 we get
