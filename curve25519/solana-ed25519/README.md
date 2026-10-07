@@ -226,11 +226,12 @@ without running benchmarks:
 cargo test -p solana-ed25519 --test syscall_ops
 ```
 
-Report wall time per operation with the CPU model, operating system,
-`rustc -Vv` output, enabled Cargo features, and `RUSTFLAGS` (including any
-CPU/backend overrides). Keep random, invalid, and exceptional-input results
-separate; random-input timings do not establish worst-case latency.
-Compute-unit pricing belongs to the runtime integrating these helpers.
+The benchmarks measure wall time per operation; results depend on the CPU,
+compiler, and enabled features. Separate input groups show how validation
+and arithmetic costs vary across valid points, invalid encodings, and
+exceptional cases. For Ristretto, the invalid corpus uses canonical,
+nonnegative encodings that reach the inverse-square-root step before
+rejection.
 
 ---
 
