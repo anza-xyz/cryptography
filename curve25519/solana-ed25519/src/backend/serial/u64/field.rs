@@ -620,13 +620,6 @@ impl FieldElement51 {
         r
     }
 
-    /// Given `k > 0`, return `(a^(2^k), b^(2^k))`; see `pow2k_many`.
-    #[inline(always)]
-    pub fn pow2k_pair(a: &FieldElement51, b: &FieldElement51, k: u32) -> (Self, Self) {
-        let [x, y] = FieldElement51::pow2k_many(&[*a, *b], k);
-        (x, y)
-    }
-
     /// Given `k > 0`, return `x^(2^k)` for each element of `xs`.
     ///
     /// The squaring chains are independent, so interleaving them lets the
