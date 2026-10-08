@@ -26,7 +26,10 @@ jobs:
     env:
       # Matches the verifier repository's own CI (its Makefile builds SBF v3
       # with this release). `cargo build-sbf` from older releases stops at v2.
+      # Release tarball from https://github.com/anza-xyz/agave/releases; the
+      # checksum pins its contents, so bump both together.
       SOLANA_CLI_VERSION: v4.2.2
+      SOLANA_RELEASE_SHA256: 5fc8684f7430038105fde953d4308ed56addf627f658daa61709f345448247ee
       SBF_ARCH: v3
     defaults:
       run:
@@ -50,10 +53,18 @@ jobs:
       - name: Cache dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
+      # The release tarball is what `agave-install` would download; fetching it
+      # directly lets us verify it against a pinned checksum instead of piping
+      # the installer script into a shell.
       - name: Install Solana CLI
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/$SOLANA_CLI_VERSION/install)"
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+          curl --fail --location --retry 3 \
+            "https://github.com/anza-xyz/agave/releases/download/$SOLANA_CLI_VERSION/solana-release-x86_64-unknown-linux-gnu.tar.bz2" \
+            --output "$RUNNER_TEMP/solana-release.tar.bz2"
+          printf '%s  %s\n' "$SOLANA_RELEASE_SHA256" "$RUNNER_TEMP/solana-release.tar.bz2" \
+            | sha256sum --check
+          tar -xjf "$RUNNER_TEMP/solana-release.tar.bz2" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/solana-release/bin" >> "$GITHUB_PATH"
 
       - name: Build verifier program
         run: make verifier-sbf SBF_ARCH=$SBF_ARCH
