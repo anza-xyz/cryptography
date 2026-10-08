@@ -59,52 +59,6 @@ jobs:
         run: |
           cargo test -p solana-ed25519 --features avx512 --lib
 
-  # experimental/private-tx: gnark circuits (Go) and their end-to-end
-  # verification against the Solana Groth16 verifier program. The Rust e2e
-  # crate is a workspace member, so `rust-checks` already covers its host-path
-  # tests; this job adds the Go side and the on-chain (Mollusk) test, which
-  # needs the verifier's SBF artifact and therefore the Solana toolchain.
-  private-tx:
-    name: private-tx (gnark circuits + verifier e2e)
-    runs-on: ubuntu-latest
-    env:
-      # Matches the verifier repository's own CI (its Makefile builds SBF v3
-      # with this release). `cargo build-sbf` from older releases stops at v2.
-      SOLANA_CLI_VERSION: v4.2.2
-      SBF_ARCH: v3
-    defaults:
-      run:
-        working-directory: experimental/private-tx
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Setup Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
-        with:
-          go-version-file: experimental/private-tx/circuits/go.mod
-          cache-dependency-path: experimental/private-tx/circuits/go.sum
-
-      - name: Test circuits
-        run: make test-go
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-
-      - name: Install Solana CLI
-        run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/$SOLANA_CLI_VERSION/install)"
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
-
-      - name: Build verifier program
-        run: make verifier-sbf SBF_ARCH=$SBF_ARCH
-
-      - name: Test end to end
-        run: make test-e2e
-
   # Enable both gates for the optimized implementation: the `avx512` Cargo
   # feature exposes the verifier, while these target features select its IFMA
   # implementation and make LLVM generate AVX-512 code. GitHub runners have no

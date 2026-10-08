@@ -70,6 +70,6 @@ are gnark's native `WriteTo` / `MarshalBinary` forms, which that revision's
 `groth16-convert` parses. The Groth16 setup in `privtx` is for development
 only.
 
-CI (`.github/workflows/ci.yml`, job `private-tx`) runs the Go tests, builds
-the verifier program at the pinned revision, and runs the e2e crate with the
-SBF test enabled.
+CI (`.github/workflows/private-tx.yml`, run only when this directory or the
+workflow changes) runs the Go tests, builds the verifier program at the pinned
+revision, and runs the e2e crate with the SBF test enabled.
