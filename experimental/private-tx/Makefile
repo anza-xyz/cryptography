@@ -6,8 +6,9 @@ VERIFIER_REPO = https://github.com/solana-program/groth16-verifier-program
 VERIFIER_REV  = 8bd06b4fb07f636c1872993a99f1a296b23b69fa
 VERIFIER_DIR  = $(CURDIR)/target/groth16-verifier-program
 SBF_OUT_DIR   = $(VERIFIER_DIR)/target/deploy
-# solana-cli 4.2+ builds SBF v3; 3.x stops at v2.
-SBF_ARCH     ?= v2
+# solana-cli 4.2+ (cargo-build-sbf 4.1, platform-tools v1.54) builds SBF v3,
+# which is what CI uses. Older toolchains stop at v2: `make SBF_ARCH=v2`.
+SBF_ARCH     ?= v3
 
 .PHONY: all lint test test-go test-e2e fixtures verifier-sbf clean
 

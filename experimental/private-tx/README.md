@@ -60,7 +60,7 @@ their in-circuit hashes against.
 make lint           # gofmt + go vet; cargo fmt + clippy for e2e
 make test-go        # Go: Poseidon vectors, gadget == native, circuit prove/verify
 make test-e2e       # Rust (release): host-path verification of the fixtures
-make verifier-sbf   # clone + build the verifier program (needs cargo build-sbf)
+make verifier-sbf   # clone + build the verifier program (needs cargo build-sbf 4.1+ for SBF v3; SBF_ARCH=v2 for older)
 make test-e2e       # now also verifies the proofs inside the SBF program
 make fixtures       # regenerate fixtures (random setup: bytes change)
 ```
