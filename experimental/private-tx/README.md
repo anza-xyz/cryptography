@@ -77,3 +77,11 @@ CI (`.github/workflows/private-tx.yml`, run only when this directory or the
 workflow changes) lints and tests the Go side, builds the verifier program at
 the pinned revision, regenerates the fixtures, and runs the e2e crate with the
 SBF test enabled.
+
+## Dependency pins
+
+`vocdoni/gnark-crypto-primitives` v0.0.6 requires commits of gnark, gnark-crypto
+and go-iden3-crypto that are newer than the releases it was built against, so
+Go's minimum version selection carries those commits into `go.mod`. gnark and
+gnark-crypto are raised to tagged releases that satisfy it; go-iden3-crypto has
+no tag newer than the required commit, so it stays on that commit.
