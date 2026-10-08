@@ -1,10 +1,11 @@
 # experimental/private-tx: gnark circuits (Go) and their end-to-end
-# verification against the Solana Groth16 verifier program. The Rust e2e
-# crate is a workspace member, so the root `CI` workflow already covers its
-# host-path tests; this workflow adds the Go side and the on-chain (Mollusk)
-# test, which needs the verifier's SBF artifact and therefore the Solana
-# toolchain. That is too slow to run on every push to the repository, so it
-# runs only when this directory or the workflow itself changes.
+# verification against the Solana Groth16 verifier program.
+#
+# The Rust e2e crate is its own workspace (Mollusk would otherwise pull the SVM
+# runtime into the root lockfile), so the root `CI` workflow does not cover it.
+# This workflow lints and tests both halves, but only when they change: it
+# installs the Solana toolchain and builds the verifier program, which is too
+# slow to run on every push to the repository.
 name: private-tx
 
 on:
@@ -44,14 +45,21 @@ jobs:
           go-version-file: experimental/private-tx/circuits/go.mod
           cache-dependency-path: experimental/private-tx/circuits/go.sum
 
-      - name: Test circuits
-        run: make test-go
-
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          components: rustfmt, clippy
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: experimental/private-tx/e2e
+
+      - name: Lint
+        run: make lint
+
+      - name: Test circuits
+        run: make test-go
 
       # The release tarball is what `agave-install` would download; fetching it
       # directly lets us verify it against a pinned checksum instead of piping

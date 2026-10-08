@@ -20,7 +20,7 @@ CI. Circuits are added on top of it.
 | `circuits/export/` | writes gnark's native `vk.bin` / `proof.bin` / `public.bin` |
 | `circuits/cmd/privtx/` | `privtx <circuit>-fixture`: setup, prove, export |
 | `fixtures/<circuit>/` | a key, proof and public witness per circuit, consumed by `e2e/` |
-| `e2e/` | Rust crate (workspace member): fixture → on-chain format → verifier host path and SBF program |
+| `e2e/` | Rust crate (its own workspace, not a member of the repository root): fixture → on-chain format → verifier host path and SBF program |
 
 ## Poseidon
 
@@ -57,6 +57,7 @@ their in-circuit hashes against.
 ## Running
 
 ```bash
+make lint           # gofmt + go vet; cargo fmt + clippy for e2e
 make test-go        # Go: Poseidon vectors, gadget == native, circuit prove/verify
 make test-e2e       # Rust (release): host-path verification of the fixtures
 make verifier-sbf   # clone + build the verifier program (needs cargo build-sbf)
@@ -64,12 +65,14 @@ make test-e2e       # now also verifies the proofs inside the SBF program
 make fixtures       # regenerate fixtures (random setup: bytes change)
 ```
 
-The e2e crate pins the verifier repository to one git revision (in the root
-`Cargo.toml` workspace dependencies and the `Makefile`); the fixture encodings
+The e2e crate is a standalone Cargo workspace: Mollusk brings in the SVM
+runtime, which would otherwise bloat the root lockfile and every build in the
+repository. It pins the verifier repository to one git revision (in
+`e2e/Cargo.toml` and the `Makefile`); the fixture encodings
 are gnark's native `WriteTo` / `MarshalBinary` forms, which that revision's
 `groth16-convert` parses. The Groth16 setup in `privtx` is for development
 only.
 
 CI (`.github/workflows/private-tx.yml`, run only when this directory or the
-workflow changes) runs the Go tests, builds the verifier program at the pinned
-revision, and runs the e2e crate with the SBF test enabled.
+workflow changes) lints and tests the Go side, builds the verifier program at
+the pinned revision, and runs the e2e crate with the SBF test enabled.

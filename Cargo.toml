@@ -7,7 +7,6 @@ members = [
     "syscall/bls12-381-syscall",
     "syscall/bn254-syscall",
     "syscall/solana-bn254",
-    "experimental/private-tx/e2e",
 ]
 resolver = "2"
 
@@ -40,13 +39,11 @@ ed25519 = { version = "2.2.3", default-features = false }
 ed25519-dalek = "2.2.0"
 ff = { version = "0.14.0", default-features = false }
 group = { version = "0.14.0", default-features = false }
-groth16-convert = { git = "https://github.com/solana-program/groth16-verifier-program", rev = "8bd06b4fb07f636c1872993a99f1a296b23b69fa" }
 hashbrown = "0.15"
 hex = "0.4.2"
 hex-literal = "1.1.0"
 hmac = "0.12"
 light-poseidon = "0.4.0"
-mollusk-svm = "0.13.1"
 num-bigint = "0.4"
 openssl = "0.10"
 pairing = "0.23.0"
@@ -59,13 +56,7 @@ rand_core = { version = "0.10.1", default-features = false }
 rayon = "1.10"
 rustc_version = "0.4.0"
 serde = { version = "1.0", default-features = false }
-serde_json = "1"
 sha2 = { version = "0.11.0", default-features = false }
-solana-account = "3.4.0"
-solana-address = "2.7.0"
-solana-groth16-verify = { git = "https://github.com/solana-program/groth16-verifier-program", rev = "8bd06b4fb07f636c1872993a99f1a296b23b69fa", default-features = false }
-solana-instruction = "3.3.0"
-solana-program-error = "3.0.1"
 subtle = { version = "2.6.0", default-features = false }
 which = "8.0"
 zeroize = { version = "1", default-features = false }

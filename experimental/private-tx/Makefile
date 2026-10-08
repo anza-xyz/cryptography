@@ -2,25 +2,31 @@
 # against the Solana Groth16 verifier program.
 
 VERIFIER_REPO = https://github.com/solana-program/groth16-verifier-program
-# Keep in sync with the `rev` of the verifier git dependencies in the root Cargo.toml.
+# Keep in sync with the `rev` of the verifier git dependencies in e2e/Cargo.toml.
 VERIFIER_REV  = 8bd06b4fb07f636c1872993a99f1a296b23b69fa
 VERIFIER_DIR  = $(CURDIR)/target/groth16-verifier-program
 SBF_OUT_DIR   = $(VERIFIER_DIR)/target/deploy
 # solana-cli 4.2+ builds SBF v3; 3.x stops at v2.
 SBF_ARCH     ?= v2
 
-.PHONY: all test test-go test-e2e fixtures verifier-sbf clean
+.PHONY: all lint test test-go test-e2e fixtures verifier-sbf clean
 
-all: test
+all: lint test
+
+# Formatting and lints for both halves. The e2e crate is its own workspace, so
+# the repository-level `cargo fmt` / `cargo clippy` do not reach it.
+lint:
+	cd circuits && test -z "$$(gofmt -l .)" && go vet ./...
+	cd e2e && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings
 
 # Go unit tests: Poseidon known answers, gadget vs native, circuit prove/verify.
 test-go:
-	cd circuits && go vet ./... && go test ./...
+	cd circuits && go test ./...
 
-# Rust end to end (a member of the repository workspace). The SBF test runs
-# only if the verifier artifact exists; `make verifier-sbf` first for the full run.
+# Rust end to end. The SBF test runs only if the verifier artifact exists;
+# `make verifier-sbf` first for the full run.
 test-e2e:
-	SBF_OUT_DIR=$(SBF_OUT_DIR) cargo test --release -p private-tx-e2e
+	cd e2e && SBF_OUT_DIR=$(SBF_OUT_DIR) cargo test --release
 
 test: test-go test-e2e
 
@@ -38,4 +44,4 @@ verifier-sbf:
 	cd "$(VERIFIER_DIR)" && cargo build-sbf --arch $(SBF_ARCH) --manifest-path program/Cargo.toml -- --locked
 
 clean:
-	rm -rf target
+	rm -rf target e2e/target
