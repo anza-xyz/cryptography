@@ -36,7 +36,7 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Test
-        run: cargo test --release --workspace --all-targets
+        run: cargo test --workspace --all-targets
 
   feature-check:
     runs-on: ubuntu-latest
@@ -57,7 +57,7 @@ jobs:
       # features through its unsupported-build fallback.
       - name: Test avx512 fallback
         run: |
-          cargo test --release -p solana-ed25519 --features avx512 --lib
+          cargo test -p solana-ed25519 --features avx512 --lib
 
   # experimental/private-tx: gnark circuits (Go) and their end-to-end
   # verification against the Solana Groth16 verifier program. The Rust e2e
@@ -170,7 +170,7 @@ jobs:
 
       - name: Build BN254 tests and benchmarks
         run: |
-          cargo test --release -p solana-bn254 --target "$AVX512_TARGET" \
+          cargo test -p solana-bn254 --target "$AVX512_TARGET" \
             --all-targets --no-run
 
   bn254-avx512-tests:
@@ -214,4 +214,4 @@ jobs:
       - name: Test BN254
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: ${{ runner.temp }}/sde/sde64 -icl --
-        run: cargo test --release -p solana-bn254 --target "$AVX512_TARGET" --lib --tests
+        run: cargo test -p solana-bn254 --target "$AVX512_TARGET" --lib --tests
