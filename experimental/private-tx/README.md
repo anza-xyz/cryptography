@@ -75,4 +75,5 @@ only.
 
 CI (`.github/workflows/private-tx.yml`, run only when this directory or the
 workflow changes) lints and tests the Go side, builds the verifier program at
-the pinned revision, and runs the e2e crate with the SBF test enabled.
+the pinned revision, regenerates the fixtures, and runs the e2e crate with the
+SBF test enabled.

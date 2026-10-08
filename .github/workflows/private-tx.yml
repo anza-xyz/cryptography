@@ -77,5 +77,9 @@ jobs:
       - name: Build verifier program
         run: make verifier-sbf SBF_ARCH=$SBF_ARCH
 
+      # Fresh proofs from the current circuit code, not only the committed ones.
+      - name: Generate fixtures
+        run: make fixtures
+
       - name: Test end to end
         run: make test-e2e
