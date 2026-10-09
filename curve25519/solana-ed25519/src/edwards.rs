@@ -262,10 +262,88 @@ impl CompressedEdwardsY {
     /// Returns `None` if the input is not the \\(y\\)-coordinate of a
     /// curve point.
     pub fn decompress(&self) -> Option<EdwardsPoint> {
-        let (is_valid_y_coord, X, Y, Z) = decompress::step_1(self);
+        let (is_valid_y_coord, X, Y) = decompress::step_1(self);
 
         if is_valid_y_coord.into() {
-            Some(decompress::step_2(self, X, Y, Z))
+            Some(decompress::step_2(self, X, Y))
+        } else {
+            None
+        }
+    }
+
+    /// Whether this encoding decompresses to a curve point, in constant time.
+    ///
+    /// Equivalent to `self.decompress().is_some()`, including non-canonical
+    /// encodings, but tests quadratic residuosity without computing a root.
+    /// Uses 253 field squarings and 14 field multiplications, plus additions
+    /// and constant-time equality checks, with no variable-time fallback.
+    /// Suitable for validation with a predictable operation count, for example
+    /// in a fixed-price point-validation syscall.
+    pub fn is_valid(&self) -> bool {
+        let (_, u, v) = decompress::prepare(self);
+        // v never vanishes: -1/d is nonsquare. Thus u/v is square (or zero)
+        // exactly when u*v is square (or zero).
+        (&u * &v).is_square().into()
+    }
+
+    /// The encoding of the sum of the two encoded points, in variable time.
+    ///
+    /// Returns `None` if either encoding is not a curve point, and otherwise
+    /// exactly `(a.decompress()? + b.decompress()?).compress()`, computed
+    /// with paired decompression, affine addition and variable-time
+    /// inversion. For public data only.
+    pub fn add_vartime(&self, other: &CompressedEdwardsY) -> Option<CompressedEdwardsY> {
+        Self::combine_vartime(self, other, false)
+    }
+
+    /// The encoding of the difference of the two encoded points, in
+    /// variable time; see `add_vartime`.
+    pub fn sub_vartime(&self, other: &CompressedEdwardsY) -> Option<CompressedEdwardsY> {
+        Self::combine_vartime(self, other, true)
+    }
+
+    fn combine_vartime(a: &Self, b: &Self, subtract: bool) -> Option<Self> {
+        let (a, b) = Self::decompress_pair(a, b)?;
+        // Decompression sets both Z coordinates to one. Construct the affine
+        // Niels operand directly, without an inversion or a Z1*Z2 product.
+        let b = AffineNielsPoint {
+            y_plus_x: &b.Y + &b.X,
+            y_minus_x: &b.Y - &b.X,
+            xy2d: &b.T * &constants::EDWARDS_D2,
+        };
+        let completed = if subtract { &a - &b } else { &a + &b };
+        // Compression needs only X, Y and Z: avoid constructing extended T.
+        let p = completed.as_projective();
+        Some(Self::from_projective_vartime(&p.X, &p.Y, &p.Z))
+    }
+
+    /// Encode a valid public point represented by (X:Y:Z), in variable time.
+    #[inline]
+    fn from_projective_vartime(X: &FieldElement, Y: &FieldElement, Z: &FieldElement) -> Self {
+        let recip = Z.invert_vartime();
+        AffinePoint {
+            x: X * &recip,
+            y: Y * &recip,
+        }
+        .compress()
+    }
+
+    /// Attempt to decompress two encodings at once.
+    ///
+    /// Returns `None` if either encoding is not a curve point, and otherwise
+    /// exactly what `a.decompress()` and `b.decompress()` would return. The
+    /// two square roots are computed with their exponentiations interleaved,
+    /// which is faster than two separate decompressions because each
+    /// squaring chain on its own leaves most of the CPU idle.
+    pub fn decompress_pair(
+        a: &CompressedEdwardsY,
+        b: &CompressedEdwardsY,
+    ) -> Option<(EdwardsPoint, EdwardsPoint)> {
+        let (Ya, ua, va) = decompress::prepare(a);
+        let (Yb, ub, vb) = decompress::prepare(b);
+        let ((ok_a, Xa), (ok_b, Xb)) = FieldElement::sqrt_ratio_i_pair(&ua, &va, &ub, &vb);
+        if (ok_a & ok_b).into() {
+            Some((decompress::step_2(a, Xa, Ya), decompress::step_2(b, Xb, Yb)))
         } else {
             None
         }
@@ -275,36 +353,40 @@ impl CompressedEdwardsY {
 mod decompress {
     use super::*;
 
+    /// `(y, y² - 1, d y² + 1)`: the ratio whose square root is `x`.
     #[rustfmt::skip] // keep alignment of explanatory comments
-    pub(super) fn step_1(
-        repr: &CompressedEdwardsY,
-    ) -> (Choice, FieldElement, FieldElement, FieldElement) {
+    pub(super) fn prepare(repr: &CompressedEdwardsY) -> (FieldElement, FieldElement, FieldElement) {
         let Y = FieldElement::from_bytes(repr.as_bytes());
         let Z = FieldElement::ONE;
         let YY = Y.square();
         let u = &YY - &Z;                            // u =  y²-1
         let v = &(&YY * &constants::EDWARDS_D) + &Z; // v = dy²+1
-        let (is_valid_y_coord, X) = FieldElement::sqrt_ratio_i(&u, &v);
-
-        (is_valid_y_coord, X, Y, Z)
+        (Y, u, v)
     }
 
-    #[rustfmt::skip]
+    /// `(valid, |x|, y)`: the affine coordinates, with `x` still unsigned.
+    pub(super) fn step_1(repr: &CompressedEdwardsY) -> (Choice, FieldElement, FieldElement) {
+        let (Y, u, v) = prepare(repr);
+        let (is_valid_y_coord, X) = FieldElement::sqrt_ratio_i(&u, &v);
+
+        (is_valid_y_coord, X, Y)
+    }
+
+    /// The affine point `(±X, Y)` with the sign taken from the encoding.
     pub(super) fn step_2(
         repr: &CompressedEdwardsY,
         mut X: FieldElement,
         Y: FieldElement,
-        Z: FieldElement,
     ) -> EdwardsPoint {
-         // FieldElement::sqrt_ratio_i always returns the nonnegative square root,
-         // so we negate according to the supplied sign bit.
+        // FieldElement::sqrt_ratio_i always returns the nonnegative square root,
+        // so we negate according to the supplied sign bit.
         let compressed_sign_bit = Choice::from(repr.as_bytes()[31] >> 7);
         X.conditional_negate(compressed_sign_bit);
 
         EdwardsPoint {
             X,
             Y,
-            Z,
+            Z: FieldElement::ONE,
             T: &X * &Y,
         }
     }
@@ -1570,8 +1652,8 @@ impl GroupEncoding for EdwardsPoint {
 
     fn from_bytes(bytes: &Self::Repr) -> CtOption<Self> {
         let repr = CompressedEdwardsY(*bytes);
-        let (is_valid_y_coord, X, Y, Z) = decompress::step_1(&repr);
-        CtOption::new(decompress::step_2(&repr, X, Y, Z), is_valid_y_coord)
+        let (is_valid_y_coord, X, Y) = decompress::step_1(&repr);
+        CtOption::new(decompress::step_2(&repr, X, Y), is_valid_y_coord)
     }
 
     fn from_bytes_unchecked(bytes: &Self::Repr) -> CtOption<Self> {
@@ -2314,6 +2396,157 @@ mod test {
         assert_eq!(p1, id);
         p1.conditional_assign(&bp, Choice::from(1));
         assert_eq!(p1, bp);
+    }
+
+    /// Paired decompression and compressed arithmetic must agree with the
+    /// single-point operations on valid, invalid and non-canonical encodings.
+    #[test]
+    fn pair_decompression_and_compressed_arithmetic_match_single() {
+        use std::vec::Vec;
+        let mut rng = rand::rng();
+        let mut encodings: Vec<CompressedEdwardsY> = Vec::new();
+        encodings.push(CompressedEdwardsY::identity());
+        encodings.push(constants::ED25519_BASEPOINT_COMPRESSED);
+        for torsion in &constants::EIGHT_TORSION {
+            encodings.push(torsion.compress());
+        }
+        for _ in 0..64 {
+            let mut wide = [0u8; 64];
+            rng.fill_bytes(&mut wide);
+            let p = EdwardsPoint::mul_base(&Scalar::from_bytes_mod_order_wide(&wide));
+            let mut bytes = p.compress().to_bytes();
+            encodings.push(CompressedEdwardsY(bytes));
+            // Same point, opposite sign bit.
+            bytes[31] ^= 0x80;
+            encodings.push(CompressedEdwardsY(bytes));
+            // Random bytes, usually not on the curve.
+            rng.fill_bytes(&mut bytes);
+            encodings.push(CompressedEdwardsY(bytes));
+        }
+        // Non-canonical y: p + 1 and 2^255 - 1 with both sign bits.
+        let mut non_canonical = [0xffu8; 32];
+        non_canonical[0] = 0xee;
+        non_canonical[31] = 0x7f;
+        encodings.push(CompressedEdwardsY(non_canonical));
+        non_canonical[31] = 0xff;
+        encodings.push(CompressedEdwardsY(non_canonical));
+        encodings.push(CompressedEdwardsY([0xff; 32]));
+
+        for a in &encodings {
+            for b in encodings.iter().step_by(7) {
+                let expected = match (a.decompress(), b.decompress()) {
+                    (Some(pa), Some(pb)) => Some((pa, pb)),
+                    _ => None,
+                };
+                let actual = CompressedEdwardsY::decompress_pair(a, b);
+                assert_eq!(actual.is_some(), expected.is_some());
+                if expected.is_none() {
+                    assert_eq!(a.add_vartime(b), None);
+                    assert_eq!(a.sub_vartime(b), None);
+                }
+                if let (Some((xa, xb)), Some((ea, eb))) = (actual, expected) {
+                    assert_eq!(xa.compress(), ea.compress());
+                    assert_eq!(xb.compress(), eb.compress());
+                    assert_eq!(xa.X.to_bytes(), ea.X.to_bytes());
+                    assert_eq!(xb.X.to_bytes(), eb.X.to_bytes());
+                    let sum = xa + xb;
+                    assert_eq!(
+                        CompressedEdwardsY::from_projective_vartime(&sum.X, &sum.Y, &sum.Z),
+                        sum.compress()
+                    );
+                    assert_eq!(a.add_vartime(b), Some(sum.compress()));
+                    let difference = xa - xb;
+                    assert_eq!(
+                        CompressedEdwardsY::from_projective_vartime(
+                            &difference.X,
+                            &difference.Y,
+                            &difference.Z
+                        ),
+                        difference.compress()
+                    );
+                    assert_eq!(a.sub_vartime(b), Some(difference.compress()));
+                }
+            }
+        }
+        for p in [EdwardsPoint::identity(), constants::ED25519_BASEPOINT_POINT] {
+            assert_eq!(
+                CompressedEdwardsY::from_projective_vartime(&p.X, &p.Y, &p.Z),
+                p.compress()
+            );
+            let doubled = p.mul_by_pow_2(3);
+            assert_eq!(
+                CompressedEdwardsY::from_projective_vartime(&doubled.X, &doubled.Y, &doubled.Z),
+                doubled.compress()
+            );
+        }
+    }
+
+    #[test]
+    fn compressed_arithmetic_preserves_torsion() {
+        for a in &constants::EIGHT_TORSION {
+            for b in &constants::EIGHT_TORSION {
+                let ca = a.compress();
+                let cb = b.compress();
+                assert_eq!(ca.add_vartime(&cb), Some((a + b).compress()));
+                assert_eq!(ca.sub_vartime(&cb), Some((a - b).compress()));
+            }
+        }
+    }
+
+    /// Validation agrees with decompression for valid, invalid, non-canonical
+    /// and structured encodings, including both signs of the x-coordinate.
+    #[test]
+    fn validation_matches_decompression() {
+        use std::vec::Vec;
+        let mut rng = rand::rng();
+        let mut encodings: Vec<[u8; 32]> = Vec::new();
+        // A structured y with (y² - 1)(d*y² + 1) = 2^254 + 2^250.
+        encodings.push(
+            hex::decode("7379fce5984ae7b06649cb0a9134e7439357b9c2fdeb244b527e77755233217f")
+                .expect("valid hex")
+                .try_into()
+                .expect("32 bytes"),
+        );
+        for small in 0u8..64 {
+            let mut bytes = [0u8; 32];
+            bytes[0] = small;
+            encodings.push(bytes);
+            bytes[31] = 0x80;
+            encodings.push(bytes);
+        }
+        // y = p - 1 .. p + 1 and 2^255 - 1, with both sign bits.
+        for low in [0xebu8, 0xec, 0xed, 0xee, 0xff] {
+            let mut bytes = [0xffu8; 32];
+            bytes[0] = low;
+            bytes[31] = 0x7f;
+            encodings.push(bytes);
+            bytes[31] = 0xff;
+            encodings.push(bytes);
+        }
+        for _ in 0..512 {
+            let mut wide = [0u8; 64];
+            rng.fill_bytes(&mut wide);
+            let p = EdwardsPoint::mul_base(&Scalar::from_bytes_mod_order_wide(&wide));
+            let mut bytes = p.compress().to_bytes();
+            encodings.push(bytes);
+            bytes[31] ^= 0x80;
+            encodings.push(bytes);
+            rng.fill_bytes(&mut bytes);
+            encodings.push(bytes);
+        }
+        let (mut valid, mut invalid) = (0, 0);
+        for bytes in encodings {
+            let compressed = CompressedEdwardsY(bytes);
+            let expected = compressed.decompress().is_some();
+            assert_eq!(compressed.is_valid(), expected, "{bytes:02x?}");
+            if expected {
+                valid += 1;
+            } else {
+                invalid += 1;
+            }
+        }
+        // Random bytes are valid about half the time.
+        assert!(valid > 900 && invalid > 200);
     }
 
     #[test]
