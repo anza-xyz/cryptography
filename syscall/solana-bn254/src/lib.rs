@@ -12,6 +12,7 @@
 
 pub mod backend;
 pub mod curve;
+pub mod pairing;
 pub mod poseidon;
 
 #[cfg(test)]
@@ -19,4 +20,4 @@ extern crate self as solana_bn254;
 #[cfg(test)]
 extern crate std;
 
-pub use curve::{g1, g2};
+pub use curve::{g1, g2, gt};

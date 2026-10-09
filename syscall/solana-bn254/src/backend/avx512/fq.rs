@@ -16,7 +16,7 @@
 #![allow(unused_unsafe)]
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use super::types::FieldElement8x52;
+use super::{math::add_lazy, types::FieldElement8x52};
 use core::arch::x86_64::*;
 
 // Mathematically pre-computed 52-bit modulus constants for the BN254 Fq field.
@@ -29,22 +29,6 @@ const FQ_MOD_L4: i64 = 0x30644e72e131;
 // The Montgomery Inverse Multiplier for 52-bit limbs: `(-MODULUS^-1) mod 2^52`
 const FQ_INV_52: i64 = 0x20782e4866389;
 
-#[cfg(test)]
-/// Adds two normalized vectors before immediate carry normalization.
-/// Each limb sum is below 2^53, safely inside its 64-bit accumulator lane.
-#[inline]
-#[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
-unsafe fn add_lazy(a: &FieldElement8x52, b: &FieldElement8x52) -> FieldElement8x52 {
-    FieldElement8x52 {
-        l0: _mm512_add_epi64(a.l0, b.l0),
-        l1: _mm512_add_epi64(a.l1, b.l1),
-        l2: _mm512_add_epi64(a.l2, b.l2),
-        l3: _mm512_add_epi64(a.l3, b.l3),
-        l4: _mm512_add_epi64(a.l4, b.l4),
-    }
-}
-
-#[cfg(test)]
 /// Adds canonical Fq operands and returns normalized limbs representing <2q.
 ///
 /// Both operands must have normalized 52-bit limbs and represent values below
@@ -297,7 +281,6 @@ unsafe fn mul_8x(a: &FieldElement8x52, b: &FieldElement8x52) -> FieldElement8x52
     cond_sub_modulus(&out)
 }
 
-#[cfg(test)]
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 unsafe fn sub_8x(a: &FieldElement8x52, b: &FieldElement8x52) -> FieldElement8x52 {
@@ -449,6 +432,47 @@ pub(crate) unsafe fn fq2_three_squares(
     })
 }
 
+/// Six independent Fq2 products, packed through all three Karatsuba products.
+/// The last two SIMD lanes hold zeros. Input and output coefficients are canonical;
+/// only the private cross-product sums passed to `mul_8x` may exceed q,
+/// and they remain strictly below 2q.
+///
+/// # Safety
+/// Requires AVX-512 F, DQ and IFMA on the executing CPU. Each input coefficient
+/// must be a canonical Fq residue in the external R=2^256 Montgomery domain.
+#[inline]
+#[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
+pub(crate) unsafe fn mul_fq2_6(
+    a: [crate::backend::Fq2; 6],
+    b: [crate::backend::Fq2; 6],
+) -> [crate::backend::Fq2; 6] {
+    use super::pack::{pack_8x, unpack_8x};
+    use crate::backend::{Fq2, U256};
+    let a0 = pack_8x(&core::array::from_fn(|i| {
+        if i < 6 { a[i].c0 } else { U256::zero() }
+    }));
+    let a1 = pack_8x(&core::array::from_fn(|i| {
+        if i < 6 { a[i].c1 } else { U256::zero() }
+    }));
+    let b0 = pack_8x(&core::array::from_fn(|i| {
+        if i < 6 { b[i].c0 } else { U256::zero() }
+    }));
+    let b1 = pack_8x(&core::array::from_fn(|i| {
+        if i < 6 { b[i].c1 } else { U256::zero() }
+    }));
+    let a_sum = add_unreduced(&a0, &a1);
+    let b_sum = add_unreduced(&b0, &b1);
+    let p0 = mul_8x(&a0, &b0);
+    let p1 = mul_8x(&a1, &b1);
+    let cross = mul_8x(&a_sum, &b_sum);
+    let real = unpack_8x(&sub_8x(&p0, &p1));
+    let imaginary = unpack_8x(&sub_8x(&sub_8x(&cross, &p0), &p1));
+    core::array::from_fn(|i| Fq2 {
+        c0: real[i],
+        c1: imaginary[i],
+    })
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -565,6 +589,31 @@ mod tests {
                 core::array::from_fn(|_| random(&mut rng)),
                 inv,
             );
+        }
+    }
+    #[test]
+    fn six_packed_fq2_products_match_arkworks() {
+        let inv = ArkFq::from(2).pow([256]).inverse().unwrap();
+        let mut rng = StdRng::seed_from_u64(0x6966_6d61_6671_3231);
+        for _ in 0..512 {
+            let a = core::array::from_fn(|_| Fq2 {
+                c0: random(&mut rng),
+                c1: random(&mut rng),
+            });
+            let b = core::array::from_fn(|_| Fq2 {
+                c0: random(&mut rng),
+                c1: random(&mut rng),
+            });
+            let result = unsafe { mul_fq2_6(a, b) };
+            for i in 0..6 {
+                let x = ArkFq2::new(field(a[i].c0), field(a[i].c1));
+                let y = ArkFq2::new(field(b[i].c0), field(b[i].c1));
+                let expected = (x * y) * ArkFq2::new(inv, ArkFq::ZERO);
+                assert_eq!(
+                    result[i].to_montgomery(),
+                    (raw(expected.c0), raw(expected.c1))
+                );
+            }
         }
     }
     #[test]

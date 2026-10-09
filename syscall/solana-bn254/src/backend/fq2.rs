@@ -43,6 +43,14 @@ impl Fq2 {
         (self.c0, self.c1)
     }
 
+    #[inline]
+    pub(crate) fn halve(&self) -> Self {
+        Self {
+            c0: B::halve(&self.c0),
+            c1: B::halve(&self.c1),
+        }
+    }
+
     /// Computes the square with two base-field multiplications.
     #[inline]
     pub fn square(&self) -> Self {
