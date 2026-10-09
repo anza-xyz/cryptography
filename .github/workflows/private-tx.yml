@@ -1,0 +1,85 @@
+# experimental/private-tx: gnark circuits (Go) and their end-to-end
+# verification against the Solana Groth16 verifier program.
+#
+# The Rust e2e crate is its own workspace (Mollusk would otherwise pull the SVM
+# runtime into the root lockfile), so the root `CI` workflow does not cover it.
+# This workflow lints and tests both halves, but only when they change: it
+# installs the Solana toolchain and builds the verifier program, which is too
+# slow to run on every push to the repository.
+name: private-tx
+
+on:
+  push:
+    branches:
+      - "**"
+    paths:
+      - "experimental/private-tx/**"
+      - ".github/workflows/private-tx.yml"
+  pull_request:
+    paths:
+      - "experimental/private-tx/**"
+      - ".github/workflows/private-tx.yml"
+
+jobs:
+  private-tx:
+    name: gnark circuits + verifier e2e
+    runs-on: ubuntu-latest
+    env:
+      # Matches the verifier repository's own CI (its Makefile builds SBF v3
+      # with this release). `cargo build-sbf` from older releases stops at v2.
+      # Release tarball from https://github.com/anza-xyz/agave/releases; the
+      # checksum pins its contents, so bump both together.
+      SOLANA_CLI_VERSION: v4.2.2
+      SOLANA_RELEASE_SHA256: 5fc8684f7430038105fde953d4308ed56addf627f658daa61709f345448247ee
+      SBF_ARCH: v3
+    defaults:
+      run:
+        working-directory: experimental/private-tx
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: experimental/private-tx/circuits/go.mod
+          cache-dependency-path: experimental/private-tx/circuits/go.sum
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: experimental/private-tx/e2e
+
+      - name: Lint
+        run: make lint
+
+      - name: Test circuits
+        run: make test-go
+
+      # The release tarball is what `agave-install` would download; fetching it
+      # directly lets us verify it against a pinned checksum instead of piping
+      # the installer script into a shell.
+      - name: Install Solana CLI
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/anza-xyz/agave/releases/download/$SOLANA_CLI_VERSION/solana-release-x86_64-unknown-linux-gnu.tar.bz2" \
+            --output "$RUNNER_TEMP/solana-release.tar.bz2"
+          printf '%s  %s\n' "$SOLANA_RELEASE_SHA256" "$RUNNER_TEMP/solana-release.tar.bz2" \
+            | sha256sum --check
+          tar -xjf "$RUNNER_TEMP/solana-release.tar.bz2" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/solana-release/bin" >> "$GITHUB_PATH"
+
+      - name: Build verifier program
+        run: make verifier-sbf SBF_ARCH=$SBF_ARCH
+
+      # Fresh proofs from the current circuit code, not only the committed ones.
+      - name: Generate fixtures
+        run: make fixtures
+
+      - name: Test end to end
+        run: make test-e2e
