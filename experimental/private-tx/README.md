@@ -30,12 +30,18 @@ are the parameters of circomlib, light-poseidon, Solana's `sol_poseidon`
 syscall and `syscall/solana-bn254` in this repository, so a pool program can
 recompute any in-circuit hash with one syscall.
 
-No Poseidon is implemented here. The circuits use two public libraries:
+No Poseidon is implemented here. gnark's own `std/hash` ships MiMC and
+Poseidon2 but not the original Poseidon with circomlib's parameters, which is
+what the syscall computes, so the circuits use two public libraries instead:
 
 - in-circuit: `github.com/vocdoni/gnark-crypto-primitives/hash/native/bn254/poseidon`,
   a gnark port of circomlib's `poseidon.circom`;
 - native (witness side): `github.com/iden3/go-iden3-crypto/poseidon`, the
   reference implementation by circom's authors.
+
+Both libraries absorb up to 16 inputs in one permutation; the adapter in
+`circuits/poseidon/` caps hashes at the 12 inputs `sol_poseidon` supports, so
+an on-chain program can always recompute them.
 
 Compatibility is pinned by tests rather than assumed: the Go tests check both
 against circomlib's published vectors and against each other on random inputs
