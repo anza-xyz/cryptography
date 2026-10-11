@@ -1,13 +1,18 @@
 // privtx builds circuits, keys and proofs for the private-tx protocol.
 //
-//	privtx smoke-fixture [-out DIR]
-//	privtx mint-fixture  [-out DIR] [-value N] [-seed STRING]
+//	privtx smoke-fixture   [-out DIR]
+//	privtx mint-fixture    [-out DIR] [-value N] [-seed STRING]
+//	privtx burn-fixture    [-out DIR] [-notes N] [-index I] [-forced] [-seed STRING]
 //
 // Each subcommand compiles its circuit, runs a (development) Groth16 setup,
 // proves a fixed witness, self-verifies, and writes vk.bin, proof.bin and
 // public.bin in gnark's native encodings into DIR for the Rust e2e tests.
 // smoke-fixture proves 3·5 = 15; mint-fixture proves a deterministic note
-// derived from -seed and also writes note.json (the opening).
+// derived from -seed and also writes note.json (the opening);
+// burn-fixture fills a tree with N deterministic notes, burns the one at
+// index I (as its owner, or as the custodian with -forced), and also writes
+// burn.json (the leaves, the opening, root, nullifier and flag) so the e2e
+// crate can recompute the tree.
 package main
 
 import (
@@ -23,7 +28,9 @@ import (
 	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/frontend"
 
+	"github.com/anza-xyz/cryptography/experimental/private-tx/circuits/burn"
 	"github.com/anza-xyz/cryptography/experimental/private-tx/circuits/export"
+	"github.com/anza-xyz/cryptography/experimental/private-tx/circuits/merkle"
 	"github.com/anza-xyz/cryptography/experimental/private-tx/circuits/mint"
 	"github.com/anza-xyz/cryptography/experimental/private-tx/circuits/note"
 	"github.com/anza-xyz/cryptography/experimental/private-tx/circuits/smoke"
@@ -39,6 +46,8 @@ func main() {
 		err = smokeFixture(os.Args[2:])
 	case "mint-fixture":
 		err = mintFixture(os.Args[2:])
+	case "burn-fixture":
+		err = burnFixture(os.Args[2:])
 	default:
 		usage()
 	}
@@ -51,6 +60,7 @@ func main() {
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: privtx smoke-fixture [-out DIR]")
 	fmt.Fprintln(os.Stderr, "       privtx mint-fixture [-out DIR] [-value N] [-seed STRING]")
+	fmt.Fprintln(os.Stderr, "       privtx burn-fixture [-out DIR] [-notes N] [-index I] [-forced] [-seed STRING]")
 	os.Exit(2)
 }
 
@@ -95,6 +105,76 @@ func mintFixture(args []string) error {
 	}
 	fmt.Printf("wrote %s (%d bytes)\n", path, len(data))
 	fmt.Printf("commitment %s\n", opening.Commitment)
+	return nil
+}
+
+// burnFixtureFile is burn.json: enough for the e2e crate to rebuild the tree
+// and the nullifier with its own Poseidon.
+type burnFixtureFile struct {
+	Depth     int          `json:"depth"`
+	Leaves    []string     `json:"leaves"`
+	Index     uint64       `json:"index"`
+	Note      note.Opening `json:"note"`
+	Root      string       `json:"root"`
+	Nullifier string       `json:"nullifier"`
+	Forced    bool         `json:"forced"`
+}
+
+func burnFixture(args []string) error {
+	fs := flag.NewFlagSet("burn-fixture", flag.ExitOnError)
+	out := fs.String("out", "../fixtures/burn", "output directory")
+	count := fs.Uint("notes", 5, "number of notes in the tree")
+	index := fs.Uint64("index", 2, "leaf index of the note to burn")
+	forced := fs.Bool("forced", false, "burn as the custodian (forfeiture) instead of the owner")
+	seed := fs.String("seed", "private-tx burn fixture", "seed for the deterministic notes")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *index >= uint64(*count) {
+		return fmt.Errorf("index %d out of range (%d notes)", *index, *count)
+	}
+	ccs, err := burn.Compile()
+	if err != nil {
+		return fmt.Errorf("compile: %w", err)
+	}
+	var tr merkle.Tree
+	notes := make([]note.Note, *count)
+	seeds := make([][]byte, *count)
+	file := burnFixtureFile{Depth: merkle.Depth, Index: *index, Forced: *forced}
+	for i := range notes {
+		seeds[i] = []byte(fmt.Sprintf("%s/%d", *seed, i))
+		notes[i] = note.FromSeed(seeds[i], 1_000_000*uint64(i+1))
+		cm := notes[i].Commitment()
+		if _, err := tr.Append(cm); err != nil {
+			return err
+		}
+		file.Leaves = append(file.Leaves, note.Hex32(&cm))
+	}
+	path, err := tr.Path(*index)
+	if err != nil {
+		return err
+	}
+	n := notes[*index]
+	witness := burn.Unshield(&n, &path, note.SpendingKeyFromSeed(seeds[*index]))
+	if *forced {
+		witness = burn.Forfeit(&n, &path)
+	}
+	if err := proveAndWrite("C_burn", ccs, witness, *out); err != nil {
+		return err
+	}
+	root, nf := tr.Root(), n.Nullifier()
+	file.Note, file.Root, file.Nullifier = n.ToOpening(), note.Hex32(&root), note.Hex32(&nf)
+	data, err := json.MarshalIndent(file, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	p := filepath.Join(*out, "burn.json")
+	if err := os.WriteFile(p, data, 0o644); err != nil {
+		return err
+	}
+	fmt.Printf("wrote %s (%d bytes)\n", p, len(data))
+	fmt.Printf("root %s\nnullifier %s\nforced %v\n", file.Root, file.Nullifier, *forced)
 	return nil
 }
 

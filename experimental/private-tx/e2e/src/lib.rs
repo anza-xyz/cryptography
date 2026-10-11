@@ -3,7 +3,9 @@
 //!
 //! Each fixture directory holds gnark's native encodings (`vk.bin`,
 //! `proof.bin`, `public.bin`) written by `privtx`, plus any circuit-specific
-//! witness file.
+//! witness file. The note commitment, nullifier and Merkle tree are
+//! recomputed here with light-poseidon so every in-circuit hash is checked
+//! against the Poseidon the Solana syscall implements.
 
 use {
     ark_bn254::Fr,
@@ -111,5 +113,61 @@ impl NoteOpening {
 
     pub fn commitment_bytes(&self) -> [u8; 32] {
         bytes_from_hex(&self.commitment)
+    }
+
+    /// `Poseidon(owner_pk, rho)`, the note's nullifier.
+    pub fn poseidon_nullifier(&self) -> [u8; 32] {
+        poseidon(&[fr_from_hex(&self.owner_pk), fr_from_hex(&self.rho)])
+    }
+}
+
+/// Root of the commitment tree holding `leaves` (in order) at `depth`: binary,
+/// `Poseidon(left, right)` nodes, empty leaf 0 and empty subtrees hashed up
+/// from it. Mirrors `circuits/merkle`.
+pub fn merkle_root(leaves: &[Fr], depth: usize) -> [u8; 32] {
+    let mut level: Vec<Fr> = leaves.to_vec();
+    let mut empty = Fr::from(0u64);
+    for _ in 0..depth {
+        level = level
+            .chunks(2)
+            .map(|pair| {
+                let right = pair.get(1).copied().unwrap_or(empty);
+                hash2(pair[0], right)
+            })
+            .collect();
+        empty = hash2(empty, empty);
+    }
+    fr_to_bytes(&level.first().copied().unwrap_or(empty))
+}
+
+fn hash2(a: Fr, b: Fr) -> Fr {
+    let mut hasher = Poseidon::<Fr>::new_circom(2).expect("width 3");
+    hasher.hash(&[a, b]).expect("hash")
+}
+
+/// The burn fixture's witness (`burn.json`), as written by
+/// `privtx burn-fixture`: the tree's leaves in order, the burned note and its
+/// index, the root and nullifier the circuit published, and whether it was a
+/// forced burn (forfeiture) or the owner's unshield.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct BurnFixture {
+    pub depth: usize,
+    pub leaves: Vec<String>,
+    pub index: u64,
+    pub note: NoteOpening,
+    pub root: String,
+    pub nullifier: String,
+    pub forced: bool,
+}
+
+impl BurnFixture {
+    pub fn load(fixture: &str) -> Self {
+        serde_json::from_slice(&read_fixture(fixture, "burn.json")).expect("burn.json")
+    }
+
+    /// The tree root recomputed from the leaves.
+    pub fn poseidon_root(&self) -> [u8; 32] {
+        let leaves: Vec<Fr> = self.leaves.iter().map(|l| fr_from_hex(l)).collect();
+        merkle_root(&leaves, self.depth)
     }
 }

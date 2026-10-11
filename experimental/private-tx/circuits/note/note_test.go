@@ -33,11 +33,35 @@ func TestCommitmentBindsEveryField(t *testing.T) {
 	}
 }
 
+func TestNullifierBindsOwnerAndRho(t *testing.T) {
+	n := FromSeed([]byte("nf"), 1)
+	nf := n.Nullifier()
+	other := n
+	other.Value++
+	other.R.Add(&other.R, new(fr.Element).SetOne())
+	if got := other.Nullifier(); !got.Equal(&nf) {
+		t.Fatal("nullifier depends on value or r")
+	}
+	other = n
+	other.Rho.Add(&other.Rho, new(fr.Element).SetOne())
+	if got := other.Nullifier(); got.Equal(&nf) {
+		t.Fatal("nullifier ignores rho")
+	}
+	other = n
+	other.OwnerPK.Add(&other.OwnerPK, new(fr.Element).SetOne())
+	if got := other.Nullifier(); got.Equal(&nf) {
+		t.Fatal("nullifier ignores owner_pk")
+	}
+}
+
 func TestFromSeedIsDeterministic(t *testing.T) {
 	a := FromSeed([]byte("seed"), 5)
 	b := FromSeed([]byte("seed"), 5)
 	if a != b {
 		t.Fatal("same seed gave different notes")
+	}
+	if pk := DeriveOwnerPK(SpendingKeyFromSeed([]byte("seed"))); !pk.Equal(&a.OwnerPK) {
+		t.Fatal("SpendingKeyFromSeed does not own the seeded note")
 	}
 	c := FromSeed([]byte("other"), 5)
 	if a == c {

@@ -23,7 +23,6 @@ import (
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
 	"github.com/anza-xyz/cryptography/experimental/private-tx/circuits/note"
-	"github.com/anza-xyz/cryptography/experimental/private-tx/circuits/poseidon"
 )
 
 // ValueBits is the width of the note value range check.
@@ -50,7 +49,7 @@ type Circuit struct {
 // verifier implements plain Groth16 only.
 func (c *Circuit) Define(api frontend.API) error {
 	api.ToBinary(c.Value, ValueBits)
-	cm, err := poseidon.HashGadget(api, c.Value, c.OwnerPK, c.Rho, c.R)
+	cm, err := note.CommitmentGadget(api, c.Value, c.OwnerPK, c.Rho, c.R)
 	if err != nil {
 		return err
 	}

@@ -11,8 +11,20 @@
 //   - owner_pk: the recipient's public key, an opaque field element here; the
 //     key hierarchy is fixed by the protocol spec (Epic 1). DeriveOwnerPK
 //     gives the provisional derivation used by the fixtures.
-//   - rho:      per-note uniqueness; later the nullifier input.
+//   - rho:      per-note uniqueness; the nullifier input.
 //   - r:        commitment randomness, hides the other fields.
+//
+// Spending or forfeiting a note publishes its nullifier
+//
+//	nf = Poseidon(owner_pk, rho)
+//
+// Sapling's PRF_nk(rho) with the public key in place of the secret nullifier
+// key: anyone holding the opening can derive it. That is what lets the
+// custodian, who learns openings through the audit ciphertexts, forfeit a
+// note without the owner's key (C_burn, forced); the price is that the note's
+// creator can also recognize the nullifier when the note is spent. The
+// derivation is provisional (key hierarchy, Epic 1) and lives only here, so
+// every circuit that emits a nullifier changes together.
 package note
 
 import (
@@ -23,6 +35,7 @@ import (
 	"io"
 
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
+	"github.com/consensys/gnark/frontend"
 
 	"github.com/anza-xyz/cryptography/experimental/private-tx/circuits/poseidon"
 )
@@ -42,9 +55,29 @@ func (n *Note) Commitment() fr.Element {
 	return poseidon.MustHash(v, n.OwnerPK, n.Rho, n.R)
 }
 
+// Nullifier returns Poseidon(owner_pk, rho).
+func (n *Note) Nullifier() fr.Element {
+	return poseidon.MustHash(n.OwnerPK, n.Rho)
+}
+
+// CommitmentGadget constrains and returns Poseidon(value, owner_pk, rho, r).
+func CommitmentGadget(api frontend.API, value, ownerPK, rho, r frontend.Variable) (frontend.Variable, error) {
+	return poseidon.HashGadget(api, value, ownerPK, rho, r)
+}
+
+// NullifierGadget constrains and returns Poseidon(owner_pk, rho).
+func NullifierGadget(api frontend.API, ownerPK, rho frontend.Variable) (frontend.Variable, error) {
+	return poseidon.HashGadget(api, ownerPK, rho)
+}
+
 // DeriveOwnerPK is the provisional owner key derivation pk = Poseidon(sk).
 func DeriveOwnerPK(sk fr.Element) fr.Element {
 	return poseidon.MustHash(sk)
+}
+
+// OwnerPKGadget constrains and returns Poseidon(sk), the owner key of sk.
+func OwnerPKGadget(api frontend.API, sk frontend.Variable) (frontend.Variable, error) {
+	return poseidon.HashGadget(api, sk)
 }
 
 // Random returns a note of the given value for owner_pk with fresh rho and r.
@@ -69,23 +102,30 @@ func randomElement(rng io.Reader, out *fr.Element) error {
 }
 
 // FromSeed derives a note deterministically from a seed, for reproducible
-// fixtures: each field is SHA-256(seed ‖ label) reduced into the field.
+// fixtures: each field is SHA-256(seed ‖ label) reduced into the field, and
+// the owner is SpendingKeyFromSeed(seed).
 func FromSeed(seed []byte, value uint64) Note {
-	derive := func(label string) fr.Element {
-		h := sha256.New()
-		h.Write(seed)
-		h.Write([]byte(label))
-		var e fr.Element
-		e.SetBytes(h.Sum(nil))
-		return e
-	}
-	sk := derive("spending-key")
 	return Note{
 		Value:   value,
-		OwnerPK: DeriveOwnerPK(sk),
-		Rho:     derive("rho"),
-		R:       derive("r"),
+		OwnerPK: DeriveOwnerPK(SpendingKeyFromSeed(seed)),
+		Rho:     deriveFromSeed(seed, "rho"),
+		R:       deriveFromSeed(seed, "r"),
 	}
+}
+
+// SpendingKeyFromSeed is the spending key of the notes FromSeed derives from
+// seed.
+func SpendingKeyFromSeed(seed []byte) fr.Element {
+	return deriveFromSeed(seed, "spending-key")
+}
+
+func deriveFromSeed(seed []byte, label string) fr.Element {
+	h := sha256.New()
+	h.Write(seed)
+	h.Write([]byte(label))
+	var e fr.Element
+	e.SetBytes(h.Sum(nil))
+	return e
 }
 
 // Opening is the JSON form of a note together with its commitment; field
@@ -104,10 +144,10 @@ func (n *Note) ToOpening() Opening {
 	cm := n.Commitment()
 	return Opening{
 		Value:      n.Value,
-		OwnerPK:    hex32(&n.OwnerPK),
-		Rho:        hex32(&n.Rho),
-		R:          hex32(&n.R),
-		Commitment: hex32(&cm),
+		OwnerPK:    Hex32(&n.OwnerPK),
+		Rho:        Hex32(&n.Rho),
+		R:          Hex32(&n.R),
+		Commitment: Hex32(&cm),
 	}
 }
 
@@ -123,16 +163,16 @@ func FromOpening(o Opening) (Note, error) {
 		{"rho", o.Rho, &n.Rho},
 		{"r", o.R, &n.R},
 	} {
-		if err := parseHex32(f.src, f.dst); err != nil {
+		if err := ParseHex32(f.src, f.dst); err != nil {
 			return Note{}, fmt.Errorf("note: %s: %w", f.name, err)
 		}
 	}
 	var cm fr.Element
-	if err := parseHex32(o.Commitment, &cm); err != nil {
+	if err := ParseHex32(o.Commitment, &cm); err != nil {
 		return Note{}, fmt.Errorf("note: commitment: %w", err)
 	}
 	if got := n.Commitment(); !got.Equal(&cm) {
-		return Note{}, fmt.Errorf("note: commitment mismatch: got %s", hex32(&got))
+		return Note{}, fmt.Errorf("note: commitment mismatch: got %s", Hex32(&got))
 	}
 	return n, nil
 }
@@ -156,17 +196,17 @@ func (n *Note) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// hex32 encodes e as 0x-prefixed big-endian hex, 32 bytes (66 characters).
-func hex32(e *fr.Element) string {
+// Hex32 encodes e as 0x-prefixed big-endian hex, 32 bytes (66 characters).
+func Hex32(e *fr.Element) string {
 	b := e.Bytes() // big-endian, 32 bytes
 	return "0x" + hex.EncodeToString(b[:])
 }
 
-// parseHex32 is the strict inverse of hex32: it rejects anything but a
+// ParseHex32 is the strict inverse of Hex32: it rejects anything but a
 // 0x-prefixed 64-digit hex string holding a canonical field element, so a
 // value another parser (e.g. the Rust e2e crate) would refuse cannot slip
 // through reduced.
-func parseHex32(s string, out *fr.Element) error {
+func ParseHex32(s string, out *fr.Element) error {
 	if len(s) != 2+2*fr.Bytes || s[:2] != "0x" {
 		return fmt.Errorf("want 0x-prefixed %d-byte hex, got %q", fr.Bytes, s)
 	}
