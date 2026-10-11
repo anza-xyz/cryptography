@@ -3,8 +3,7 @@
 Per-institution shielded pools on Solana: Groth16 over BN254, Poseidon
 commitments, gnark circuits, verified on-chain by the generic
 [Groth16 verifier program](https://github.com/solana-program/groth16-verifier-program).
-Background: [goals.md](goals.md), [high_level_design.md](high_level_design.md),
-tracker [anza-xyz/cryptography#123](https://github.com/anza-xyz/cryptography/issues/123).
+Tracker: [anza-xyz/cryptography#123](https://github.com/anza-xyz/cryptography/issues/123).
 
 This directory holds the framework: Go module, Poseidon library choice,
 fixture tooling, Rust end-to-end harness against the verifier program, and
