@@ -85,6 +85,15 @@ pool program's business (issuer authority), not the circuit's.
 A confidential-issuance variant (hidden amount) is the same circuit with
 `Value` moved to the private witness.
 
+The circuit touches neither Merkle tree. The commitment is a public input, so
+the pool program appends it to the commitment tree itself after verifying the
+proof; proving the insertion in-circuit would only repeat work the program
+does in the clear. Membership in the tree is proved when a note is spent, by
+`C_transfer` and `C_burn`. The nullifier tree is untouched because a mint
+spends nothing: `rho` is carried in the note so that a later spend can derive
+the nullifier from it. The on-chain mint flow is therefore: verify the proof,
+check issuer authority, add `value` to minted supply, append `commitment`.
+
 ## Circuit rules
 
 - Plain Groth16 only. No `std/rangecheck` or anything else built on
