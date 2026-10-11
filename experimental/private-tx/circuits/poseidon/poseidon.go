@@ -15,6 +15,7 @@
 package poseidon
 
 import (
+	"fmt"
 	"math/big"
 
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
@@ -23,11 +24,23 @@ import (
 	vocdoni "github.com/vocdoni/gnark-crypto-primitives/hash/native/bn254/poseidon"
 )
 
-// MaxInputs is the largest number of inputs a single permutation absorbs.
-const MaxInputs = 16
+// MaxInputs is the largest number of inputs a hash may take. The libraries
+// below absorb up to 16 in one permutation, but Solana's sol_poseidon syscall
+// stops at 12; capping here keeps every in-circuit hash recomputable on-chain.
+const MaxInputs = 12
+
+func checkWidth(n int) error {
+	if n < 1 || n > MaxInputs {
+		return fmt.Errorf("poseidon: %d inputs, want 1..%d", n, MaxInputs)
+	}
+	return nil
+}
 
 // Hash is the native Poseidon of 1..MaxInputs field elements.
 func Hash(inputs ...fr.Element) (fr.Element, error) {
+	if err := checkWidth(len(inputs)); err != nil {
+		return fr.Element{}, err
+	}
 	in := make([]*big.Int, len(inputs))
 	for i := range inputs {
 		in[i] = inputs[i].BigInt(new(big.Int))
@@ -53,5 +66,8 @@ func MustHash(inputs ...fr.Element) fr.Element {
 // HashGadget constrains and returns the Poseidon digest of 1..MaxInputs
 // circuit variables.
 func HashGadget(api frontend.API, inputs ...frontend.Variable) (frontend.Variable, error) {
+	if err := checkWidth(len(inputs)); err != nil {
+		return nil, err
+	}
 	return vocdoni.Hash(api, inputs...)
 }

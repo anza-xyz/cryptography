@@ -165,6 +165,74 @@ let (rho, tau, flip_h) = h.heea_decompose();
 
 ---
 
+## Curve25519 syscall helpers
+
+The `sol_curve_validate_point` and `sol_curve_group_op` syscalls decompress
+their inputs (a square root each) and compress their output (an inversion or
+inverse square root), which is nearly all of their cost. The helpers below
+reduce that cost while preserving the existing results. The variable-time
+helpers are for public data only:
+
+- `CompressedEdwardsY::is_valid` answers `decompress().is_some()` with
+  a fixed exponentiation schedule and no fallback. For `w = (y² - 1)(d y² + 1)`,
+  it checks whether `w^((p-1)/4)` is zero or ±1. This accepts exactly the
+  square residues, including zero, without constructing a square root or a
+  point. Use this helper when validation needs a predictable operation count,
+  such as a fixed-price syscall.
+- `CompressedEdwardsY::decompress_pair` decompresses two points with their
+  exponentiations interleaved. The Ristretto arithmetic helpers use the same
+  technique internally to overlap the two squaring chains.
+- `CompressedEdwardsY::add_vartime` / `sub_vartime` use paired decompression,
+  specialize addition for the decoded inputs with `Z = 1`, and compress from
+  projective coordinates with a variable-time batched-divsteps inversion
+  (Bernstein–Yang), without constructing
+  an unused extended `T` coordinate.
+- `CompressedRistretto::add_vartime` / `sub_vartime` add on the Jacobi
+  quartic `t² = s⁴ + 486662 s² + 1` that is 2-isogenous to the Edwards curve.
+  Ristretto decoding already lands on the quartic (the square root it takes
+  is the quartic's `t`), and the Ristretto encoding is the `s`-coordinate of
+  a representative of a coset on the quartic, so the result is encoded with
+  one inversion instead of the square root `compress` needs to pull a point
+  back through the isogeny: two exponentiations per operation instead of
+  three. The result is bit-identical to `compress`.
+- The squaring chain behind every inversion and square root (`pow2k`)
+  propagates carries in two parallel rounds instead of one serial chain,
+  which shortens the carry dependency chain. Ristretto validation still
+  uses decompression because its acceptance checks depend on the sign of
+  `t = x·y`, which requires the square root.
+
+`benches/syscall_ops.rs` measures the syscall shapes (validate, add, subtract
+for Edwards and Ristretto) against upstream `curve25519-dalek`. Speedups
+depend on the CPU and compiler; record both when reporting measurements.
+The `corpus` groups cycle through seeded random inputs and separately measure
+invalid encodings, identities, equal/opposite operands, and a structured
+validation input. The `validate`, `add`, and `sub` benchmarks use the helpers
+above (Ristretto validation uses decompression). The `_decompress` benchmarks
+measure the decode/operate/encode baseline in this crate, and `_upstream`
+benchmarks measure upstream dalek. Every case is checked against upstream
+before timing:
+
+```bash
+cargo bench -p solana-ed25519 --bench syscall_ops
+```
+
+The seeded corpus and adapters live in `tests/support/syscall_ops.rs` and
+are shared with ordinary integration tests. Run the upstream agreement checks
+without running benchmarks:
+
+```bash
+cargo test -p solana-ed25519 --test syscall_ops
+```
+
+The benchmarks measure wall time per operation; results depend on the CPU,
+compiler, and enabled features. Separate input groups show how validation
+and arithmetic costs vary across valid points, invalid encodings, and
+exceptional cases. For Ristretto, the invalid corpus uses canonical,
+nonnegative encodings that reach the inverse-square-root step before
+rejection.
+
+---
+
 ## Feature Flags
 
 | Feature | Default? | Description |

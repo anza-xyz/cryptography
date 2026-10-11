@@ -22,6 +22,9 @@
 
 pub mod field;
 
+/// Variable-time field inversion for public data.
+pub(crate) mod inversion;
+
 pub mod scalar;
 
 pub mod constants;

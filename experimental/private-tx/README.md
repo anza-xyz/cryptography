@@ -3,8 +3,7 @@
 Per-institution shielded pools on Solana: Groth16 over BN254, Poseidon
 commitments, gnark circuits, verified on-chain by the generic
 [Groth16 verifier program](https://github.com/solana-program/groth16-verifier-program).
-Background: [goals.md](goals.md), [high_level_design.md](high_level_design.md),
-tracker [anza-xyz/cryptography#123](https://github.com/anza-xyz/cryptography/issues/123).
+Tracker: [anza-xyz/cryptography#123](https://github.com/anza-xyz/cryptography/issues/123).
 
 Status: milestone 1. The framework (Go module, Poseidon library choice,
 fixture tooling, Rust end-to-end harness against the verifier program, CI) is
@@ -23,7 +22,7 @@ program under Mollusk.
 | `circuits/export/` | writes gnark's native `vk.bin` / `proof.bin` / `public.bin` |
 | `circuits/cmd/privtx/` | `privtx <circuit>-fixture`: setup, prove, export |
 | `fixtures/<circuit>/` | a key, proof and public witness per circuit, consumed by `e2e/` |
-| `e2e/` | Rust crate (workspace member): fixture → on-chain format → verifier host path and SBF program |
+| `e2e/` | Rust crate (its own workspace, not a member of the repository root): fixture → on-chain format → verifier host path and SBF program |
 
 ## Poseidon
 
@@ -33,12 +32,18 @@ are the parameters of circomlib, light-poseidon, Solana's `sol_poseidon`
 syscall and `syscall/solana-bn254` in this repository, so a pool program can
 recompute any in-circuit hash with one syscall.
 
-No Poseidon is implemented here. The circuits use two public libraries:
+No Poseidon is implemented here. gnark's own `std/hash` ships MiMC and
+Poseidon2 but not the original Poseidon with circomlib's parameters, which is
+what the syscall computes, so the circuits use two public libraries instead:
 
 - in-circuit: `github.com/vocdoni/gnark-crypto-primitives/hash/native/bn254/poseidon`,
   a gnark port of circomlib's `poseidon.circom`;
 - native (witness side): `github.com/iden3/go-iden3-crypto/poseidon`, the
   reference implementation by circom's authors.
+
+Both libraries absorb up to 16 inputs in one permutation; the adapter in
+`circuits/poseidon/` caps hashes at the 12 inputs `sol_poseidon` supports, so
+an on-chain program can always recompute them.
 
 Compatibility is pinned by tests rather than assumed: the Go tests check both
 against circomlib's published vectors and against each other on random inputs
@@ -94,22 +99,34 @@ with `Value` moved to the private witness.
 ## Running
 
 ```bash
+make lint           # gofmt + go vet; cargo fmt + clippy for e2e
 make test-go        # Go: Poseidon vectors, gadget == native, C_mint prove/verify
 make test-e2e       # Rust (release): host-path verification of the fixtures
-make verifier-sbf   # clone + build the verifier program (needs cargo build-sbf)
+make verifier-sbf   # clone + build the verifier program (needs cargo build-sbf 4.1+ for SBF v3; SBF_ARCH=v2 for older)
 make test-e2e       # now also verifies the proofs inside the SBF program
 make fixtures       # regenerate fixtures (random setup: bytes change)
 ```
 
-The e2e crate pins the verifier repository to one git revision (in the root
-`Cargo.toml` workspace dependencies and the `Makefile`); the fixture encodings
+The e2e crate is a standalone Cargo workspace: Mollusk brings in the SVM
+runtime, which would otherwise bloat the root lockfile and every build in the
+repository. It pins the verifier repository to one git revision (in
+`e2e/Cargo.toml` and the `Makefile`); the fixture encodings
 are gnark's native `WriteTo` / `MarshalBinary` forms, which that revision's
 `groth16-convert` parses. The Groth16 setup in `privtx` is for development
 only.
 
-CI (`.github/workflows/ci.yml`, job `private-tx`) runs the Go tests, builds
-the verifier program at the pinned revision, and runs the e2e crate with the
+CI (`.github/workflows/private-tx.yml`, run only when this directory or the
+workflow changes) lints and tests the Go side, builds the verifier program at
+the pinned revision, regenerates the fixtures, and runs the e2e crate with the
 SBF test enabled.
+
+## Dependency pins
+
+`vocdoni/gnark-crypto-primitives` v0.0.6 requires commits of gnark, gnark-crypto
+and go-iden3-crypto that are newer than the releases it was built against, so
+Go's minimum version selection carries those commits into `go.mod`. gnark and
+gnark-crypto are raised to tagged releases that satisfy it; go-iden3-crypto has
+no tag newer than the required commit, so it stays on that commit.
 
 ## Next
 
