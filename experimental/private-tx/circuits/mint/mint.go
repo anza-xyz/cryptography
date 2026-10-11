@@ -5,9 +5,8 @@
 // amount and the note commitment. The proof shows the commitment opens to a
 // well-formed note carrying exactly that amount, so the pool program can
 // account for the minted value (and, for a wrapped asset, match it against
-// the vault deposit; high_level_design.md §2.2) while the recipient stays
-// hidden. Who may mint is enforced by the pool program (issuer authority), not
-// in-circuit.
+// the vault deposit) while the recipient stays hidden. Who may mint is
+// enforced by the pool program (issuer authority), not in-circuit.
 //
 // Public inputs, in order:
 //

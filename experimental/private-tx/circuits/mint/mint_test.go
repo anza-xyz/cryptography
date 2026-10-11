@@ -13,7 +13,12 @@ import (
 	"github.com/consensys/gnark/test"
 
 	"github.com/anza-xyz/cryptography/experimental/private-tx/circuits/note"
+	"github.com/anza-xyz/cryptography/experimental/private-tx/circuits/poseidon"
 )
+
+// NbConstraints is the R1CS size of the circuit as compiled by the pinned gnark
+// and Poseidon gadget versions; quoted in README.md.
+const NbConstraints = 363
 
 func randomNote(t *testing.T, value uint64) note.Note {
 	t.Helper()
@@ -33,8 +38,7 @@ func TestMintCircuit(t *testing.T) {
 	valid := Assignment(&n)
 
 	wrongCommitment := Assignment(&n)
-	var cm fr.Element
-	cm.SetInterface(valid.Commitment)
+	cm := n.Commitment()
 	cm.Add(&cm, new(fr.Element).SetOne())
 	wrongCommitment.Commitment = cm
 
@@ -64,12 +68,12 @@ func TestMintCircuit(t *testing.T) {
 func commitmentOf(value *big.Int, n *note.Note) fr.Element {
 	var v fr.Element
 	v.SetBigInt(value)
-	return mustHash(v, n.OwnerPK, n.Rho, n.R)
+	return poseidon.MustHash(v, n.OwnerPK, n.Rho, n.R)
 }
 
 func TestZeroValueNoteIsValid(t *testing.T) {
-	// Dummy (zero-value) notes must be provable: anonymity-set inflation
-	// relies on them (goals.md).
+	// Dummy (zero-value) notes must be provable: they pad transactions and
+	// inflate the anonymity set.
 	n := randomNote(t, 0)
 	if err := test.IsSolved(&Circuit{}, Assignment(&n), ecc.BN254.ScalarField()); err != nil {
 		t.Fatal(err)
@@ -80,13 +84,18 @@ func TestZeroValueNoteIsValid(t *testing.T) {
 	}
 }
 
-// The verifying key must be plain Groth16: no commitment keys, one public input.
+// The verifying key must be plain Groth16: no commitment keys, two public inputs.
 func TestVerifyingKeyShape(t *testing.T) {
 	ccs, err := Compile()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("mint: %d constraints, %d public, %d secret", ccs.GetNbConstraints(), ccs.GetNbPublicVariables(), ccs.GetNbSecretVariables())
+	// Pinned so the size quoted in the README moves together with the code;
+	// a gnark or Poseidon gadget bump that changes it should update both.
+	if got := ccs.GetNbConstraints(); got != NbConstraints {
+		t.Fatalf("constraints = %d, want %d (update NbConstraints and README.md)", got, NbConstraints)
+	}
 	if got := ccs.GetNbPublicVariables(); got != 3 { // "one" wire + commitment + value
 		t.Fatalf("public variables = %d, want 3", got)
 	}

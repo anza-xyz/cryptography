@@ -83,17 +83,18 @@ func mintFixture(args []string) error {
 	if err := proveAndWrite("C_mint", ccs, mint.Assignment(&n), *out); err != nil {
 		return err
 	}
-	opening, err := json.MarshalIndent(n.ToOpening(), "", "  ")
+	opening := n.ToOpening()
+	data, err := json.MarshalIndent(opening, "", "  ")
 	if err != nil {
 		return err
 	}
-	opening = append(opening, '\n')
+	data = append(data, '\n')
 	path := filepath.Join(*out, "note.json")
-	if err := os.WriteFile(path, opening, 0o644); err != nil {
+	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return err
 	}
-	fmt.Printf("wrote %s (%d bytes)\n", path, len(opening))
-	fmt.Printf("commitment %s\n", n.ToOpening().Commitment)
+	fmt.Printf("wrote %s (%d bytes)\n", path, len(data))
+	fmt.Printf("commitment %s\n", opening.Commitment)
 	return nil
 }
 

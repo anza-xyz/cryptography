@@ -2,7 +2,11 @@ package note
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
@@ -66,4 +70,42 @@ func TestOpeningRoundTrip(t *testing.T) {
 	if len(o.Commitment) != 66 {
 		t.Fatalf("commitment hex is %d chars, want 66", len(o.Commitment))
 	}
+}
+
+func TestFromOpeningIsStrict(t *testing.T) {
+	n := FromSeed([]byte("strict"), 42)
+	valid := n.ToOpening()
+	// The modulus plus the canonical value: same residue, non-canonical bytes.
+	var aboveModulus big.Int
+	aboveModulus.SetString(valid.Rho[2:], 16)
+	aboveModulus.Add(&aboveModulus, fr.Modulus())
+	for name, rho := range map[string]string{
+		"decimal":        new(big.Int).SetBytes(mustBytes(t, valid.Rho)).String(),
+		"negative":       "-1",
+		"no prefix":      valid.Rho[2:],
+		"short":          "0x01",
+		"long":           valid.Rho + "00",
+		"underscore":     "0x" + valid.Rho[2:4] + "_" + valid.Rho[5:],
+		"above modulus":  fmt.Sprintf("0x%064x", &aboveModulus),
+		"modulus":        fmt.Sprintf("0x%064x", fr.Modulus()),
+		"non-hex digits": "0x" + strings.Repeat("zz", 32),
+	} {
+		o := valid
+		o.Rho = rho
+		if _, err := FromOpening(o); err == nil {
+			t.Errorf("%s: accepted %q", name, rho)
+		}
+	}
+	if _, err := FromOpening(valid); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func mustBytes(t *testing.T, s string) []byte {
+	t.Helper()
+	b, err := hex.DecodeString(s[2:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }

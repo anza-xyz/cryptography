@@ -5,7 +5,7 @@
 mod sbf;
 
 use {
-    private_tx_e2e::{load_groth16, NoteOpening},
+    private_tx_e2e::{load_groth16, u64_to_bytes, NoteOpening},
     solana_groth16_verify::{constants::FR_MODULUS, verify, Groth16Error, Proof, VerifyingKey},
 };
 
@@ -26,9 +26,7 @@ fn public_inputs_are_the_commitment_and_the_value() {
         note.poseidon_commitment(),
         "gnark Poseidon gadget disagrees with light-poseidon (Solana sol_poseidon parameters)"
     );
-    let mut value = [0u8; 32];
-    value[24..].copy_from_slice(&note.value.to_be_bytes());
-    assert_eq!(g.public_inputs[1], value, "public value");
+    assert_eq!(g.public_inputs[1], u64_to_bytes(note.value), "public value");
 }
 
 #[test]

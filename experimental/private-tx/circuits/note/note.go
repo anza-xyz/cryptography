@@ -4,8 +4,8 @@
 //
 //	cm = Poseidon(value, owner_pk, rho, r)
 //
-// with the circom-compatible Poseidon of package poseidon (width 5). The pool
-// fixes the asset, so there is no asset field (high_level_design.md §2.1).
+// with the circom-compatible Poseidon of package poseidon (width 5). Each pool
+// holds a single asset, so a note carries no asset field.
 //
 //   - value:    the amount, an unsigned 64-bit integer.
 //   - owner_pk: the recipient's public key, an opaque field element here; the
@@ -17,10 +17,10 @@ package note
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/big"
 
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
 
@@ -89,7 +89,8 @@ func FromSeed(seed []byte, value uint64) Note {
 }
 
 // Opening is the JSON form of a note together with its commitment; field
-// elements are 0x-prefixed big-endian hex, 32 bytes.
+// elements are 0x-prefixed big-endian hex, exactly 32 bytes, canonical
+// (below the field modulus). That is the only form FromOpening accepts.
 type Opening struct {
 	Value      uint64 `json:"value"`
 	OwnerPK    string `json:"owner_pk"`
@@ -122,12 +123,12 @@ func FromOpening(o Opening) (Note, error) {
 		{"rho", o.Rho, &n.Rho},
 		{"r", o.R, &n.R},
 	} {
-		if _, err := f.dst.SetString(f.src); err != nil {
+		if err := parseHex32(f.src, f.dst); err != nil {
 			return Note{}, fmt.Errorf("note: %s: %w", f.name, err)
 		}
 	}
 	var cm fr.Element
-	if _, err := cm.SetString(o.Commitment); err != nil {
+	if err := parseHex32(o.Commitment, &cm); err != nil {
 		return Note{}, fmt.Errorf("note: commitment: %w", err)
 	}
 	if got := n.Commitment(); !got.Equal(&cm) {
@@ -155,7 +156,26 @@ func (n *Note) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// hex32 encodes e as 0x-prefixed big-endian hex, 32 bytes (66 characters).
 func hex32(e *fr.Element) string {
 	b := e.Bytes() // big-endian, 32 bytes
-	return fmt.Sprintf("0x%064x", new(big.Int).SetBytes(b[:]))
+	return "0x" + hex.EncodeToString(b[:])
+}
+
+// parseHex32 is the strict inverse of hex32: it rejects anything but a
+// 0x-prefixed 64-digit hex string holding a canonical field element, so a
+// value another parser (e.g. the Rust e2e crate) would refuse cannot slip
+// through reduced.
+func parseHex32(s string, out *fr.Element) error {
+	if len(s) != 2+2*fr.Bytes || s[:2] != "0x" {
+		return fmt.Errorf("want 0x-prefixed %d-byte hex, got %q", fr.Bytes, s)
+	}
+	var b [fr.Bytes]byte
+	if _, err := hex.Decode(b[:], []byte(s[2:])); err != nil {
+		return err
+	}
+	if err := out.SetBytesCanonical(b[:]); err != nil {
+		return fmt.Errorf("%w: %q", err, s)
+	}
+	return nil
 }

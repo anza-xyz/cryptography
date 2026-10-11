@@ -72,18 +72,18 @@ No asset field: the pool fixes the asset.
 Issuance of one note with a public amount. The issuer proves the published
 commitment opens to a well-formed note carrying exactly the published value,
 so the pool program can account for minted supply (and match a vault deposit
-for a wrapped asset, design §2.2) while the recipient stays hidden. Who may
-mint is the pool program's business (issuer authority), not the circuit's.
+for a wrapped asset) while the recipient stays hidden. Who may mint is the
+pool program's business (issuer authority), not the circuit's.
 
 | | |
 | --- | --- |
 | public inputs | `commitment`, `value` (in that order) |
 | witness | `owner_pk`, `rho`, `r` |
 | constraints | `value ∈ [0, 2^64)` by bit decomposition; `commitment = Poseidon(value, owner_pk, rho, r)` |
-| size | 363 R1CS constraints |
+| size | 363 R1CS constraints (pinned by `TestVerifyingKeyShape`) |
 
-A confidential-issuance variant (hidden amount, design §7) is the same circuit
-with `Value` moved to the private witness.
+A confidential-issuance variant (hidden amount) is the same circuit with
+`Value` moved to the private witness.
 
 ## Circuit rules
 
