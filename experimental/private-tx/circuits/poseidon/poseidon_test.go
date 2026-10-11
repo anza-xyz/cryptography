@@ -7,6 +7,7 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
 	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/test"
 )
 
@@ -119,5 +120,12 @@ func TestUnsupportedWidths(t *testing.T) {
 	}
 	if _, err := Hash(make([]fr.Element, MaxInputs+1)...); err == nil {
 		t.Error("MaxInputs+1 inputs accepted")
+	}
+	// The gadget library itself accepts up to 16; the cap is ours.
+	for _, n := range []int{0, MaxInputs + 1} {
+		circuit := &hashCircuit{In: make([]frontend.Variable, n)}
+		if _, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, circuit); err == nil {
+			t.Errorf("gadget with %d inputs compiled", n)
+		}
 	}
 }
