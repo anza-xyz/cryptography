@@ -88,15 +88,7 @@ pub(super) const FQ6_C2: [Fq2; 6] = [
             0x24830a9d3171f0fd,
         ]),
     },
-    Fq2 {
-        c0: U256::new([
-            0x71930c11d782e155,
-            0xa6bb947cffbe3323,
-            0xaa303344d4741444,
-            0x2c3b3f0d26594943,
-        ]),
-        c1: U256::zero(),
-    },
+    FQ6_C1[4],
     Fq2 {
         c0: U256::new([
             0x448a93a57b6762df,
@@ -111,15 +103,7 @@ pub(super) const FQ6_C2: [Fq2; 6] = [
             0x170c812b84dda0b2,
         ]),
     },
-    Fq2 {
-        c0: U256::new([
-            0x3350c88e13e80b9c,
-            0x7dce557cdb5e56b9,
-            0x6001b4b8b615564a,
-            0x2682e617020217e0,
-        ]),
-        c1: U256::zero(),
-    },
+    FQ6_C1[2],
     Fq2 {
         c0: U256::new([
             0x843420f1d8dadbd6,
@@ -176,15 +160,7 @@ pub(super) const FQ12_C1: [Fq2; 12] = [
             0x26684515eff054a6,
         ]),
     },
-    Fq2 {
-        c0: U256::new([
-            0x3350c88e13e80b9c,
-            0x7dce557cdb5e56b9,
-            0x6001b4b8b615564a,
-            0x2682e617020217e0,
-        ]),
-        c1: U256::zero(),
-    },
+    FQ6_C1[2],
     Fq2 {
         c0: U256::new([
             0x86b76f821b329076,
@@ -222,15 +198,7 @@ pub(super) const FQ12_C1: [Fq2; 12] = [
             0x1fbcf75c2da80ad7,
         ]),
     },
-    Fq2 {
-        c0: U256::new([
-            0x71930c11d782e155,
-            0xa6bb947cffbe3323,
-            0xaa303344d4741444,
-            0x2c3b3f0d26594943,
-        ]),
-        c1: U256::zero(),
-    },
+    FQ6_C1[4],
     Fq2 {
         c0: U256::new([
             0x05cd75fe8a3623ca,
@@ -269,3 +237,9 @@ pub(super) const FQ12_C1: [Fq2; 12] = [
         ]),
     },
 ];
+
+// G2 twist x-coordinate Frobenius coefficient, xi^((q-1)/3).
+pub(crate) const PSI_X: Fq2 = FQ6_C1[1];
+
+// Conjugate G2 endomorphism coefficient beta^2, in Montgomery form.
+pub(crate) const BETA_SQUARED_MONT: U256 = FQ6_C1[4].c0;

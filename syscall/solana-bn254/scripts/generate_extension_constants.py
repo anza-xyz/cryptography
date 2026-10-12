@@ -46,20 +46,32 @@ def generate():
         'use super::{Fq2, U256};',
         '',
     ]
+    # Reference completed tables only, avoiding self-referential Rust constants.
+    known = {(1, 0): 'Fq2::ONE'}
     for name, length, numerator, denominator in [
         ('FQ6_C1', 6, 1, 3), ('FQ6_C2', 6, 2, 3), ('FQ12_C1', 12, 1, 6)
     ]:
         lines.append(f'// xi^({numerator}*(q^k-1)/{denominator}), for k = 0..{length}.')
         lines.append(f'pub(super) const {name}: [Fq2; {length}] = [')
+        entries = {}
         for k in range(length):
             exponent, remainder = divmod(numerator * (Q ** k - 1), denominator)
             assert remainder == 0
             a, b = power(XI, exponent)
-            if (a, b) == (1, 0):
-                lines.append('    Fq2::ONE,')
+            if (a, b) in known:
+                lines.append(f'    {known[a, b]},')
             else:
                 lines.append(f'    Fq2 {{ c0: {coefficient(a)}, c1: {coefficient(b)} }},')
+                entries[a, b] = f'{name}[{k}]'
         lines.extend(['];', ''])
+        known.update(entries)
+    lines.extend([
+        '// G2 twist x-coordinate Frobenius coefficient, xi^((q-1)/3).',
+        'pub(crate) const PSI_X: Fq2 = FQ6_C1[1];',
+        '',
+        '// Conjugate G2 endomorphism coefficient beta^2, in Montgomery form.',
+        'pub(crate) const BETA_SQUARED_MONT: U256 = FQ6_C1[4].c0;',
+    ])
     return '\n'.join(lines)
 
 

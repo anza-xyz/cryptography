@@ -6,7 +6,8 @@
 //! multiplication entry point validates subgroup membership before reducing scalars.
 
 use super::glv;
-use crate::backend::{Backend, Fq, Fq2, MontgomeryBackend, U256};
+pub(crate) use crate::backend::PSI_X;
+use crate::backend::{BETA_SQUARED_MONT, Backend, Fq, Fq2, MontgomeryBackend, U256};
 use core::ops::{Add, Neg};
 
 type B = Backend<Fq>;
@@ -16,15 +17,6 @@ const RAW_WINDOW_TABLE_SIZE: usize = 1 << (RAW_WINDOW_WIDTH - 2);
 
 const GLV_WINDOW_WIDTH: u32 = 4;
 const GLV_WINDOW_TABLE_SIZE: usize = 1 << (GLV_WINDOW_WIDTH - 2);
-
-// beta^2 * 2^256 mod q. This conjugate endomorphism has the same scalar
-// eigenvalue as the G1 endomorphism, allowing the shared decomposition.
-const BETA_SQUARED_MONT: U256 = U256::new([
-    0x71930c11d782e155,
-    0xa6bb947cffbe3323,
-    0xaa303344d4741444,
-    0x2c3b3f0d26594943,
-]);
 
 // xi = 9+u; b = 3/xi; psi coefficients are xi^((q-1)/3), xi^((q-1)/2).
 pub(crate) const CURVE_B: Fq2 = Fq2 {
@@ -39,20 +31,6 @@ pub(crate) const CURVE_B: Fq2 = Fq2 {
         0x65f0b37d93ce0d3e,
         0xd749d0dd22ac00aa,
         0x0141b9ce4a688d4d,
-    ]),
-};
-pub(crate) const PSI_X: Fq2 = Fq2 {
-    c0: U256::new([
-        0xb5773b104563ab30,
-        0x347f91c8a9aa6454,
-        0x7a007127242e0991,
-        0x1956bcd8118214ec,
-    ]),
-    c1: U256::new([
-        0x6e849f1ea0aa4757,
-        0xaa1c7b6d89f89141,
-        0xb6e713cdfae0ca3a,
-        0x26694fbb4e82ebc3,
     ]),
 };
 pub(crate) const PSI_Y: Fq2 = Fq2 {
