@@ -19,7 +19,7 @@ impl FinalExponentiation {
 }
 
 /// Nonzero elements of the subgroup of order q^4-q^2+1.
-/// This is larger than Gt; its only entry point is the easy final exponent.
+/// This contains Gt; entry requires the easy final exponent or a validated Gt.
 #[derive(Clone, Copy)]
 struct Cyclotomic(Fq12);
 
@@ -204,6 +204,12 @@ pub(crate) fn final_exponentiation(value: Fq12) -> Option<FinalExponentiation> {
     let y14 = y8.frobenius(2) * y13;
     let result = (r.inverse() * y9).frobenius(3) * y14;
     Some(FinalExponentiation(result.0))
+}
+
+/// Gt proves membership in the cyclotomic subgroup because r divides q^4-q^2+1.
+#[inline]
+pub(crate) fn square_gt(value: &crate::gt::Gt) -> Fq12 {
+    Cyclotomic(value.to_fq12()).square().0
 }
 
 #[cfg(test)]

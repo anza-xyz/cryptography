@@ -47,7 +47,7 @@ impl Gt {
 
     #[inline]
     pub fn square(&self) -> Self {
-        Self(self.0.square())
+        Self(crate::pairing::final_exp::square_gt(self))
     }
 
     /// Returns the multiplicative inverse, which exists for every target-group element.
@@ -83,16 +83,16 @@ impl Gt {
             }
         }
         if saved < 4 {
-            let mut result = self.0;
+            let mut result = *self;
             for bit in (0..bits - 1).rev() {
                 result = result.square();
                 if exponent.0[bit / 64] >> (bit % 64) & 1 != 0 {
-                    result = result * self.0;
+                    result = result * *self;
                 }
             }
-            return Self(result);
+            return result;
         }
-        Self(pow_window3(&self.0, exponent, bits))
+        pow_window3(self, exponent, bits)
     }
 }
 
@@ -147,7 +147,7 @@ fn window3(exponent: &U256, high: usize) -> (usize, usize) {
 // Sliding-window exponentiation (k=3), Handbook of Applied Cryptography,
 // Algorithm 14.85: https://cacr.uwaterloo.ca/hac/about/chap14.pdf
 // `pow` chooses the binary fallback using this implementation's table cost.
-fn pow_window3(value: &Fq12, exponent: &U256, bits: usize) -> Fq12 {
+fn pow_window3(value: &Gt, exponent: &U256, bits: usize) -> Gt {
     let square = value.square();
     let mut odd = [*value; 4];
     for i in 1..odd.len() {
