@@ -9,7 +9,7 @@ use crate::backend::{Fq2, Fq6, Fq12, fq6::mul_by_xi};
 use core::ops::Mul;
 
 /// Only final exponentiation can construct this proof of order-r membership.
-/// It lets Gt accept the result without repeating a generic subgroup check.
+/// It lets Gt accept the result without repeating a subgroup check.
 pub(crate) struct FinalExponentiation(Fq12);
 
 impl FinalExponentiation {
@@ -19,7 +19,8 @@ impl FinalExponentiation {
 }
 
 /// Nonzero elements of the subgroup of order q^4-q^2+1.
-/// This contains Gt; entry requires the easy final exponent or a validated Gt.
+/// This contains Gt; entry requires verification, the easy final exponent,
+/// or a validated Gt.
 #[derive(Clone, Copy)]
 struct Cyclotomic(Fq12);
 
@@ -103,6 +104,13 @@ impl CompressedCyclotomic {
 }
 
 impl Cyclotomic {
+    /// For nonzero f, f^(q^4)*f = f^(q^2) iff f^(q^4-q^2+1) = 1.
+    /// Zero also satisfies the undivided equality, so reject it explicitly.
+    fn verified(value: Fq12) -> Option<Self> {
+        (value != Fq12::ZERO && value.frobenius(4) * value == value.frobenius(2))
+            .then_some(Self(value))
+    }
+
     fn easy_part(value: Fq12) -> Option<Self> {
         let norm_one = value.conjugate() * value.inverse()?;
         Some(Self(norm_one.frobenius(2) * norm_one))
@@ -204,6 +212,20 @@ pub(crate) fn final_exponentiation(value: Fq12) -> Option<FinalExponentiation> {
     let y14 = y8.frobenius(2) * y13;
     let result = (r.inverse() * y9).frobenius(3) * y14;
     Some(FinalExponentiation(result.0))
+}
+
+/// For nonzero f, q-r = 6*x^2 gives f^r = 1 iff f^q = f^(6*x^2).
+/// Verify cyclotomic membership before using its specialized square and
+/// inverse formulas. This cannot reject Gt because r divides q^4-q^2+1;
+/// no exponent is reduced modulo r while checking membership.
+pub(crate) fn is_in_target_group(value: Fq12) -> bool {
+    let Some(f) = Cyclotomic::verified(value) else {
+        return false;
+    };
+    let x2 = f.exp_by_neg_x().exp_by_neg_x();
+    let two_x2 = x2.square();
+    let six_x2 = two_x2.square() * two_x2;
+    f.frobenius(1).0 == six_x2.0
 }
 
 /// Gt proves membership in the cyclotomic subgroup because r divides q^4-q^2+1.
@@ -383,5 +405,112 @@ mod tests {
             check12(compressed.decompress().0, expected);
         }
         assert!(saw_non_gt);
+    }
+}
+
+#[cfg(test)]
+mod subgroup_tests {
+    use super::*;
+    use crate::backend::Field as _;
+    use crate::{backend::oracle::*, curve::g2::BN_X, gt::Gt};
+    use ark_bn254::{Fq as ArkFq, Fq2 as ArkFq2, Fq6 as ArkFq6, Fq12 as ArkFq12, Fr as ArkFr};
+    use ark_ff::{AdditiveGroup, BigInteger, Field as _, PrimeField};
+    use num_bigint::BigUint;
+    use rand::{SeedableRng, rngs::StdRng};
+
+    fn parameters() -> (BigUint, BigUint, BigUint) {
+        let q = BigUint::from_bytes_le(&ArkFq::MODULUS.to_bytes_le());
+        let r = BigUint::from_bytes_le(&ArkFr::MODULUS.to_bytes_le());
+        let phi = q.pow(4) - q.pow(2) + 1u8;
+        (q, r, phi)
+    }
+
+    #[test]
+    fn exact_bn_integer_identities() {
+        let (q, r, phi) = parameters();
+        let x = BigUint::from(BN_X);
+        assert_eq!(
+            q,
+            36u8 * x.pow(4) + 36u8 * x.pow(3) + 24u8 * x.pow(2) + 6u8 * &x + 1u8
+        );
+        assert_eq!(
+            r,
+            36u8 * x.pow(4) + 36u8 * x.pow(3) + 18u8 * x.pow(2) + 6u8 * &x + 1u8
+        );
+        assert_eq!(&q - &r, 6u8 * x.pow(2));
+        assert_eq!(&phi % &r, BigUint::from(0u8));
+        assert_eq!((q.pow(2) + 1u8) * &phi, q.pow(6) + 1u8);
+        assert_eq!(crate::backend::Fq::MODULUS.0, ArkFq::MODULUS.0);
+        assert_eq!(crate::backend::Fr::MODULUS.0, ArkFr::MODULUS.0);
+    }
+
+    fn check(value: ArkFq12, phi: &BigUint) -> (bool, bool) {
+        let nonzero = value != ArkFq12::ZERO;
+        let expected_gt = nonzero && value.pow(ArkFr::MODULUS.0) == ArkFq12::ONE;
+        let expected_cyclo = nonzero && value.pow(phi.to_u64_digits()) == ArkFq12::ONE;
+        let input = ours12(value);
+        assert_eq!(is_in_target_group(input), expected_gt);
+        assert_eq!(Gt::from_fq12(input).is_some(), expected_gt);
+        let verified = Cyclotomic::verified(input);
+        assert_eq!(verified.is_some(), expected_cyclo);
+        if let Some(f) = verified {
+            // Compare every specialized stage with full-field Arkworks arithmetic.
+            // In particular these checks also run on cyclotomic non-Gt elements.
+            let negative_x = f.exp_by_neg_x();
+            check12(negative_x.0, value.pow([BN_X]).inverse().unwrap());
+            let x2 = negative_x.exp_by_neg_x();
+            let x2_integer = BigUint::from(BN_X).pow(2);
+            check12(x2.0, value.pow(x2_integer.to_u64_digits()));
+            let two_x2 = x2.square();
+            let six_x2 = two_x2.square() * two_x2;
+            check12(six_x2.0, value.pow((6u8 * x2_integer).to_u64_digits()));
+            check12(f.frobenius(1).0, value.pow(ArkFq::MODULUS.0));
+        }
+        (expected_gt, expected_cyclo)
+    }
+
+    #[test]
+    fn predicate_and_chain_match_independent_field_powers() {
+        let (q, r, phi) = parameters();
+        let easy = (q.pow(6) - 1u8) * (q.pow(2) + 1u8);
+        let target = (q.pow(12) - 1u8) / &r;
+        for (value, expected) in [
+            (ArkFq12::ZERO, (false, false)),
+            (ArkFq12::ONE, (true, true)),
+            (-ArkFq12::ONE, (false, false)),
+        ] {
+            assert_eq!(check(value, &phi), expected);
+        }
+        // All basis elements and their negatives, including proper subfields.
+        for index in 0..12 {
+            let mut coefficients = [ArkFq::ZERO; 12];
+            coefficients[index] = ArkFq::ONE;
+            let c: [ArkFq2; 6] =
+                core::array::from_fn(|i| ArkFq2::new(coefficients[2 * i], coefficients[2 * i + 1]));
+            let value = ArkFq12::new(ArkFq6::new(c[0], c[1], c[2]), ArkFq6::new(c[3], c[4], c[5]));
+            check(value, &phi);
+            check(-value, &phi);
+        }
+        // Every raw Montgomery coefficient q-1.
+        let raw_boundary = -ArkFq::ONE * ArkFq::from(2).pow([256]).inverse().unwrap();
+        let b = ArkFq2::new(raw_boundary, raw_boundary);
+        let b = ArkFq6::new(b, b, b);
+        check(ArkFq12::new(b, b), &phi);
+
+        let mut rng = StdRng::seed_from_u64(0x7375_6267_7270_7631);
+        for _ in 0..512 {
+            check(random12(&mut rng), &phi);
+        }
+        for _ in 0..64 {
+            let value = random12(&mut rng);
+            let norm_one = ArkFq12::new(value.c0, -value.c1) * value.inverse().unwrap();
+            assert_eq!(check(norm_one, &phi), (false, false));
+            let cyclo = value.pow(easy.to_u64_digits());
+            assert_eq!(check(cyclo, &phi), (false, true));
+            let gt = value.pow(target.to_u64_digits());
+            assert_ne!(gt, ArkFq12::ONE);
+            assert_eq!(check(gt, &phi), (true, true));
+            assert_eq!(check(-gt, &phi), (false, false));
+        }
     }
 }

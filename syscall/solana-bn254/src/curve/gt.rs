@@ -5,7 +5,7 @@
 //! canonical Montgomery representation with radix `2^256`.
 //! Execution is variable-time, as permitted by the crate's public-data contract.
 
-use crate::backend::{Field, Fq12, Fr, U256};
+use crate::backend::{Fq12, U256};
 use core::ops::Mul;
 
 /// A nonzero Fq12 element whose `r`-th power is one.
@@ -27,11 +27,10 @@ impl Gt {
 
     /// Validates membership in the order-`r` subgroup, accepting field one.
     ///
-    /// Rejects zero and all nonmembers. This uses generic field exponentiation:
-    /// reducing the exponent modulo `r` or using subgroup-only formulas here
-    /// would assume the property being checked.
+    /// Rejects zero and all nonmembers. Cyclotomic membership is verified
+    /// before using subgroup-only formulas to check the order-r relation.
     pub fn from_fq12(value: Fq12) -> Option<Self> {
-        (value != Fq12::ZERO && pow_field(&value, &Fr::MODULUS) == Fq12::ONE).then_some(Self(value))
+        crate::pairing::final_exp::is_in_target_group(value).then_some(Self(value))
     }
 
     /// Returns the underlying field element with canonical Montgomery coefficients.
@@ -109,25 +108,6 @@ impl Mul for Gt {
     fn mul(self, rhs: Self) -> Self {
         Self(self.0 * rhs.0)
     }
-}
-
-/// Binary exponentiation on the entire field, with an ordinary integer exponent.
-/// In particular, the subgroup check must evaluate the full exponent r.
-fn pow_field(value: &Fq12, exponent: &U256) -> Fq12 {
-    let mut result = Fq12::ONE;
-    let mut started = false;
-    for limb in exponent.0.iter().rev() {
-        for bit in (0..64).rev() {
-            if started {
-                result = result.square();
-            }
-            if limb >> bit & 1 != 0 {
-                result = if started { result * *value } else { *value };
-                started = true;
-            }
-        }
-    }
-    result
 }
 
 /// Reads an odd window of at most three bits, starting at a set high bit.
