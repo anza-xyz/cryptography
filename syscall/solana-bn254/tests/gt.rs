@@ -285,3 +285,19 @@ fn small_and_cross_limb_window_patterns_match_arkworks() {
         }
     }
 }
+
+#[test]
+fn frobenius_dispatch_boundaries_match_full_field_powers() {
+    let expected = generator();
+    let actual = Gt::from_fq12(ours12(expected)).unwrap();
+    let mut rng = StdRng::seed_from_u64(0x6774_5f66_726f_6232);
+    for bits in [127, 128, 129, 130, 191, 192, 193, 194, 255, 256] {
+        let mask = (BigUint::from(1u8) << bits) - 1u8;
+        for _ in 0..32 {
+            let raw: [u64; 4] = rng.random();
+            let bytes: Vec<_> = raw.iter().flat_map(|w| w.to_le_bytes()).collect();
+            let n = (BigUint::from_bytes_le(&bytes) & &mask) | (BigUint::from(1u8) << (bits - 1));
+            check_pow(actual, expected, &integer(&n));
+        }
+    }
+}
