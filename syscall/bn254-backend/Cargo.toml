@@ -1,5 +1,5 @@
 [package]
-name = "solana-bn254"
+name = "solana-bn254-backend"
 description = "BN254 and Poseidon for Solana"
 version = "0.1.0"
 edition = "2024"

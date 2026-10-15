@@ -26,7 +26,7 @@ CI. Circuits are added on top of it.
 All hashing is the circom Poseidon over BN254 Fr: `x^5` S-box, 8 full rounds,
 width-dependent partial rounds, capacity element 0, digest `state[0]`. These
 are the parameters of circomlib, light-poseidon, Solana's `sol_poseidon`
-syscall and `syscall/solana-bn254` in this repository, so a pool program can
+syscall and `syscall/bn254-backend` in this repository, so a pool program can
 recompute any in-circuit hash with one syscall.
 
 No Poseidon is implemented here. gnark's own `std/hash` ships MiMC and
@@ -45,7 +45,7 @@ an on-chain program can always recompute them.
 Compatibility is pinned by tests rather than assumed: the Go tests check both
 against circomlib's published vectors and against each other on random inputs
 for 1 to 5 inputs, and the Rust e2e crate exposes light-poseidon (the source
-`syscall/solana-bn254` generates its constants from) for circuits to check
+`syscall/bn254-backend` generates its constants from) for circuits to check
 their in-circuit hashes against.
 
 ## Circuit rules

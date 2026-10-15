@@ -2,8 +2,8 @@ use ark_ff::{Field as _, PrimeField};
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use light_poseidon::PoseidonHasher;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use solana_bn254::backend::{Backend, Fr, MontgomeryBackend, U256};
-use solana_bn254::poseidon::{constants::*, hash, sbox};
+use solana_bn254_backend::backend::{Backend, Fr, MontgomeryBackend, U256};
+use solana_bn254_backend::poseidon::{constants::*, hash, sbox};
 use std::hint::black_box;
 
 /// A field element represented by both arkworks and this crate.
@@ -37,7 +37,7 @@ macro_rules! bench_width {
 
         let mut group = $c.benchmark_group(concat!("poseidon_t", $t));
 
-        group.bench_function("solana-bn254", |b| {
+        group.bench_function("solana-bn254-backend", |b| {
             b.iter(|| hash(std::hint::black_box(&our_inputs), params).unwrap())
         });
 

@@ -1,7 +1,7 @@
 use ark_bn254::{Fq as ArkFq, Fq2 as ArkFq2};
 use ark_ff::{AdditiveGroup, Field as _, PrimeField};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use solana_bn254::backend::{Field, Fq, Fq2, U256};
+use solana_bn254_backend::backend::{Field, Fq, Fq2, U256};
 
 fn raw(a: ArkFq) -> U256 {
     U256::new((a * ArkFq::from(2u64).pow([256])).into_bigint().0)

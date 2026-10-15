@@ -2,7 +2,7 @@ use ark_bn254::{Fq as ArkFq, Fq2 as ArkFq2, Fr, G2Affine};
 use ark_ec::{AffineRepr, CurveGroup, models::CurveConfig};
 use ark_ff::{BigInt, Field, PrimeField};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use solana_bn254::{
+use solana_bn254_backend::{
     backend::{Fq2, U256},
     g2::Affine,
 };

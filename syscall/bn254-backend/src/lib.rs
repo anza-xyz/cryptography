@@ -1,6 +1,6 @@
 #![no_std]
 
-//! `solana-bn254`
+//! `solana-bn254-backend`
 //!
 //! BN254 field and curve arithmetic and Poseidon hashing for the
 //! Solana Agave validator.
@@ -16,7 +16,7 @@ pub mod pairing;
 pub mod poseidon;
 
 #[cfg(test)]
-extern crate self as solana_bn254;
+extern crate self as solana_bn254_backend;
 #[cfg(test)]
 extern crate std;
 

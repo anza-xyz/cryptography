@@ -7,7 +7,7 @@
 use ark_bn254::Fr as ArkFr;
 use ark_ff::{BigInt, Field as _, PrimeField};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use solana_bn254::backend::{Fr, MontgomeryBackend, U256, portable::PortableBackend};
+use solana_bn254_backend::backend::{Fr, MontgomeryBackend, U256, portable::PortableBackend};
 
 type B = PortableBackend<Fr>;
 

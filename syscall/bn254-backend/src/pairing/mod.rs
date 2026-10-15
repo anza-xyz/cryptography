@@ -68,7 +68,7 @@ pub fn pairing(p: &g1::Affine, q: &g2::Affine) -> Option<Gt> {
 ///
 /// An empty iterator needs a point-type annotation:
 /// ```
-/// use solana_bn254::{g1, g2, gt::Gt, pairing::multi_pairing};
+/// use solana_bn254_backend::{g1, g2, gt::Gt, pairing::multi_pairing};
 /// assert_eq!(
 ///     multi_pairing(core::iter::empty::<(g1::Affine, g2::Affine)>()),
 ///     Some(Gt::IDENTITY),
@@ -97,7 +97,7 @@ pub fn multi_pairing<P: Borrow<g1::Affine>, Q: Borrow<g2::Affine>>(
 /// input. Use `map` to preserve each decoder result, rather than `filter_map`
 /// or `map_while`, which can discard errors or terminate the stream early.
 /// ```
-/// use solana_bn254::{g1, g2, pairing::{try_multi_pairing, PairingError}};
+/// use solana_bn254_backend::{g1, g2, pairing::{try_multi_pairing, PairingError}};
 /// let pairs = [
 ///     Ok((g1::Affine::IDENTITY, g2::Affine::IDENTITY)),
 ///     Err("truncated pair"),

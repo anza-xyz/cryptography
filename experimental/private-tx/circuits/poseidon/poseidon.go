@@ -5,7 +5,7 @@
 // BN254 scalar field (x^5 S-box, 8 full rounds, width-dependent partial
 // rounds, zero capacity element, digest = state[0]). These are also the
 // parameters of light-poseidon, Solana's sol_poseidon syscall and
-// syscall/solana-bn254 in this repository, so an on-chain program can
+// syscall/bn254-backend in this repository, so an on-chain program can
 // recompute any in-circuit hash with one syscall. The tests pin this: known
 // answers from circomlib, and gadget equals native on random inputs.
 //

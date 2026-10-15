@@ -4,17 +4,17 @@
 //!
 //! ```bash
 //! RUSTFLAGS="-C target-feature=+avx512f,+avx512ifma,+avx512dq" \
-//!     cargo test -p solana-bn254 --test avx512_backend
+//!     cargo test -p solana-bn254-backend --test avx512_backend
 //! ```
 
 #![cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
 
 use ark_ff::{BigInt, Field as _, PrimeField};
 use rand::RngExt;
-use solana_bn254::backend::avx512::math::{mul_8x, sbox_8x, sum_of_products_8x};
-use solana_bn254::backend::avx512::pack::{pack_8x, unpack_8x};
-use solana_bn254::backend::{Backend, Field, Fr, MontgomeryBackend, U256};
-use solana_bn254::poseidon::sbox;
+use solana_bn254_backend::backend::avx512::math::{mul_8x, sbox_8x, sum_of_products_8x};
+use solana_bn254_backend::backend::avx512::pack::{pack_8x, unpack_8x};
+use solana_bn254_backend::backend::{Backend, Field, Fr, MontgomeryBackend, U256};
+use solana_bn254_backend::poseidon::sbox;
 
 /// A uniformly random fully reduced field element.
 fn random_element() -> U256 {

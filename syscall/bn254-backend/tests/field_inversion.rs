@@ -6,7 +6,7 @@
 use ark_bn254::{Fq as ArkFq, Fr as ArkFr};
 use ark_ff::{BigInt, BigInteger, Fp256, MontBackend, MontConfig, PrimeField};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use solana_bn254::backend::{Backend, Field, Fq, Fr, MontgomeryBackend, U256};
+use solana_bn254_backend::backend::{Backend, Field, Fq, Fr, MontgomeryBackend, U256};
 
 #[derive(MontConfig)]
 #[modulus = "115792089237316195423570985008687907853269984665640564039457584007908834671663"]

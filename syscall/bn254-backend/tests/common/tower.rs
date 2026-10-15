@@ -1,7 +1,7 @@
 use ark_bn254::{Fq as ArkFq, Fq2 as ArkFq2, Fq6 as ArkFq6, Fq12 as ArkFq12};
 use ark_ff::{Field as _, PrimeField};
 use rand::{RngExt, rngs::StdRng};
-use solana_bn254::backend::{Fq2, Fq6, Fq12, U256};
+use solana_bn254_backend::backend::{Fq2, Fq6, Fq12, U256};
 use std::sync::LazyLock;
 
 static RADIX: LazyLock<ArkFq> = LazyLock::new(|| ArkFq::from(2u64).pow([256]));

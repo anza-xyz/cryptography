@@ -11,7 +11,7 @@ use ark_ec::{
 use ark_ff::{AdditiveGroup, BigInteger, Field as _, PrimeField};
 use num_bigint::BigUint;
 use rand::{SeedableRng, rngs::StdRng};
-use solana_bn254::{
+use solana_bn254_backend::{
     backend::{Fq12, U256},
     g1, g2,
 };

@@ -9,7 +9,7 @@
 use ark_bn254::Fr as ArkFr;
 use ark_ff::{BigInt, Field, PrimeField};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use solana_bn254::backend::{Backend, Fr, MontgomeryBackend, U256};
+use solana_bn254_backend::backend::{Backend, Fr, MontgomeryBackend, U256};
 
 type B = Backend<Fr>;
 

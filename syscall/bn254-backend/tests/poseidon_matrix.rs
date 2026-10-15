@@ -1,9 +1,9 @@
 use ark_ff::{BigInt, Field as _, PrimeField};
 use light_poseidon::PoseidonParameters;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use solana_bn254::backend::{Field, Fr, U256};
-use solana_bn254::poseidon::constants::*;
-use solana_bn254::poseidon::{PoseidonConstants, hash, poseidon};
+use solana_bn254_backend::backend::{Field, Fr, U256};
+use solana_bn254_backend::poseidon::constants::*;
+use solana_bn254_backend::poseidon::{PoseidonConstants, hash, poseidon};
 
 type ArkFr = ark_bn254::Fr;
 

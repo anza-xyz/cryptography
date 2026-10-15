@@ -5,9 +5,9 @@
 //! scalar and SIMD backends; CI must run this suite twice:
 //!
 //! ```bash
-//! cargo test -p solana-bn254 --test poseidon_vectors
+//! cargo test -p solana-bn254-backend --test poseidon_vectors
 //! RUSTFLAGS="-C target-feature=+avx512f,+avx512ifma,+avx512dq" \
-//!     cargo test -p solana-bn254 --test poseidon_vectors
+//!     cargo test -p solana-bn254-backend --test poseidon_vectors
 //! ```
 //!
 //! `light_poseidon` is instantiated over `ark_bn254::Fr`, so the comparison
@@ -16,9 +16,9 @@
 use ark_ff::PrimeField;
 use light_poseidon::PoseidonHasher;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use solana_bn254::backend::{Backend, Field, Fr, MontgomeryBackend, U256};
-use solana_bn254::poseidon::constants::*;
-use solana_bn254::poseidon::{PoseidonConstants, hash, poseidon};
+use solana_bn254_backend::backend::{Backend, Field, Fr, MontgomeryBackend, U256};
+use solana_bn254_backend::poseidon::constants::*;
+use solana_bn254_backend::poseidon::{PoseidonConstants, hash, poseidon};
 
 /// Canonical integer into Montgomery form.
 fn into_mont(v: U256) -> U256 {

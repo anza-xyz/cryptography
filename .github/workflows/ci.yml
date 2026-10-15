@@ -124,7 +124,7 @@ jobs:
 
       - name: Build BN254 tests and benchmarks
         run: |
-          cargo test -p solana-bn254 --target "$AVX512_TARGET" \
+          cargo test -p solana-bn254-backend --target "$AVX512_TARGET" \
             --all-targets --no-run
 
   bn254-avx512-tests:
@@ -168,4 +168,4 @@ jobs:
       - name: Test BN254
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: ${{ runner.temp }}/sde/sde64 -icl --
-        run: cargo test -p solana-bn254 --target "$AVX512_TARGET" --lib --tests
+        run: cargo test -p solana-bn254-backend --target "$AVX512_TARGET" --lib --tests

@@ -49,7 +49,7 @@ pub fn load_groth16(fixture: &str) -> Groth16Fixture {
 }
 
 /// Circom-parameter Poseidon of 1..12 field elements, via light-poseidon: the
-/// reference the Solana `sol_poseidon` syscall and `syscall/solana-bn254`
+/// reference the Solana `sol_poseidon` syscall and `syscall/bn254-backend`
 /// derive their constants from. Circuits that hash in-circuit are checked
 /// against this.
 pub fn poseidon(inputs: &[Fr]) -> [u8; 32] {
