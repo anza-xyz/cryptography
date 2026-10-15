@@ -122,6 +122,11 @@ jobs:
           cargo build -p solana-ed25519 --target "$AVX512_TARGET" \
             --features avx512 --all-targets
 
+      - name: Lint BN254
+        run: |
+          cargo clippy -p solana-bn254-backend --target "$AVX512_TARGET" \
+            --all-targets -- -D warnings
+
       - name: Build BN254 tests and benchmarks
         run: |
           cargo test -p solana-bn254-backend --target "$AVX512_TARGET" \

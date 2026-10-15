@@ -3,7 +3,7 @@
 //! A width-w NAF uses odd digits of absolute value below 2^(w-1), with at
 //! least w-1 zero positions after each nonzero digit. No group-order reduction
 //! occurs here. See the related table/recoding use in Arkworks:
-//! https://github.com/arkworks-rs/algebra/blob/v0.5.0/ec/src/scalar_mul/wnaf.rs
+//! <https://github.com/arkworks-rs/algebra/blob/v0.5.0/ec/src/scalar_mul/wnaf.rs>
 
 use crate::backend::U256;
 

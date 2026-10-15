@@ -166,6 +166,9 @@ unsafe fn cond_sub_modulus(x: &FieldElement8x52) -> FieldElement8x52 {
 /// required by `MontgomeryBackend`. The result is fully reduced.
 ///
 /// The operands are not symmetric in cost: `a` is scaled, `b` is not.
+///
+/// # Safety
+/// Requires AVX-512 F, DQ and IFMA on the executing CPU.
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 pub unsafe fn mul_8x(a: &FieldElement8x52, b: &FieldElement8x52) -> FieldElement8x52 {
@@ -291,6 +294,9 @@ unsafe fn canonical_8x(t: &[__m512i]) -> FieldElement8x52 {
 /// Because IFMA CIOS handles multiplication entirely in registers without branching
 /// or memory spilling, this collapses what would normally be 24 scalar multiplications
 /// into just 3 massive parallel SIMD dispatches.
+///
+/// # Safety
+/// Requires AVX-512 F, DQ and IFMA on the executing CPU.
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 pub unsafe fn sbox_8x(x: &FieldElement8x52) -> FieldElement8x52 {
