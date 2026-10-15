@@ -6,7 +6,7 @@ members = [
     "secp256r1",
     "syscall/bls12-381-syscall",
     "syscall/bn254-syscall",
-    "syscall/solana-bn254",
+    "syscall/bn254-backend",
 ]
 resolver = "2"
 

@@ -4,7 +4,7 @@ use ark_bn254::{
 use ark_ec::{AffineRepr, CurveGroup, pairing::Pairing};
 use ark_ff::{BigInteger, Field as _, PrimeField};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use solana_bn254::{
+use solana_bn254_backend::{
     backend::{Fq2, U256},
     g1, g2,
     gt::Gt,

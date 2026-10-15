@@ -2,9 +2,9 @@
 """Derive canonical Montgomery Frobenius constants with integer arithmetic.
 
 From the repository root:
-python3 syscall/solana-bn254/scripts/generate_extension_constants.py \\
+python3 syscall/bn254-backend/scripts/generate_extension_constants.py \\
     | rustfmt --edition 2024 \\
-    > syscall/solana-bn254/src/backend/frobenius.rs
+    > syscall/bn254-backend/src/backend/frobenius.rs
 """
 
 Q = 21888242871839275222246405745257275088696311157297823662689037894645226208583

@@ -2,7 +2,7 @@ use ark_bn254::{Fq as ArkFq, Fq2 as ArkFq2, Fq6 as ArkFq6, Fq12 as ArkFq12};
 use ark_ff::{AdditiveGroup, BigInteger, Field as _, PrimeField};
 use num_bigint::BigUint;
 use rand::{SeedableRng, rngs::StdRng};
-use solana_bn254::backend::{Field, Fq, Fq2, Fq6, Fq12, U256};
+use solana_bn254_backend::backend::{Field, Fq, Fq2, Fq6, Fq12, U256};
 
 #[path = "common/tower.rs"]
 mod tower;

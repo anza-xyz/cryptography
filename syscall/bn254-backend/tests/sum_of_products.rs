@@ -2,7 +2,7 @@
 
 use num_bigint::BigUint;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use solana_bn254::backend::{Backend, Field, Fq, Fr, MontgomeryBackend, U256};
+use solana_bn254_backend::backend::{Backend, Field, Fq, Fr, MontgomeryBackend, U256};
 
 /// 2^255 - 19, two products per reduction.
 struct P25519;

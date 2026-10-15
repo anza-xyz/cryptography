@@ -9,7 +9,7 @@ use ark_ec::{
 use ark_ff::{AdditiveGroup, BigInteger, Field as _, PrimeField};
 use num_bigint::BigUint;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use solana_bn254::{
+use solana_bn254_backend::{
     backend::{Field, Fq12, Fr, U256},
     gt::Gt,
 };

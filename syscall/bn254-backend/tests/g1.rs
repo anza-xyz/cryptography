@@ -4,7 +4,7 @@ use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{BigInt, BigInteger, Field as _, PrimeField};
 use num_bigint::BigUint;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use solana_bn254::{
+use solana_bn254_backend::{
     backend::{Field, Fq, U256},
     g1::Affine,
 };

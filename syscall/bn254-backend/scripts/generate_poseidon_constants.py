@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate src/poseidon/constants.rs for the solana-bn254 crate.
+"""Generate src/poseidon/constants.rs for the solana-bn254-backend crate.
 
 Input:  light-poseidon's light-poseidon/src/parameters/bn254_x5.rs, which holds
         the unoptimized round constants (`ark`) and MDS matrix (`mds`) for each

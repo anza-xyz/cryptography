@@ -21,7 +21,7 @@ func mustElem(t *testing.T, s string) fr.Element {
 }
 
 // Known answers from circomlibjs (`poseidon([1])`, `poseidon([1,2])`, ...),
-// also asserted by light-poseidon's and solana-bn254's test suites. These pin
+// also asserted by light-poseidon's and solana-bn254-backend's test suites. These pin
 // the libraries to the parameters of the Solana sol_poseidon syscall.
 var knownAnswers = []struct {
 	inputs []string

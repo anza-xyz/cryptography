@@ -20,7 +20,7 @@ publish = false
 solana-groth16-verify = { git = "https://github.com/solana-program/groth16-verifier-program", rev = "8bd06b4fb07f636c1872993a99f1a296b23b69fa", default-features = false, features = ["verify", "instruction"] }
 groth16-convert = { git = "https://github.com/solana-program/groth16-verifier-program", rev = "8bd06b4fb07f636c1872993a99f1a296b23b69fa" }
 
-# The Poseidon reference the Solana syscall (and syscall/solana-bn254) are
+# The Poseidon reference the Solana syscall (and syscall/bn254-backend) are
 # generated from; the circuit gadget must agree with it.
 light-poseidon = "0.4.0"
 ark-bn254 = "0.5.0"
