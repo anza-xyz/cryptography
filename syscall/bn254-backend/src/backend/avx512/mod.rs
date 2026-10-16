@@ -16,21 +16,29 @@
 //!
 //! This "lazy reduction" unlocks world-class cryptographic throughput for operations
 //! like Poseidon dense matrix multiplications and Batched Multi-Miller Loops.
+//!
+//! Every kernel requires AVX-512 F, DQ and IFMA on the executing CPU. Crate
+//! callers check `cpu::has_ifma()` before entering this module.
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
 pub mod math;
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
 pub mod pack;
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
 pub mod types;
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
 pub use types::FieldElement8x52;
 
-#[cfg(all(
-    target_arch = "x86_64",
-    target_feature = "avx512f",
-    target_feature = "avx512dq",
-    target_feature = "avx512ifma"
-))]
 pub(crate) mod fq;
+
+/// Tests in this module skip on CPUs without IFMA. Setting `BN254_REQUIRE_IFMA`
+/// turns a skip into a failure, so CI cannot silently lose coverage. They call
+/// the kernels directly, so `bn254_disable` does not skip them.
+#[cfg(test)]
+pub(crate) fn test_cpu_supported() -> bool {
+    let supported = std::is_x86_feature_detected!("avx512f")
+        && std::is_x86_feature_detected!("avx512dq")
+        && std::is_x86_feature_detected!("avx512ifma");
+    assert!(
+        supported || std::env::var_os("BN254_REQUIRE_IFMA").is_none(),
+        "BN254_REQUIRE_IFMA is set, but the CPU lacks AVX-512 IFMA"
+    );
+    supported
+}

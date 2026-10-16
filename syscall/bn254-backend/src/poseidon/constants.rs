@@ -13,7 +13,7 @@
 //! Full-round constants are light-poseidon's `ark` vectors verbatim, except the
 //! first vector of the second half, which absorbs the carry left over from
 //! folding the partial-round constants. Each partial round keeps only the
-//! state[0] component of its constant; the other components commute with the
+//! `state[0]` component of its constant; the other components commute with the
 //! S-box and are pushed forward through the MDS matrix. `pre_sparse_matrix` and
 //! `sparse_matrices` factor the MDS matrix so partial rounds cost O(T) rather
 //! than O(T^2); `pre_sparse_matrix` replaces `mds_matrix` in the final full

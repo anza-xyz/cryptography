@@ -2,7 +2,8 @@
 //!
 //! Fq uses a portable fallback or Linux x86_64 ADX/BMI2 multiplication.
 //! With AVX-512 F/DQ/IFMA, independent Fq2 formula products use packed Fq lanes.
-//! Poseidon uses the existing packed Fr backend.
+//! Poseidon uses the existing packed Fr backend. On x86_64 both native kernels
+//! are selected at run time, so a baseline build uses them where available.
 
 pub mod fq;
 pub mod fq12;
@@ -14,8 +15,10 @@ pub mod u256;
 
 pub mod portable;
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+#[cfg(target_arch = "x86_64")]
 pub mod avx512;
+#[cfg(target_arch = "x86_64")]
+pub(crate) mod cpu;
 
 pub use fq::Fq;
 pub use fq2::Fq2;

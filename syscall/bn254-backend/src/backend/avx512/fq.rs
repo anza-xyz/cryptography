@@ -477,6 +477,9 @@ pub(crate) unsafe fn mul_fq2_6(
 mod tests {
     #[test]
     fn packed_g2_formula_products_match_arkworks() {
+        if !crate::backend::avx512::test_cpu_supported() {
+            return;
+        }
         let inv = ArkFq2::new(
             ArkFq::from(2u64).pow([256u64]).inverse().unwrap(),
             ArkFq::ZERO,
@@ -564,6 +567,9 @@ mod tests {
     }
     #[test]
     fn packed_fq_boundaries_and_random_inputs_match_arkworks() {
+        if !crate::backend::avx512::test_cpu_supported() {
+            return;
+        }
         let inv = ArkFq::from(2).pow([256]).inverse().unwrap();
         let one = ArkFq::ONE;
         let mut values = vec![raw(ArkFq::ZERO), raw(one), raw(-one), raw(-one - one)];
@@ -593,6 +599,9 @@ mod tests {
     }
     #[test]
     fn six_packed_fq2_products_match_arkworks() {
+        if !crate::backend::avx512::test_cpu_supported() {
+            return;
+        }
         let inv = ArkFq::from(2).pow([256]).inverse().unwrap();
         let mut rng = StdRng::seed_from_u64(0x6966_6d61_6671_3231);
         for _ in 0..512 {
@@ -618,6 +627,9 @@ mod tests {
     }
     #[test]
     fn packed_private_lazy_products_match_big_integer_oracle() {
+        if !crate::backend::avx512::test_cpu_supported() {
+            return;
+        }
         use ark_ff::BigInteger;
         use num_bigint::BigUint;
         let q = BigUint::from_bytes_le(&ArkFq::MODULUS.to_bytes_le());

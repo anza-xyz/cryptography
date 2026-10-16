@@ -12,6 +12,10 @@ exclude = ["scripts/*"]
 
 [dependencies]
 
+# Selects the ADX/BMI2 and AVX-512 IFMA kernels at run time.
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+cpufeatures = { workspace = true }
+
 [dev-dependencies]
 criterion = { workspace = true }
 rand = { workspace = true }
@@ -24,3 +28,11 @@ num-bigint = { workspace = true }
 [[bench]]
 name = "poseidon_bench"
 harness = false
+
+[[bench]]
+name = "curve_bench"
+harness = false
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = ['cfg(bn254_disable, values("adx", "ifma"))']
