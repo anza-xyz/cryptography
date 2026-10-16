@@ -615,32 +615,23 @@ impl Projective {
             *self = Self::IDENTITY;
             return;
         }
-        #[cfg(all(
-            target_arch = "x86_64",
-            target_feature = "avx512f",
-            target_feature = "avx512dq",
-            target_feature = "avx512ifma"
-        ))]
-        self.double_ifma();
-        #[cfg(not(all(
-            target_arch = "x86_64",
-            target_feature = "avx512f",
-            target_feature = "avx512dq",
-            target_feature = "avx512ifma"
-        )))]
-        {
-            let a = self.x.square();
-            let b = self.y.square();
-            let c = b.square();
-            // (X+B)^2-A-C = 2XB. Fq2 squaring uses two base-field products,
-            // while multiplication uses three; all intermediates stay canonical.
-            let d = twice((self.x + b).square() - a - c);
-            let e = scale_small::<3>(a);
-            let x = e.square() - twice(d);
-            let y = e * (d - x) - scale_small::<8>(c);
-            let z = twice(self.y * self.z);
-            *self = Self { x, y, z };
+        #[cfg(target_arch = "x86_64")]
+        if crate::backend::cpu::has_ifma() {
+            // SAFETY: the CPU supports the IFMA kernels, checked above.
+            unsafe { self.double_ifma() };
+            return;
         }
+        let a = self.x.square();
+        let b = self.y.square();
+        let c = b.square();
+        // (X+B)^2-A-C = 2XB. Fq2 squaring uses two base-field products,
+        // while multiplication uses three; all intermediates stay canonical.
+        let d = twice((self.x + b).square() - a - c);
+        let e = scale_small::<3>(a);
+        let x = e.square() - twice(d);
+        let y = e * (d - x) - scale_small::<8>(c);
+        let z = twice(self.y * self.z);
+        *self = Self { x, y, z };
     }
     fn add(&mut self, rhs: &Self) {
         if rhs.z == Fq2::ZERO {
@@ -904,16 +895,12 @@ impl Affine {
 }
 
 impl Projective {
-    #[cfg(all(
-        target_arch = "x86_64",
-        target_feature = "avx512f",
-        target_feature = "avx512dq",
-        target_feature = "avx512ifma",
-    ))]
-    fn double_ifma(&mut self) {
+    /// # Safety
+    /// Requires AVX-512 F, DQ and IFMA on the executing CPU.
+    #[cfg(target_arch = "x86_64")]
+    unsafe fn double_ifma(&mut self) {
         use crate::backend::avx512::fq::{fq2_three_squares, fq2_two_squares_and_product};
-        // Caller has handled identity/Y=0. All field inputs are canonical;
-        // the required target features are enforced by the enclosing cfg.
+        // Caller has handled identity/Y=0. All field inputs are canonical.
         let [a, b, yz] = unsafe { fq2_two_squares_and_product([self.x, self.y], self.y, self.z) };
         let e = scale_small::<3>(a);
         let [c, d_square, f] = unsafe { fq2_three_squares([b, self.x + b, e]) };

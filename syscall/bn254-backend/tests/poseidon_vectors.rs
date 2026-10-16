@@ -1,14 +1,9 @@
 //! Cross-library, known-answer, and layout tests for the Poseidon implementation.
 //!
 //! The known-answer vectors carry the cross-platform guarantee. The AVX-512 IFMA
-//! path is selected at compile time, so a single binary cannot exercise both the
-//! scalar and SIMD backends; CI must run this suite twice:
-//!
-//! ```bash
-//! cargo test -p solana-bn254-backend --test poseidon_vectors
-//! RUSTFLAGS="-C target-feature=+avx512f,+avx512ifma,+avx512dq" \
-//!     cargo test -p solana-bn254-backend --test poseidon_vectors
-//! ```
+//! path is selected by the CPU at run time, so a single machine exercises only
+//! one of the scalar and SIMD backends; CI runs this suite on ordinary runners
+//! and under Intel SDE.
 //!
 //! `light_poseidon` is instantiated over `ark_bn254::Fr`, so the comparison
 //! below doubles as the arkworks cross-check.

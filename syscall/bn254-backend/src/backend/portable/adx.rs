@@ -6,10 +6,13 @@
 use crate::backend::{Field, Fq, U256};
 
 /// Inputs are below 2q. The output is a canonical R=2^256 residue.
+///
+/// # Safety
+/// Requires ADX and BMI2 on the executing CPU.
 #[inline(always)]
-pub(super) fn mul(a: &U256, b: &U256) -> U256 {
+pub(super) unsafe fn mul(a: &U256, b: &U256) -> U256 {
     let (r0, r1, r2, r3): (u64, u64, u64, u64);
-    // SAFETY: enabled only for Linux x86_64 with ADX/BMI2. Each input pointer
+    // SAFETY: the caller guarantees ADX/BMI2 on Linux x86_64. Each input pointer
     // references four initialized u64 limbs. The assembly reads those limbs,
     // restores all undeclared registers and its stack pointer, and writes only
     // its own temporary stack below the 128-byte red zone. The four result

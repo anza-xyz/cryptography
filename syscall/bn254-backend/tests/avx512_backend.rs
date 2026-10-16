@@ -1,13 +1,9 @@
 //! Direct tests for the AVX-512 IFMA backend, checked against the portable one and arkworks.
 //!
-//! Compiles to an empty binary unless the SIMD path is active:
-//!
-//! ```bash
-//! RUSTFLAGS="-C target-feature=+avx512f,+avx512ifma,+avx512dq" \
-//!     cargo test -p solana-bn254-backend --test avx512_backend
-//! ```
+//! Each test returns early on CPUs without AVX-512 IFMA. Set `BN254_REQUIRE_IFMA`
+//! to make that a failure instead.
 
-#![cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+#![cfg(target_arch = "x86_64")]
 
 use ark_ff::{BigInt, Field as _, PrimeField};
 use rand::RngExt;
@@ -33,6 +29,17 @@ fn is_canonical(v: &U256) -> bool {
     false
 }
 
+fn cpu_supported() -> bool {
+    let supported = std::is_x86_feature_detected!("avx512f")
+        && std::is_x86_feature_detected!("avx512dq")
+        && std::is_x86_feature_detected!("avx512ifma");
+    assert!(
+        supported || std::env::var_os("BN254_REQUIRE_IFMA").is_none(),
+        "BN254_REQUIRE_IFMA is set, but the CPU lacks AVX-512 IFMA"
+    );
+    supported
+}
+
 /// The largest fully reduced value, `MODULUS - 1`.
 fn modulus_minus_one() -> U256 {
     let mut m = <Fr as Field>::MODULUS;
@@ -42,6 +49,9 @@ fn modulus_minus_one() -> U256 {
 
 #[test]
 fn mul_matches_portable_backend() {
+    if !cpu_supported() {
+        return;
+    }
     for _ in 0..64 {
         let a: [U256; 8] = core::array::from_fn(|_| random_element());
         let b: [U256; 8] = core::array::from_fn(|_| random_element());
@@ -64,6 +74,9 @@ fn mul_matches_portable_backend() {
 /// final conditional subtraction rather than leaving it to chance.
 #[test]
 fn mul_edge_cases() {
+    if !cpu_supported() {
+        return;
+    }
     let values = [
         U256::zero(),
         Backend::<Fr>::to_mont(&U256::one()),
@@ -86,6 +99,9 @@ fn mul_edge_cases() {
 
 #[test]
 fn sbox_matches_portable_backend() {
+    if !cpu_supported() {
+        return;
+    }
     for _ in 0..64 {
         let x: [U256; 8] = core::array::from_fn(|_| random_element());
         let got = unsafe { unpack_8x(&sbox_8x(&pack_8x(&x))) };
@@ -145,6 +161,9 @@ fn check_sum_of_products<const N: usize>() {
 
 #[test]
 fn sum_of_products_matches_arkworks() {
+    if !cpu_supported() {
+        return;
+    }
     macro_rules! widths {
         ($($n:literal)+) => { $(check_sum_of_products::<$n>();)+ };
     }

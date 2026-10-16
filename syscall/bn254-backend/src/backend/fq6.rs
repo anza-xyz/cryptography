@@ -135,14 +135,9 @@ impl Mul for Fq6 {
     // https://eprint.iacr.org/2010/526
     #[inline]
     fn mul(self, rhs: Self) -> Self {
-        #[cfg(all(
-            target_arch = "x86_64",
-            target_feature = "avx512f",
-            target_feature = "avx512dq",
-            target_feature = "avx512ifma"
-        ))]
-        {
-            // SAFETY: compile-time gating requires all vector features. Every
+        #[cfg(target_arch = "x86_64")]
+        if super::cpu::has_ifma() {
+            // SAFETY: the CPU supports all vector features, checked above. Every
             // input is canonical, including the reduced Fq2 additions below.
             // The helper normalizes its own private cross-product sums (<2q)
             // and returns canonical Fq2 values in the same Montgomery domain.
@@ -166,28 +161,20 @@ impl Mul for Fq6 {
                     ],
                 )
             };
-            Self::new(
+            return Self::new(
                 a0b0 + mul_by_xi(cross12 - a1b1 - a2b2),
                 cross01 - a0b0 - a1b1 + mul_by_xi(a2b2),
                 cross02 - a0b0 - a2b2 + a1b1,
-            )
+            );
         }
-        #[cfg(not(all(
-            target_arch = "x86_64",
-            target_feature = "avx512f",
-            target_feature = "avx512dq",
-            target_feature = "avx512ifma"
-        )))]
-        {
-            let a0b0 = self.c0 * rhs.c0;
-            let a1b1 = self.c1 * rhs.c1;
-            let a2b2 = self.c2 * rhs.c2;
-            // Six-product Karatsuba multiplication, reduced using v^3 = xi.
-            Self::new(
-                a0b0 + mul_by_xi((self.c1 + self.c2) * (rhs.c1 + rhs.c2) - a1b1 - a2b2),
-                (self.c0 + self.c1) * (rhs.c0 + rhs.c1) - a0b0 - a1b1 + mul_by_xi(a2b2),
-                (self.c0 + self.c2) * (rhs.c0 + rhs.c2) - a0b0 - a2b2 + a1b1,
-            )
-        }
+        let a0b0 = self.c0 * rhs.c0;
+        let a1b1 = self.c1 * rhs.c1;
+        let a2b2 = self.c2 * rhs.c2;
+        // Six-product Karatsuba multiplication, reduced using v^3 = xi.
+        Self::new(
+            a0b0 + mul_by_xi((self.c1 + self.c2) * (rhs.c1 + rhs.c2) - a1b1 - a2b2),
+            (self.c0 + self.c1) * (rhs.c0 + rhs.c1) - a0b0 - a1b1 + mul_by_xi(a2b2),
+            (self.c0 + self.c2) * (rhs.c0 + rhs.c2) - a0b0 - a2b2 + a1b1,
+        )
     }
 }
