@@ -24,3 +24,7 @@ num-bigint = { workspace = true }
 [[bench]]
 name = "poseidon_bench"
 harness = false
+
+[[bench]]
+name = "curve_bench"
+harness = false
