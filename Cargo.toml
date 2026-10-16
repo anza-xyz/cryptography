@@ -2,6 +2,7 @@
 members = [
     "curve25519/curve25519-cuda",
     "curve25519/solana-ed25519",
+    "experimental/ed25519-dual-verify",
     "experimental/ed25519-pokos",
     "secp256r1",
     "syscall/bls12-381-syscall",

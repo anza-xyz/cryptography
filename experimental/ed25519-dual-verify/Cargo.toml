@@ -1,0 +1,16 @@
+[package]
+name = "ed25519-dual-verify"
+version = "0.1.0"
+edition = "2024"
+description = "Differential testing of solana-ed25519's verify_dalek and verify_simd0376"
+publish = false
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+solana-ed25519.workspace = true
+
+[dev-dependencies]
+sha2.workspace = true
