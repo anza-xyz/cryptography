@@ -6,10 +6,13 @@
 //! Benchmarks can measure the paths other CPUs take by disabling a kernel with
 //! `--cfg bn254_disable="ifma"` or `--cfg bn254_disable="adx"`.
 
+// Only Linux builds include the ADX kernel this detects.
+#[cfg(target_os = "linux")]
 cpufeatures::new!(adx_bmi2, "adx", "bmi2");
 cpufeatures::new!(avx512_ifma, "avx512f", "avx512dq", "avx512ifma");
 
 /// Whether the CPU supports the ADX/BMI2 Montgomery multiplication kernel.
+#[cfg(target_os = "linux")]
 #[inline(always)]
 pub(crate) fn has_adx() -> bool {
     !cfg!(bn254_disable = "adx") && adx_bmi2::get()
