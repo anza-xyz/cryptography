@@ -1,6 +1,6 @@
 //! Variable-time Montgomery inversion using batches of 62 divsteps.
 //!
-//! The recurrence follows Bernstein--Yang, https://eprint.iacr.org/2019/266,
+//! The recurrence follows Bernstein--Yang, <https://eprint.iacr.org/2019/266>,
 //! Sections 8--11. Only low words drive a batch; signed full-width values and
 //! canonical modular coefficients are updated once per batch.
 

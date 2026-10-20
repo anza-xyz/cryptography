@@ -14,6 +14,9 @@ const MASK_52: u64 = 0xFFFFFFFFFFFFF;
 ///
 /// This acts as the zero-cost API boundary, safely translating the public 64-bit
 /// little-endian storage layouts into our internal 52-bit SIMD math engine.
+///
+/// # Safety
+/// Requires AVX-512 F, DQ and IFMA on the executing CPU.
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 pub unsafe fn pack_8x(inputs: &[U256; 8]) -> FieldElement8x52 {
@@ -46,6 +49,9 @@ pub unsafe fn pack_8x(inputs: &[U256; 8]) -> FieldElement8x52 {
 ///
 /// Reconstructs the original base `2^{64}` boundaries by masking and shifting
 /// the processed 52-bit SIMD lanes.
+///
+/// # Safety
+/// Requires AVX-512 F, DQ and IFMA on the executing CPU.
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 pub unsafe fn unpack_8x_into(packed: &FieldElement8x52, outputs: &mut [U256; 8]) {
@@ -72,6 +78,9 @@ pub unsafe fn unpack_8x_into(packed: &FieldElement8x52, outputs: &mut [U256; 8])
 }
 
 /// Allocates and unpacks a 5-limb AVX-512 vector into an array of 8 scalar U256s.
+///
+/// # Safety
+/// Requires AVX-512 F, DQ and IFMA on the executing CPU.
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 pub unsafe fn unpack_8x(packed: &FieldElement8x52) -> [U256; 8] {
@@ -84,6 +93,9 @@ pub unsafe fn unpack_8x(packed: &FieldElement8x52) -> [U256; 8] {
 ///
 /// Important for Poseidon matrix multiplication, where a single state element must
 /// be multiplied against an entire SIMD chunk of the matrix column vector.
+///
+/// # Safety
+/// Requires AVX-512 F, DQ and IFMA on the executing CPU.
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 pub unsafe fn broadcast(u: &U256) -> FieldElement8x52 {

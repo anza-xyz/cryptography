@@ -7,8 +7,8 @@
 //! # Hybrid Execution Architecture
 //! - Partial Rounds: Uses strictly scalar logic. Because only the first element
 //!   `state[0]` receives an S-box, parallelization provides no benefit here.
-//! - Full Rounds: When compiled for native targets supporting `AVX-512 IFMA`,
-//!   the full rounds dynamically route to an 8-way batched SIMD engine.
+//! - Full Rounds: On CPUs supporting `AVX-512 IFMA`, selected at run time,
+//!   the full rounds route to an 8-way batched SIMD engine.
 
 use crate::backend::{Backend, Fr, MontgomeryBackend, U256};
 
@@ -57,18 +57,24 @@ pub fn sbox(x: &U256) -> U256 {
     B::mul(&x4, x)
 }
 
+/// Packs lanes from memory LLVM cannot see through. Rebuilding them from the
+/// caller's scalars can stall LLVM's X86 backend indefinitely in some generic
+/// Poseidon instances, depending on inlining.
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+unsafe fn pack_opaque(lanes: &[U256; 8]) -> crate::backend::avx512::FieldElement8x52 {
+    unsafe { crate::backend::avx512::pack::pack_8x(core::hint::black_box(lanes)) }
+}
+
 /// Computes 8 Poseidon S-boxes simultaneously utilizing AVX-512 vectorization.
 ///
 /// The state is dynamically chunked in groups of 8. This guarantees full utilization
 /// of the SIMD registers for large state widths.
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+#[cfg(target_arch = "x86_64")]
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 unsafe fn apply_sbox_simd<const T: usize>(state: &mut [U256; T]) {
-    use crate::backend::avx512::{
-        math::sbox_8x,
-        pack::{pack_8x, unpack_8x_into},
-    };
+    use crate::backend::avx512::{math::sbox_8x, pack::unpack_8x_into};
     let mut i = 0;
 
     // Process state in chunks of 8 to saturate the SIMD lanes
@@ -78,7 +84,7 @@ unsafe fn apply_sbox_simd<const T: usize>(state: &mut [U256; T]) {
         chunk[..chunk_size].copy_from_slice(&state[i..i + chunk_size]);
 
         unsafe {
-            let packed = pack_8x(&chunk);
+            let packed = pack_opaque(&chunk);
             let sboxed = sbox_8x(&packed);
             unpack_8x_into(&sboxed, &mut chunk);
         }
@@ -97,13 +103,13 @@ unsafe fn apply_sbox_simd<const T: usize>(state: &mut [U256; T]) {
 /// # Input criteria
 /// Every element of `state` and of `mds` must be a fully reduced Montgomery-form
 /// field element (`x < Fr::MODULUS`).
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+#[cfg(target_arch = "x86_64")]
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 unsafe fn apply_dense_matrix_simd<const T: usize>(state: &mut [U256; T], mds: &[[U256; T]; T]) {
     use crate::backend::avx512::{
         math::sum_of_products_8x,
-        pack::{broadcast, pack_8x, unpack_8x_into},
+        pack::{broadcast, unpack_8x_into},
     };
 
     let inputs = state.map(|value| unsafe { broadcast(&value) });
@@ -116,7 +122,7 @@ unsafe fn apply_dense_matrix_simd<const T: usize>(state: &mut [U256; T], mds: &[
             for (k, word) in col_chunk[..chunk_size].iter_mut().enumerate() {
                 *word = mds[i + k][j];
             }
-            unsafe { pack_8x(&col_chunk) }
+            unsafe { pack_opaque(&col_chunk) }
         });
 
         let mut chunk = [U256::zero(); 8];
@@ -128,7 +134,6 @@ unsafe fn apply_dense_matrix_simd<const T: usize>(state: &mut [U256; T], mds: &[
 }
 
 /// Branchlessly executes a dense matrix multiplication on the scalar state.
-#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512ifma")))]
 #[inline(always)]
 fn apply_dense_matrix<const T: usize>(state: &mut [U256; T], m: &[[U256; T]; T]) {
     type B = Backend<Fr>;
@@ -161,7 +166,6 @@ fn apply_sparse_matrix<const T: usize>(state: &mut [U256; T], m: &SparseMatrix<T
 /// Applies one S-box in scalar full rounds.
 ///
 /// Keep this call separate to discourage vectorizing across state elements.
-#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512ifma")))]
 #[inline(never)]
 fn apply_sbox_scalar(state_val: &mut U256) {
     *state_val = sbox(state_val);
@@ -169,12 +173,13 @@ fn apply_sbox_scalar(state_val: &mut U256) {
 
 /// Applies the S-box to every state element, routing to SIMD where available.
 #[inline(always)]
-fn sbox_layer<const T: usize>(state: &mut [U256; T]) {
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
-    unsafe {
-        apply_sbox_simd(state);
+fn sbox_layer<const T: usize, const IFMA: bool>(state: &mut [U256; T]) {
+    #[cfg(target_arch = "x86_64")]
+    if IFMA {
+        // SAFETY: IFMA instances run only on CPUs with the IFMA kernels.
+        unsafe { apply_sbox_simd(state) };
+        return;
     }
-    #[cfg(not(all(target_arch = "x86_64", target_feature = "avx512ifma")))]
     for state_val in state.iter_mut() {
         if cfg!(target_arch = "x86_64") && (T == 4 || T == 8) {
             apply_sbox_scalar(state_val);
@@ -186,12 +191,13 @@ fn sbox_layer<const T: usize>(state: &mut [U256; T]) {
 
 /// Applies a dense matrix to the state, routing to SIMD where available.
 #[inline(always)]
-fn dense_layer<const T: usize>(state: &mut [U256; T], m: &[[U256; T]; T]) {
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
-    unsafe {
-        apply_dense_matrix_simd(state, m);
+fn dense_layer<const T: usize, const IFMA: bool>(state: &mut [U256; T], m: &[[U256; T]; T]) {
+    #[cfg(target_arch = "x86_64")]
+    if IFMA {
+        // SAFETY: IFMA instances run only on CPUs with the IFMA kernels.
+        unsafe { apply_dense_matrix_simd(state, m) };
+        return;
     }
-    #[cfg(not(all(target_arch = "x86_64", target_feature = "avx512ifma")))]
     apply_dense_matrix(state, m);
 }
 
@@ -200,11 +206,39 @@ fn dense_layer<const T: usize>(state: &mut [U256; T], m: &[[U256; T]; T]) {
 /// Every element of `state` must be a fully reduced Montgomery-form field
 /// element (`x < Fr::MODULUS`), per the `MontgomeryBackend` contract.
 pub fn poseidon<const T: usize>(state: [U256; T], constants: &PoseidonConstants<T>) -> [U256; T] {
-    poseidon_inner::<T, false>(state, constants)
+    permute::<T, false>(state, constants)
+}
+
+/// Runs the IFMA permutation when the CPU supports it, else the scalar one.
+/// The single-input width measured faster on the scalar path.
+#[inline(always)]
+fn permute<const T: usize, const HASH_ONLY: bool>(
+    state: [U256; T],
+    constants: &PoseidonConstants<T>,
+) -> [U256; T] {
+    #[cfg(target_arch = "x86_64")]
+    if T > 2 && crate::backend::cpu::has_ifma() {
+        // SAFETY: the CPU supports every feature the IFMA instance enables.
+        return unsafe { poseidon_ifma::<T, HASH_ONLY>(state, constants) };
+    }
+    poseidon_inner::<T, HASH_ONLY, false>(state, constants)
+}
+
+/// Compiles the IFMA instance, including its inlined scalar code, with the
+/// vector features enabled.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
+unsafe fn poseidon_ifma<const T: usize, const HASH_ONLY: bool>(
+    state: [U256; T],
+    constants: &PoseidonConstants<T>,
+) -> [U256; T] {
+    poseidon_inner::<T, HASH_ONLY, true>(state, constants)
 }
 
 /// With `HASH_ONLY`, only the returned `state[0]` is a valid output coordinate.
-fn poseidon_inner<const T: usize, const HASH_ONLY: bool>(
+/// `IFMA` instances may only run on CPUs with the IFMA kernels.
+#[inline(always)]
+fn poseidon_inner<const T: usize, const HASH_ONLY: bool, const IFMA: bool>(
     mut state: [U256; T],
     constants: &PoseidonConstants<T>,
 ) -> [U256; T] {
@@ -225,11 +259,11 @@ fn poseidon_inner<const T: usize, const HASH_ONLY: bool>(
             *state_val = B::add(state_val, &rc[rc_idx]);
             rc_idx += 1;
         }
-        sbox_layer(&mut state);
+        sbox_layer::<T, IFMA>(&mut state);
         if round + 1 == half_full {
-            dense_layer(&mut state, constants.pre_sparse_matrix);
+            dense_layer::<T, IFMA>(&mut state, constants.pre_sparse_matrix);
         } else {
-            dense_layer(&mut state, constants.mds_matrix);
+            dense_layer::<T, IFMA>(&mut state, constants.mds_matrix);
         }
     }
 
@@ -249,11 +283,11 @@ fn poseidon_inner<const T: usize, const HASH_ONLY: bool>(
             *state_val = B::add(state_val, &rc[rc_idx]);
             rc_idx += 1;
         }
-        sbox_layer(&mut state);
+        sbox_layer::<T, IFMA>(&mut state);
         if HASH_ONLY && round + 1 == half_full {
             apply_dense_matrix_row0(&mut state, constants.mds_matrix);
         } else {
-            dense_layer(&mut state, constants.mds_matrix);
+            dense_layer::<T, IFMA>(&mut state, constants.mds_matrix);
         }
     }
 
@@ -277,5 +311,5 @@ pub fn hash<const T: usize>(inputs: &[U256], constants: &PoseidonConstants<T>) -
     }
     let mut state = [U256::zero(); T];
     state[1..].copy_from_slice(inputs);
-    Some(poseidon_inner::<T, true>(state, constants)[0])
+    Some(permute::<T, true>(state, constants)[0])
 }

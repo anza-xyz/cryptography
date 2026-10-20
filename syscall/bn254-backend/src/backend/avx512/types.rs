@@ -30,16 +30,9 @@ impl FieldElement8x52 {
     /// Returns an instance where all 8 field elements are strictly zero.
     #[inline(always)]
     pub fn zero() -> Self {
-        unsafe {
-            use core::arch::x86_64::_mm512_setzero_si512;
-            Self {
-                l0: _mm512_setzero_si512(),
-                l1: _mm512_setzero_si512(),
-                l2: _mm512_setzero_si512(),
-                l3: _mm512_setzero_si512(),
-                l4: _mm512_setzero_si512(),
-            }
-        }
+        // SAFETY: all-zero bits are a valid `__m512i`. Avoiding the AVX-512
+        // intrinsic keeps this safe function sound on every x86_64 CPU.
+        unsafe { core::mem::zeroed() }
     }
 
     #[inline(always)]

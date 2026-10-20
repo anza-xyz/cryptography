@@ -1,4 +1,4 @@
-//! BN254 quadratic extension Fq[u]/(u^2+1).
+//! BN254 quadratic extension `Fq[u]/(u^2+1)`.
 //!
 //! Each coefficient is a canonical Montgomery Fq residue with radix `2^256`.
 //! Products may use private input sums below `2q`; every returned coefficient

@@ -35,6 +35,13 @@ jobs:
       - name: Lint
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      - name: Lint BN254 for x86_64 macOS
+        if: runner.os == 'macOS'
+        run: |
+          rustup target add x86_64-apple-darwin
+          cargo clippy -p solana-bn254-backend --target x86_64-apple-darwin \
+            --all-targets -- -D warnings
+
       - name: Test
         run: cargo test --workspace --all-targets
 
@@ -122,17 +129,23 @@ jobs:
           cargo build -p solana-ed25519 --target "$AVX512_TARGET" \
             --features avx512 --all-targets
 
+      - name: Lint BN254
+        run: |
+          cargo clippy -p solana-bn254-backend --target "$AVX512_TARGET" \
+            --all-targets -- -D warnings
+
       - name: Build BN254 tests and benchmarks
         run: |
           cargo test -p solana-bn254-backend --target "$AVX512_TARGET" \
             --all-targets --no-run
 
+  # A baseline build exercises the run-time selection of the IFMA and ADX
+  # kernels; the emulated Ice Lake CPU reports both.
   bn254-avx512-tests:
     name: BN254 AVX-512 tests under Intel SDE
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      RUSTFLAGS: -C target-feature=+avx512f,+avx512dq,+avx512ifma
       AVX512_TARGET: x86_64-unknown-linux-gnu
     steps:
       - name: Checkout
@@ -168,4 +181,6 @@ jobs:
       - name: Test BN254
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: ${{ runner.temp }}/sde/sde64 -icl --
+          # Fail rather than skip the direct IFMA tests if SDE hides the CPU features.
+          BN254_REQUIRE_IFMA: "1"
         run: cargo test -p solana-bn254-backend --target "$AVX512_TARGET" --lib --tests

@@ -166,6 +166,9 @@ unsafe fn cond_sub_modulus(x: &FieldElement8x52) -> FieldElement8x52 {
 /// required by `MontgomeryBackend`. The result is fully reduced.
 ///
 /// The operands are not symmetric in cost: `a` is scaled, `b` is not.
+///
+/// # Safety
+/// Requires AVX-512 F, DQ and IFMA on the executing CPU.
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 pub unsafe fn mul_8x(a: &FieldElement8x52, b: &FieldElement8x52) -> FieldElement8x52 {
@@ -214,7 +217,9 @@ pub unsafe fn sum_of_products_8x<const N: usize>(
     sum.unwrap_or_else(FieldElement8x52::zero)
 }
 
-// Helpers rely on the module-wide IFMA cfg because `#[target_feature]` rules out `inline(always)`.
+// `#[target_feature]` rules out `inline(always)`, so these helpers carry no
+// features of their own. Call them only from IFMA-enabled functions, which
+// inline them.
 #[inline(always)]
 unsafe fn modulus_8x() -> FieldElement8x52 {
     FieldElement8x52 {
@@ -291,6 +296,9 @@ unsafe fn canonical_8x(t: &[__m512i]) -> FieldElement8x52 {
 /// Because IFMA CIOS handles multiplication entirely in registers without branching
 /// or memory spilling, this collapses what would normally be 24 scalar multiplications
 /// into just 3 massive parallel SIMD dispatches.
+///
+/// # Safety
+/// Requires AVX-512 F, DQ and IFMA on the executing CPU.
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 pub unsafe fn sbox_8x(x: &FieldElement8x52) -> FieldElement8x52 {
@@ -336,6 +344,9 @@ mod tests {
 
     #[test]
     fn packed_add_boundary_values_match_arkworks() {
+        if !crate::backend::avx512::test_cpu_supported() {
+            return;
+        }
         let mut values = [U256::zero(); 48];
         let one = ArkFr::from(1u64);
         values[1] = raw(one);
@@ -367,6 +378,9 @@ mod tests {
 
     #[test]
     fn packed_add_seeded_inputs_match_arkworks() {
+        if !crate::backend::avx512::test_cpu_supported() {
+            return;
+        }
         let mut rng = StdRng::seed_from_u64(0x7061_636b_6164_6431);
         // 4096 independent lane pairs.
         for _ in 0..512 {
@@ -379,6 +393,9 @@ mod tests {
 
     #[test]
     fn packed_add_chains_match_arkworks() {
+        if !crate::backend::avx512::test_cpu_supported() {
+            return;
+        }
         let mut rng = StdRng::seed_from_u64(0x7061_636b_6368_6169);
         for chain in 0..64 {
             let start = core::array::from_fn(|_| random_raw(&mut rng));

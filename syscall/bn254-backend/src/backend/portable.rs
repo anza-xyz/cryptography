@@ -1,7 +1,7 @@
 //! Multi-limb arithmetic with an optional native Fq multiplication kernel.
 //!
 //! Provides a `MontgomeryBackend` using 64-bit limb arithmetic
-//! with a portable fallback on targets without Linux x86_64 ADX/BMI2.
+//! with a portable fallback on targets or CPUs without Linux x86_64 ADX/BMI2.
 //! The CIOS schedule follows Koc, Acar and Kaliski, Section 5:
 //! <https://www.microsoft.com/en-us/research/wp-content/uploads/1996/01/j37acmon.pdf>.
 
@@ -45,12 +45,7 @@ fn mac_row(t: &mut [u64], s: u64, v: &U256, pending: u64) -> u64 {
 /// Montgomery arithmetic with a portable fallback and optional native Fq kernel.
 pub struct PortableBackend<F: Field>(PhantomData<F>);
 
-#[cfg(all(
-    target_arch = "x86_64",
-    target_os = "linux",
-    target_feature = "adx",
-    target_feature = "bmi2",
-))]
+#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
 mod adx;
 mod fq2_sum;
 pub(super) mod fq2_wide;
@@ -106,14 +101,10 @@ impl<F: Field> PortableBackend<F> {
     // separate proof permits Fq operands below 2q and retains canonical output.
     #[inline(always)]
     fn mul_cios(a: &U256, b: &U256) -> U256 {
-        #[cfg(all(
-            target_arch = "x86_64",
-            target_os = "linux",
-            target_feature = "adx",
-            target_feature = "bmi2",
-        ))]
-        if F::MODULUS == crate::backend::Fq::MODULUS {
-            return adx::mul(a, b);
+        #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+        if F::MODULUS == crate::backend::Fq::MODULUS && crate::backend::cpu::has_adx() {
+            // SAFETY: the CPU supports ADX and BMI2, checked above.
+            return unsafe { adx::mul(a, b) };
         }
 
         // Write p = MODULUS and W = 2^64. Each CIOS step is
