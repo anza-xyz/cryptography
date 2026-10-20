@@ -35,6 +35,13 @@ jobs:
       - name: Lint
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      - name: Lint BN254 for x86_64 macOS
+        if: runner.os == 'macOS'
+        run: |
+          rustup target add x86_64-apple-darwin
+          cargo clippy -p solana-bn254-backend --target x86_64-apple-darwin \
+            --all-targets -- -D warnings
+
       - name: Test
         run: cargo test --workspace --all-targets
 
