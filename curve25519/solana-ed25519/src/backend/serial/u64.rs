@@ -25,6 +25,9 @@ pub mod field;
 /// Variable-time field inversion for public data.
 pub(crate) mod inversion;
 
+/// Constant-time Legendre symbol for quadratic residuosity tests.
+pub(crate) mod legendre;
+
 pub mod scalar;
 
 pub mod constants;
