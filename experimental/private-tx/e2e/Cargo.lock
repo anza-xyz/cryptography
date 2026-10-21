@@ -2132,6 +2132,8 @@ dependencies = [
  "hex",
  "light-poseidon 0.4.1",
  "mollusk-svm",
+ "serde",
+ "serde_json",
  "solana-account",
  "solana-address 2.9.0",
  "solana-groth16-verify",
