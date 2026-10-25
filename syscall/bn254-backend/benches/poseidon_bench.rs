@@ -1,9 +1,9 @@
-use ark_ff::{Field as _, PrimeField};
+use ark_ff::{BigInteger, Field as _, PrimeField};
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
-use light_poseidon::PoseidonHasher;
+use light_poseidon::{PoseidonBytesHasher, PoseidonHasher};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use solana_bn254_backend::backend::{Backend, Fr, MontgomeryBackend, U256};
-use solana_bn254_backend::poseidon::{constants::*, hash, sbox};
+use solana_bn254_backend::poseidon::{constants::*, hash, hash_be_bytes, sbox};
 use std::hint::black_box;
 
 /// Input sets each benchmark rotates through. A single repeated input lets the
@@ -55,6 +55,55 @@ macro_rules! bench_width {
                 let ark_inputs = &inputs[index].0;
                 index = (index + 1) % inputs.len();
                 hasher.hash(std::hint::black_box(ark_inputs)).unwrap()
+            })
+        });
+
+        group.finish();
+
+        let encoded: Vec<Vec<[u8; 32]>> = inputs
+            .iter()
+            .map(|(ark_inputs, _)| {
+                ark_inputs
+                    .iter()
+                    .map(|f| f.into_bigint().to_bytes_be().try_into().unwrap())
+                    .collect()
+            })
+            .collect();
+        let byte_inputs: Vec<Vec<&[u8]>> = encoded
+            .iter()
+            .map(|set| set.iter().map(|bytes| bytes.as_slice()).collect())
+            .collect();
+
+        for set in &byte_inputs {
+            assert_eq!(
+                hash_be_bytes(set).unwrap(),
+                hasher.hash_bytes_be(set).unwrap(),
+                concat!("byte digest mismatch at T = ", $t)
+            );
+        }
+
+        let mut group = $c.benchmark_group(concat!("poseidon_bytes_t", $t));
+
+        let mut index = 0;
+        group.bench_function("solana-bn254-backend", |b| {
+            b.iter(|| {
+                let set = &byte_inputs[index];
+                index = (index + 1) % byte_inputs.len();
+                hash_be_bytes(std::hint::black_box(set)).unwrap()
+            })
+        });
+
+        // `solana-poseidon`, which the syscall calls today, builds the
+        // parameters for every hash.
+        let mut index = 0;
+        group.bench_function("light-poseidon", |b| {
+            b.iter(|| {
+                let set = &byte_inputs[index];
+                index = (index + 1) % byte_inputs.len();
+                light_poseidon::Poseidon::<ark_bn254::Fr>::new_circom(nr_inputs)
+                    .unwrap()
+                    .hash_bytes_be(std::hint::black_box(set))
+                    .unwrap()
             })
         });
 
