@@ -681,14 +681,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ed25519-dual-verify"
-version = "0.1.0"
-dependencies = [
- "sha2 0.11.0",
- "solana-ed25519",
-]
-
-[[package]]
 name = "ed25519-pokos"
 version = "0.1.0"
 dependencies = [
@@ -707,6 +699,15 @@ dependencies = [
  "p3-uni-stark",
  "rand 0.9.4",
  "serde",
+ "sha2 0.11.0",
+ "solana-ed25519",
+]
+
+[[package]]
+name = "ed25519-triple-verify"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
  "sha2 0.11.0",
  "solana-ed25519",
 ]
