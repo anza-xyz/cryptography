@@ -704,6 +704,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ed25519-triple-verify"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "sha2 0.11.0",
+ "solana-ed25519",
+]
+
+[[package]]
 name = "educe"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

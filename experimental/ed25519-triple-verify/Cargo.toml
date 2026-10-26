@@ -1,0 +1,17 @@
+[package]
+name = "ed25519-triple-verify"
+version = "0.1.0"
+edition = "2024"
+description = "Differential testing of solana-ed25519's verify_dalek and verify_simd0376 against ed25519-dalek's verify_strict"
+publish = false
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+ed25519-dalek.workspace = true
+solana-ed25519.workspace = true
+
+[dev-dependencies]
+sha2.workspace = true
