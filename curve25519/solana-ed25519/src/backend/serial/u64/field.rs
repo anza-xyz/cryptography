@@ -21,6 +21,8 @@ use core::ops::{Sub, SubAssign};
 use subtle::Choice;
 use subtle::ConditionallySelectable;
 
+use super::m;
+
 #[cfg(feature = "zeroize")]
 use zeroize::DefaultIsZeroes;
 
@@ -109,11 +111,6 @@ impl<'a> Mul<&'a FieldElement51> for &FieldElement51 {
 
     #[rustfmt::skip] // keep alignment of c* calculations
     fn mul(self, _rhs: &'a FieldElement51) -> FieldElement51 {
-        /// Helper function to multiply two 64-bit integers with 128
-        /// bits of output.
-        #[inline(always)]
-        fn m(x: u64, y: u64) -> u128 { (x as u128) * (y as u128) }
-
         // Alias self, _rhs for more readable formulas
         let a: &[u64; 5] = &self.0;
         let b: &[u64; 5] = &_rhs.0;
@@ -174,12 +171,6 @@ const LOW_51_BIT_MASK: u64 = (1u64 << 51) - 1;
 #[inline(always)]
 #[rustfmt::skip] // keep alignment of c* calculations
 fn square_columns(a: &[u64; 5]) -> [u128; 5] {
-    /// Multiply two 64-bit integers with 128 bits of output.
-    #[inline(always)]
-    fn m(x: u64, y: u64) -> u128 {
-        (x as u128) * (y as u128)
-    }
-
     // Precondition: assume input limbs a[i] are bounded as
     //
     // a[i] < 2^(51 + b)
