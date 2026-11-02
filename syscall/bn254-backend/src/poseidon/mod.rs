@@ -313,3 +313,66 @@ pub fn hash<const T: usize>(inputs: &[U256], constants: &PoseidonConstants<T>) -
     state[1..].copy_from_slice(inputs);
     Some(permute::<T, true>(state, constants)[0])
 }
+
+/// Hashes 1 to 12 inputs of 32 little-endian bytes with the default
+/// parameters in [`constants`] and returns the little-endian digest, as the
+/// `sol_poseidon` syscall does.
+///
+/// Returns `None` for any other number of inputs, an input of any other
+/// length, or an input that is not below the field modulus.
+pub fn hash_le_bytes(inputs: &[&[u8]]) -> Option<[u8; 32]> {
+    hash_bytes::<false>(inputs)
+}
+
+fn hash_bytes<const BIG_ENDIAN: bool>(inputs: &[&[u8]]) -> Option<[u8; 32]> {
+    use constants::*;
+    type B = Backend<Fr>;
+    let mut elements = [U256::zero(); 12];
+    let elements = elements.get_mut(..inputs.len())?;
+    for (element, input) in elements.iter_mut().zip(inputs) {
+        let chunks = <&[u8; 32]>::try_from(*input).ok()?.as_chunks::<8>().0;
+        let value = U256::new(core::array::from_fn(|i| {
+            if BIG_ENDIAN {
+                u64::from_be_bytes(chunks[3 - i])
+            } else {
+                u64::from_le_bytes(chunks[i])
+            }
+        }));
+        if !B::is_reduced(&value) {
+            return None;
+        }
+        *element = B::to_mont(&value);
+    }
+    let digest = match elements.len() {
+        1 => hash(elements, &BN254_X5_T2),
+        2 => hash(elements, &BN254_X5_T3),
+        3 => hash(elements, &BN254_X5_T4),
+        4 => hash(elements, &BN254_X5_T5),
+        5 => hash(elements, &BN254_X5_T6),
+        6 => hash(elements, &BN254_X5_T7),
+        7 => hash(elements, &BN254_X5_T8),
+        8 => hash(elements, &BN254_X5_T9),
+        9 => hash(elements, &BN254_X5_T10),
+        10 => hash(elements, &BN254_X5_T11),
+        11 => hash(elements, &BN254_X5_T12),
+        12 => hash(elements, &BN254_X5_T13),
+        _ => None,
+    }?;
+    let limbs = B::from_mont(&digest).0;
+    let mut bytes = [0; 32];
+    for (i, chunk) in bytes.as_chunks_mut::<8>().0.iter_mut().enumerate() {
+        let encoded = if BIG_ENDIAN {
+            limbs[3 - i].to_be_bytes()
+        } else {
+            limbs[i].to_le_bytes()
+        };
+        chunk.copy_from_slice(&encoded);
+    }
+    Some(bytes)
+}
+
+/// Hashes the same inputs in big-endian byte order and returns the
+/// big-endian digest.
+pub fn hash_be_bytes(inputs: &[&[u8]]) -> Option<[u8; 32]> {
+    hash_bytes::<true>(inputs)
+}

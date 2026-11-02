@@ -1,6 +1,6 @@
 //! 256-bit Montgomery arithmetic for the BN254 base (Fq) and scalar (Fr) fields.
 //!
-//! Fq uses a portable fallback or Linux x86_64 ADX/BMI2 multiplication.
+//! Fq and Fr use a portable fallback or Linux x86_64 ADX/BMI2 multiplication.
 //! With AVX-512 F/DQ/IFMA, independent Fq2 formula products use packed Fq lanes.
 //! Poseidon uses the existing packed Fr backend. On x86_64 both native kernels
 //! are selected at run time, so a baseline build uses them where available.

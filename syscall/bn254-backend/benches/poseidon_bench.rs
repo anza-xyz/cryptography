@@ -1,10 +1,15 @@
-use ark_ff::{Field as _, PrimeField};
+use ark_ff::{BigInteger, Field as _, PrimeField};
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
-use light_poseidon::PoseidonHasher;
+use light_poseidon::{PoseidonBytesHasher, PoseidonHasher};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use solana_bn254_backend::backend::{Backend, Fr, MontgomeryBackend, U256};
-use solana_bn254_backend::poseidon::{constants::*, hash, sbox};
+use solana_bn254_backend::poseidon::{constants::*, hash, hash_be_bytes, sbox};
 use std::hint::black_box;
+
+/// Input sets each benchmark rotates through. A single repeated input lets the
+/// branch predictor learn every data-dependent outcome of the hash, which
+/// favors branchy code over branch-free code.
+const INPUTS: usize = 1024;
 
 /// A field element represented by both arkworks and this crate.
 /// Both representations correspond to the same field value.
@@ -19,30 +24,87 @@ macro_rules! bench_width {
         let nr_inputs = $t - 1;
         let mut rng = StdRng::seed_from_u64(0x706f_7365_6964_6f6e);
 
-        let mut ark_inputs = Vec::with_capacity(nr_inputs);
-        let mut our_inputs = Vec::with_capacity(nr_inputs);
-        for _ in 0..nr_inputs {
-            let (f, u) = random_element(&mut rng);
-            ark_inputs.push(f);
-            our_inputs.push(u);
-        }
+        let inputs: Vec<(Vec<ark_bn254::Fr>, Vec<U256>)> = (0..INPUTS)
+            .map(|_| (0..nr_inputs).map(|_| random_element(&mut rng)).unzip())
+            .collect();
 
         let mut hasher = light_poseidon::Poseidon::<ark_bn254::Fr>::new_circom(nr_inputs).unwrap();
 
         // Both sides must agree before either is timed. Without this, a build
         // whose arithmetic is wrong still produces publishable-looking numbers.
-        let ours = Backend::<Fr>::from_mont(&hash(&our_inputs, params).unwrap());
-        let theirs = U256::new(hasher.hash(&ark_inputs).unwrap().into_bigint().0);
-        assert_eq!(ours, theirs, concat!("digest mismatch at T = ", $t));
+        for (ark_inputs, our_inputs) in &inputs {
+            let ours = Backend::<Fr>::from_mont(&hash(our_inputs, params).unwrap());
+            let theirs = U256::new(hasher.hash(ark_inputs).unwrap().into_bigint().0);
+            assert_eq!(ours, theirs, concat!("digest mismatch at T = ", $t));
+        }
 
         let mut group = $c.benchmark_group(concat!("poseidon_t", $t));
 
+        let mut index = 0;
         group.bench_function("solana-bn254-backend", |b| {
-            b.iter(|| hash(std::hint::black_box(&our_inputs), params).unwrap())
+            b.iter(|| {
+                let our_inputs = &inputs[index].1;
+                index = (index + 1) % inputs.len();
+                hash(std::hint::black_box(our_inputs), params).unwrap()
+            })
         });
 
+        let mut index = 0;
         group.bench_function("light-poseidon", |b| {
-            b.iter(|| hasher.hash(std::hint::black_box(&ark_inputs)).unwrap())
+            b.iter(|| {
+                let ark_inputs = &inputs[index].0;
+                index = (index + 1) % inputs.len();
+                hasher.hash(std::hint::black_box(ark_inputs)).unwrap()
+            })
+        });
+
+        group.finish();
+
+        let encoded: Vec<Vec<[u8; 32]>> = inputs
+            .iter()
+            .map(|(ark_inputs, _)| {
+                ark_inputs
+                    .iter()
+                    .map(|f| f.into_bigint().to_bytes_be().try_into().unwrap())
+                    .collect()
+            })
+            .collect();
+        let byte_inputs: Vec<Vec<&[u8]>> = encoded
+            .iter()
+            .map(|set| set.iter().map(|bytes| bytes.as_slice()).collect())
+            .collect();
+
+        for set in &byte_inputs {
+            assert_eq!(
+                hash_be_bytes(set).unwrap(),
+                hasher.hash_bytes_be(set).unwrap(),
+                concat!("byte digest mismatch at T = ", $t)
+            );
+        }
+
+        let mut group = $c.benchmark_group(concat!("poseidon_bytes_t", $t));
+
+        let mut index = 0;
+        group.bench_function("solana-bn254-backend", |b| {
+            b.iter(|| {
+                let set = &byte_inputs[index];
+                index = (index + 1) % byte_inputs.len();
+                hash_be_bytes(std::hint::black_box(set)).unwrap()
+            })
+        });
+
+        // `solana-poseidon`, which the syscall calls today, builds the
+        // parameters for every hash.
+        let mut index = 0;
+        group.bench_function("light-poseidon", |b| {
+            b.iter(|| {
+                let set = &byte_inputs[index];
+                index = (index + 1) % byte_inputs.len();
+                light_poseidon::Poseidon::<ark_bn254::Fr>::new_circom(nr_inputs)
+                    .unwrap()
+                    .hash_bytes_be(std::hint::black_box(set))
+                    .unwrap()
+            })
         });
 
         group.finish();

@@ -1,16 +1,18 @@
-//! Native Montgomery multiplication for Fq and its private lazy input sums.
+//! Native Montgomery multiplication for Fq, including its private lazy input
+//! sums, and for Fr.
 //!
 //! The dual ADX carry-chain schedule is adapted from Firedancer; `adx.S`
 //! records the pinned source, license and changes to the assembly interface.
 
-use crate::backend::{Field, Fq, U256};
+use crate::backend::{Field, U256};
 
-/// Inputs are below 2q. The output is a canonical R=2^256 residue.
+/// `F` is Fq with inputs below 2q, or Fr with inputs below r. The output is
+/// a canonical R=2^256 residue.
 ///
 /// # Safety
 /// Requires ADX and BMI2 on the executing CPU.
 #[inline(always)]
-pub(super) unsafe fn mul(a: &U256, b: &U256) -> U256 {
+pub(super) unsafe fn mul<F: Field>(a: &U256, b: &U256) -> U256 {
     let (r0, r1, r2, r3): (u64, u64, u64, u64);
     // SAFETY: the caller guarantees ADX/BMI2 on Linux x86_64. Each input pointer
     // references four initialized u64 limbs. The assembly reads those limbs,
@@ -20,13 +22,14 @@ pub(super) unsafe fn mul(a: &U256, b: &U256) -> U256 {
     // Thus pure+readonly permits elimination of unused field products.
     // The private caller proves a,b<2q. Since 4q<R, ab<qR, each CIOS step
     // stays below b+q<3q<R and one final subtraction yields a value below q.
+    // Fr inputs are reduced and r<q, so the same bounds hold with r for q.
     unsafe {
         core::arch::asm!(
             include_str!("adx.S"),
             inout("rsi") a.0.as_ptr() => r2,
             inout("rdx") b.0.as_ptr() => r1,
-            in("rcx") Fq::MODULUS.0.as_ptr(),
-            inout("r8") Fq::INV => r3,
+            in("rcx") F::MODULUS.0.as_ptr(),
+            inout("r8") F::INV => r3,
             out("rax") r0,
             out("r9") _, out("r10") _, out("r11") _,
             options(pure, readonly, att_syntax),
