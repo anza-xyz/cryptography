@@ -34,10 +34,9 @@ pub mod constants;
 /// Multiply two 64-bit integers with 128 bits of output.
 #[inline(always)]
 fn m(x: u64, y: u64) -> u128 {
-    // `mul_split` needs this. Checking it on every target lets native test
-    // runs cover the bound at each call site. All callers stay below 2^60.
-    debug_assert!(x < 1 << 63 && y < 1 << 63);
     if cfg!(target_arch = "wasm32") {
+        // `mul_split` needs this. All callers stay below 2^60.
+        debug_assert!(x < 1 << 63 && y < 1 << 63);
         mul_split(x, y)
     } else {
         (x as u128) * (y as u128)
