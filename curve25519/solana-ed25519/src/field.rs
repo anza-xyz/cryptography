@@ -443,6 +443,12 @@ impl FieldElement {
             | bytes.ct_eq(&[0u8; 32])
     }
 
+    /// Test quadratic residuosity, accepting zero, in variable time. For public
+    /// data only.
+    pub(crate) fn is_square_vartime(&self) -> bool {
+        backend::serial::u64::jacobi::is_square_vartime(self)
+    }
+
     /// Given `FieldElements` `u` and `v`, compute either `sqrt(u/v)`
     /// or `sqrt(i*u/v)` in constant time.
     ///
