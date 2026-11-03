@@ -29,13 +29,16 @@ all-features = true
 [dev-dependencies]
 bincode.workspace = true
 color-eyre.workspace = true
-criterion.workspace = true
 curve25519-dalek.workspace = true
 ed25519-dalek.workspace = true
 hex.workspace = true
 once_cell.workspace = true
 proptest.workspace = true
 rand.workspace = true
+
+# Criterion's default features use rayon, which does not build for WASI.
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+criterion.workspace = true
 
 [build-dependencies]
 rustc_version.workspace = true

@@ -18,6 +18,7 @@ use subtle::{Choice, ConditionallySelectable};
 #[cfg(feature = "zeroize")]
 use zeroize::{DefaultIsZeroes, Zeroize};
 
+use super::m;
 use crate::constants;
 
 /// The `Scalar52` struct represents an element in
@@ -45,12 +46,6 @@ impl IndexMut<usize> for Scalar52 {
     fn index_mut(&mut self, _index: usize) -> &mut u64 {
         &mut (self.0[_index])
     }
-}
-
-/// u64 * u64 = u128 multiply helper
-#[inline(always)]
-fn m(x: u64, y: u64) -> u128 {
-    (x as u128) * (y as u128)
 }
 
 impl Scalar52 {

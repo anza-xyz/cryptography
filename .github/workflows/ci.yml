@@ -184,3 +184,33 @@ jobs:
           # Fail rather than skip the direct IFMA tests if SDE hides the CPU features.
           BN254_REQUIRE_IFMA: "1"
         run: cargo test -p solana-bn254-backend --target "$AVX512_TARGET" --lib --tests
+
+  # wasm32 has no 64x64->128-bit multiply, so the ed25519 u64 backend builds
+  # its products differently there.
+  ed25519-wasm32-tests:
+    name: ed25519 wasm32 tests
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime
+      # Building the basepoint tables in tests overflows the default 1 MiB
+      # stack.
+      CARGO_TARGET_WASM32_WASIP1_RUSTFLAGS: -C link-arg=-zstack-size=8388608
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          targets: wasm32-wasip1
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Install wasmtime
+        uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
+        with:
+          tool: wasmtime
+
+      - name: Test
+        run: cargo test -p solana-ed25519 --target wasm32-wasip1 --lib --tests
