@@ -291,7 +291,7 @@ checks.
 
 ## MSRV
 
-Rust **1.85.0** (Edition 2024).
+Rust **1.89.0** (Edition 2024).
 
 ---
 

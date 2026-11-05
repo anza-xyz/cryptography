@@ -2,7 +2,7 @@
 name = "solana-ed25519"
 version = "0.2.4"
 edition = "2024"
-rust-version = "1.85.0"
+rust-version = { workspace = true }
 authors = [
     "Isis Lovecruft <isis@patternsinthevoid.net>",
     "Henry de Valence <hdevalence@hdevalence.ca>",

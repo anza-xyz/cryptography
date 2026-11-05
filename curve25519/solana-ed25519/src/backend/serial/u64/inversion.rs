@@ -190,8 +190,8 @@ fn negate_mod_p(x: [u64; 4]) -> [u64; 4] {
 pub(crate) fn invert_vartime(a: &FieldElement51) -> FieldElement51 {
     let bytes = a.to_bytes();
     let mut limbs = [0u64; 4];
-    for (limb, chunk) in limbs.iter_mut().zip(bytes.chunks_exact(8)) {
-        *limb = u64::from_le_bytes(chunk.try_into().expect("8-byte chunk"));
+    for (limb, chunk) in limbs.iter_mut().zip(bytes.as_chunks::<8>().0) {
+        *limb = u64::from_le_bytes(*chunk);
     }
     if limbs == [0; 4] {
         return FieldElement51::ZERO;
@@ -227,8 +227,8 @@ pub(crate) fn invert_vartime(a: &FieldElement51) -> FieldElement51 {
     };
 
     let mut out = [0u8; 32];
-    for (chunk, limb) in out.chunks_exact_mut(8).zip(result) {
-        chunk.copy_from_slice(&limb.to_le_bytes());
+    for (chunk, limb) in out.as_chunks_mut::<8>().0.iter_mut().zip(result) {
+        *chunk = limb.to_le_bytes();
     }
     FieldElement51::from_bytes(&out)
 }
@@ -241,8 +241,8 @@ mod test {
     fn modulus_constants_are_consistent() {
         assert_eq!(P_INV.wrapping_mul(P[0]), u64::MAX);
         let mut bytes = [0u8; 32];
-        for (chunk, limb) in bytes.chunks_exact_mut(8).zip(P) {
-            chunk.copy_from_slice(&limb.to_le_bytes());
+        for (chunk, limb) in bytes.as_chunks_mut::<8>().0.iter_mut().zip(P) {
+            *chunk = limb.to_le_bytes();
         }
         // p encodes as 2^255 - 19, whose canonical residue is zero.
         assert_eq!(FieldElement51::from_bytes(&bytes).to_bytes(), [0u8; 32]);
