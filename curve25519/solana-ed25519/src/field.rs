@@ -823,7 +823,7 @@ mod test {
         ];
         let mut walk = FieldElement::from_bytes(&A_BYTES);
         for _ in 0..8 {
-            for pair in inputs.chunks_exact(2) {
+            for pair in inputs.as_chunks::<2>().0 {
                 let (a, b) = (pair[0], pair[1]);
                 let (ok_a, ra) = FieldElement::sqrt_ratio_i(&one, &a);
                 let (ok_b, rb) = FieldElement::sqrt_ratio_i(&one, &b);
