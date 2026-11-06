@@ -80,6 +80,7 @@ pub(crate) fn prove_private_seed_chain_with_settings(
     let air = Sha512RoundAir::new(bundle.air_bundle.preprocessed.clone());
     let (preprocessed_prover_data, _) =
         setup_preprocessed::<Sha512StarkConfig, _>(&config, &air, bundle.air_bundle.degree_bits)
+            .map_err(|e| e.to_string())?
             .ok_or_else(|| {
                 "failed to setup preprocessed data for private seed-chain proof".to_string()
             })?;
@@ -89,7 +90,8 @@ pub(crate) fn prove_private_seed_chain_with_settings(
         bundle.air_bundle.main,
         &bundle.air_bundle.final_public_values,
         Some(&preprocessed_prover_data),
-    );
+    )
+    .map_err(|e| e.to_string())?;
     let sealed_proof = serialize_segment_chain_proof(&Sha512SegmentChainProof { proof, settings })?;
     Ok(SealedPrivateSeedChainProof { sealed_proof })
 }
@@ -144,7 +146,7 @@ pub(crate) fn verify_private_seed_chain_statement_with_settings(
     let air_bundle =
         Sha512Circuit::build_private_seed_chain_air_bundle(&verifier_template_blocks());
     let air = Sha512RoundAir::new(air_bundle.preprocessed.clone());
-    let Some((_, expected_vk)) =
+    let Ok(Some((_, expected_vk))) =
         setup_preprocessed::<Sha512StarkConfig, _>(&config, &air, air_bundle.degree_bits)
     else {
         return false;
@@ -302,6 +304,7 @@ mod tests {
             &prover_air,
             bundle.air_bundle.degree_bits,
         )
+        .unwrap()
         .unwrap();
 
         let verifier_bundle =
@@ -312,6 +315,7 @@ mod tests {
             &verifier_air,
             verifier_bundle.degree_bits,
         )
+        .unwrap()
         .unwrap();
 
         assert_eq!(prover_vk.commitment, verifier_vk.commitment);

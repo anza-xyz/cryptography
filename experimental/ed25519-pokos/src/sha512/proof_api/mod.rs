@@ -89,6 +89,10 @@ pub(crate) fn setup_config(settings: Sha512ProofSettings) -> Sha512StarkConfig {
         log_final_poly_len: settings.log_final_poly_len,
         max_log_arity: 1,
         num_queries: settings.num_queries,
+        // The challenge that batches the openings has error about k/|EF| for k opened
+        // (column, point) pairs. With |EF| near 2^124 that stays well below the default
+        // settings' query-phase error at this trace width, so no grinding is needed.
+        batch_proof_of_work_bits: 0,
         commit_proof_of_work_bits: settings.commit_proof_of_work_bits,
         query_proof_of_work_bits: settings.query_proof_of_work_bits,
         mmcs: challenge_mmcs,
