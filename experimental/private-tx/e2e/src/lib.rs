@@ -82,3 +82,34 @@ pub fn u64_to_bytes(value: u64) -> [u8; 32] {
     out[24..].copy_from_slice(&value.to_be_bytes());
     out
 }
+
+/// The opened note behind the mint fixture (`note.json`), as written by
+/// `privtx mint-fixture`: field elements are 0x-prefixed big-endian hex.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct NoteOpening {
+    pub value: u64,
+    pub owner_pk: String,
+    pub rho: String,
+    pub r: String,
+    pub commitment: String,
+}
+
+impl NoteOpening {
+    pub fn load(fixture: &str) -> Self {
+        serde_json::from_slice(&read_fixture(fixture, "note.json")).expect("note.json")
+    }
+
+    /// `Poseidon(value, owner_pk, rho, r)` under the circom parameters.
+    pub fn poseidon_commitment(&self) -> [u8; 32] {
+        poseidon(&[
+            Fr::from(self.value),
+            fr_from_hex(&self.owner_pk),
+            fr_from_hex(&self.rho),
+            fr_from_hex(&self.r),
+        ])
+    }
+
+    pub fn commitment_bytes(&self) -> [u8; 32] {
+        bytes_from_hex(&self.commitment)
+    }
+}

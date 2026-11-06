@@ -5,9 +5,10 @@ commitments, gnark circuits, verified on-chain by the generic
 [Groth16 verifier program](https://github.com/solana-program/groth16-verifier-program).
 Tracker: [anza-xyz/cryptography#123](https://github.com/anza-xyz/cryptography/issues/123).
 
-This directory holds the framework: Go module, Poseidon library choice,
-fixture tooling, Rust end-to-end harness against the verifier program, and
-CI. Circuits are added on top of it.
+Status: milestone 1. The framework (Go module, Poseidon library choice,
+fixture tooling, Rust end-to-end harness against the verifier program, CI) is
+in place and `C_mint` is implemented; its proof verifies through the verifier
+program under Mollusk.
 
 ## Layout
 
@@ -16,6 +17,8 @@ CI. Circuits are added on top of it.
 | `circuits/` | Go module (gnark): circuits, gadgets, fixture CLI |
 | `circuits/poseidon/` | thin adapter over third-party circom-compatible Poseidon (native and gadget) |
 | `circuits/smoke/` | trivial `A·B = C` circuit that exercises the pipeline end to end |
+| `circuits/note/` | note format and commitment |
+| `circuits/mint/` | `C_mint` |
 | `circuits/export/` | writes gnark's native `vk.bin` / `proof.bin` / `public.bin` |
 | `circuits/cmd/privtx/` | `privtx <circuit>-fixture`: setup, prove, export |
 | `fixtures/<circuit>/` | a key, proof and public witness per circuit, consumed by `e2e/` |
@@ -48,6 +51,49 @@ for 1 to 5 inputs, and the Rust e2e crate exposes light-poseidon (the source
 `syscall/bn254-backend` generates its constants from) for circuits to check
 their in-circuit hashes against.
 
+## Note
+
+```
+note = (value, owner_pk, rho, r)
+cm   = Poseidon(value, owner_pk, rho, r)        // width 5
+```
+
+- `value`: `u64`.
+- `owner_pk`: the recipient's key as an opaque field element. The key
+  hierarchy is spec work (Epic 1); fixtures use the provisional
+  `owner_pk = Poseidon(sk)`.
+- `rho`: per-note uniqueness, later the nullifier input.
+- `r`: commitment randomness.
+
+No asset field: the pool fixes the asset.
+
+## C_mint
+
+Issuance of one note with a public amount. The issuer proves the published
+commitment opens to a well-formed note carrying exactly the published value,
+so the pool program can account for minted supply (and match a vault deposit
+for a wrapped asset) while the recipient stays hidden. Who may mint is the
+pool program's business (issuer authority), not the circuit's.
+
+| | |
+| --- | --- |
+| public inputs | `commitment`, `value` (in that order) |
+| witness | `owner_pk`, `rho`, `r` |
+| constraints | `value ∈ [0, 2^64)` by bit decomposition; `commitment = Poseidon(value, owner_pk, rho, r)` |
+| size | 363 R1CS constraints (pinned by `TestVerifyingKeyShape`) |
+
+A confidential-issuance variant (hidden amount) is the same circuit with
+`Value` moved to the private witness.
+
+The circuit touches neither Merkle tree. The commitment is a public input, so
+the pool program appends it to the commitment tree itself after verifying the
+proof; proving the insertion in-circuit would only repeat work the program
+does in the clear. Membership in the tree is proved when a note is spent, by
+`C_transfer` and `C_burn`. The nullifier tree is untouched because a mint
+spends nothing: `rho` is carried in the note so that a later spend can derive
+the nullifier from it. The on-chain mint flow is therefore: verify the proof,
+check issuer authority, add `value` to minted supply, append `commitment`.
+
 ## Circuit rules
 
 - Plain Groth16 only. No `std/rangecheck` or anything else built on
@@ -63,7 +109,7 @@ their in-circuit hashes against.
 
 ```bash
 make lint           # gofmt + go vet; cargo fmt + clippy for e2e
-make test-go        # Go: Poseidon vectors, gadget == native, circuit prove/verify
+make test-go        # Go: Poseidon vectors, gadget == native, C_mint prove/verify
 make test-e2e       # Rust (release): host-path verification of the fixtures
 make verifier-sbf   # clone + build the verifier program (needs cargo build-sbf 4.1+ for SBF v3; SBF_ARCH=v2 for older)
 make test-e2e       # now also verifies the proofs inside the SBF program
@@ -90,3 +136,11 @@ and go-iden3-crypto that are newer than the releases it was built against, so
 Go's minimum version selection carries those commits into `go.mod`. gnark and
 gnark-crypto are raised to tagged releases that satisfy it; go-iden3-crypto has
 no tag newer than the required commit, so it stays on that commit.
+
+## Next
+
+- `C_transfer`: Merkle gadget (Poseidon width 3), nullifiers, 2-in/2-out
+  conservation, auditor ciphertexts (Baby Jubjub ElGamal gadget).
+- `C_burn`.
+- Key hierarchy and domain separation of the Poseidon uses in the spec.
+- Pool program and client glue (Epic 4).
