@@ -20,7 +20,8 @@ lint:
 	cd circuits && test -z "$$(gofmt -l .)" && go vet ./...
 	cd e2e && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings
 
-# Go unit tests: Poseidon known answers, gadget vs native, circuit prove/verify.
+# Go unit tests: Poseidon known answers, gadget vs native, Merkle tree, circuit prove/verify.
+# The burn fixture is an owner unshield; `-forced` would make it a forfeiture.
 test-go:
 	cd circuits && go test ./...
 
@@ -31,10 +32,12 @@ test-e2e:
 
 test: test-go test-e2e
 
-# Regenerate fixtures/smoke/*. The trusted setup is random, so the bytes change
-# on every run; the witness itself is fixed.
+# Regenerate fixtures/*. The trusted setup is random, so the bytes change on
+# every run; the witnesses themselves are fixed.
 fixtures:
 	cd circuits && go run ./cmd/privtx smoke-fixture -out ../fixtures/smoke
+	cd circuits && go run ./cmd/privtx mint-fixture -out ../fixtures/mint
+	cd circuits && go run ./cmd/privtx burn-fixture -out ../fixtures/burn
 
 # Clone the verifier program at the pinned revision and build its SBF artifact.
 verifier-sbf:
