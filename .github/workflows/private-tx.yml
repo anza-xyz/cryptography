@@ -1,11 +1,11 @@
-# experimental/private-tx: gnark circuits (Go) and their end-to-end
-# verification against the Solana Groth16 verifier program.
+# experimental/private-tx: gnark circuits (Go), the pool program, and their
+# end-to-end verification against the Solana Groth16 verifier program.
 #
-# The Rust e2e crate is its own workspace (Mollusk would otherwise pull the SVM
-# runtime into the root lockfile), so the root `CI` workflow does not cover it.
-# This workflow lints and tests both halves, but only when they change: it
-# installs the Solana toolchain and builds the verifier program, which is too
-# slow to run on every push to the repository.
+# The Rust crates are their own workspaces (Mollusk would otherwise pull the
+# SVM runtime into the root lockfile), so the root `CI` workflow does not cover
+# them. This workflow lints and tests everything here, but only when it
+# changes: it installs the Solana toolchain and builds two SBF programs, which
+# is too slow to run on every push to the repository.
 name: private-tx
 
 on:
@@ -40,7 +40,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: experimental/private-tx/circuits/go.mod
           cache-dependency-path: experimental/private-tx/circuits/go.sum
@@ -51,9 +51,11 @@ jobs:
           components: rustfmt, clippy
 
       - name: Cache dependencies
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          workspaces: experimental/private-tx/e2e
+          workspaces: |
+            experimental/private-tx/e2e
+            experimental/private-tx/program
 
       - name: Lint
         run: make lint
@@ -76,6 +78,9 @@ jobs:
 
       - name: Build verifier program
         run: make verifier-sbf SBF_ARCH=$SBF_ARCH
+
+      - name: Build pool program
+        run: make pool-sbf SBF_ARCH=$SBF_ARCH
 
       # Fresh proofs from the current circuit code, not only the committed ones.
       - name: Generate fixtures
