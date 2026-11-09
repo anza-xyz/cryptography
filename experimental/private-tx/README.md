@@ -21,7 +21,7 @@ custodian reading every output.
 | `circuits/` | Go module (gnark): circuits, gadgets, fixture CLI |
 | `circuits/poseidon/` | thin adapter over third-party circom-compatible Poseidon (native and gadget) |
 | `circuits/smoke/` | trivial `A·B = C` circuit that exercises the pipeline end to end |
-| `circuits/note/` | key hierarchy, note format, commitment and nullifier |
+| `circuits/note/` | note format, commitment and nullifier |
 | `circuits/merkle/` | commitment tree: native tree and membership gadget |
 | `circuits/domain/` | Poseidon domain tags |
 | `circuits/encrypt/` | note encryption to the recipient (off-circuit) and to the audit key (gadget + native) |
@@ -31,9 +31,11 @@ custodian reading every output.
 | `circuits/client/` | wallet side: ledger, scanning, witness building, proving |
 | `circuits/export/` | writes gnark's native `vk.bin` / `proof.bin` / `public.bin` |
 | `circuits/cmd/privtx/` | `privtx <circuit>-fixture`: setup, prove, export |
-| `fixtures/<circuit>/` | a key, proof and public witness per circuit, with the opened witness as JSON, consumed by `e2e/` |
+| `fixtures/<circuit>/` | a key, proof and public witness per circuit, consumed by `e2e/` |
 | `fixtures/pool/` | a whole pool lifecycle: shields, a transfer and burns with their ciphertexts, built through `client/` |
 | `program/` | Rust crate (own workspace): the pool program, Pinocchio SBF, with host-side instruction builders behind the `instruction` feature |
+| `cli/` | Rust crate (own workspace): `privtx-cli`, the live-cluster client: key registration, pool creation, transactions, RPC indexing |
+| `demo.sh` | the whole flow on a local validator, checked on-chain |
 | `e2e/` | Rust crate (own workspace): fixture → on-chain format → verifier host path, verifier SBF program, the pool program under Mollusk; plus the indexer and wallet decryption (`curve`, `encrypt`, `indexer`) |
 
 ## Poseidon
@@ -385,6 +387,47 @@ with another destination, tampered ciphertexts, wrong vault or token
 program, a depositor who cannot cover the note, tampered public inputs,
 wrong key, wrong PDA.
 
+## Demo on a local validator
+
+`make demo` (or `./demo.sh`) runs the protocol on `solana-test-validator`
+with everything checked on-chain:
+
+1. starts a validator with the verifier program and the pool program
+   loaded at their declared ids (`--bpf-program`, so no keypairs needed);
+2. registers the three verifying keys through the verifier's staging
+   flow (`privtx-cli register-vk`);
+3. creates a public token A, a depositor account holding 10 A and an empty
+   destination account (`token-setup`), then a pool over A with a vault
+   owned by the vault authority PDA and the custodian's audit key
+   (`create-pool`);
+4. **shield**: `privtx shield` proves a 3 A note for Alice, `privtx-cli
+   shield` sends the `Mint`; the depositor's balance drops by 3 A, the
+   vault's rises by 3 A, the pool's supply and leaf count follow;
+5. `privtx-cli ledger` reads the pool's transaction history over RPC,
+   rebuilds the tree (its root is checked against the pool account) and
+   writes the ledger; `privtx scan` finds Alice's note by trial decryption;
+6. **transfer**: `privtx transfer` proves Alice paying Bob 2 A with 1 A
+   change, `privtx-cli transfer` sends it; the vault and supply do not
+   move, two nullifiers and two leaves appear; Alice then sees her change
+   and Bob his payment;
+7. **unshield**: `privtx unshield` proves Bob's burn to the destination
+   account, `privtx-cli unshield` sends it; the destination gains 2 A, the
+   vault loses 2 A; Bob's wallet sees nothing left, Alice still her change.
+
+Keys, proofs, the ledger and the validator log go under `target/demo/`
+(`DEMO_DIR` to change); `KEEP=1` leaves the validator running. The Groth16
+setup is a development one (`privtx setup`, seconds; transfer's proving
+key is 9 MB), persisted with the constraint count it was made for so a key
+from an older version of a circuit is refused rather than misused.
+Transactions carry a compute budget instruction: a `Transfer` costs about
+206k CU, above the 200k default.
+
+The Go side is `privtx`'s wallet subcommands (`setup`, `keygen`,
+`audit-keygen`, `address`, `shield`, `scan`, `transfer`, `unshield`), each
+writing a JSON the Rust CLI turns into an instruction; addresses crossing
+the boundary are hex. The Rust side depends on the e2e crate for the
+indexer and decryption code, so the demo and the Mollusk test share it.
+
 ## Circuit rules
 
 - Plain Groth16 only. No `std/rangecheck` or anything else built on
@@ -400,12 +443,13 @@ wrong key, wrong PDA.
 
 ```bash
 make lint           # gofmt + go vet; cargo fmt + clippy for e2e
-make test-go        # Go: Poseidon vectors, gadget == native, keys and notes, Merkle tree, encryption, circuits, client lifecycle
+make test-go        # Go: Poseidon vectors, gadget == native, Merkle tree, encryption, circuits, client lifecycle
 make test-e2e       # Rust (release): host-path verification of the fixtures
 make verifier-sbf   # clone + build the verifier program (needs cargo build-sbf 4.1+ for SBF v3; SBF_ARCH=v2 for older)
 make pool-sbf       # build the pool program
 make test-e2e       # now also verifies the proofs inside the SBF program and runs the pool lifecycle
 make fixtures       # regenerate fixtures (random setup: bytes change)
+make demo           # shield → transfer → unshield on a local validator (needs solana-test-validator)
 ```
 
 The e2e and program crates are standalone Cargo workspaces: Mollusk brings
@@ -429,3 +473,15 @@ Go's minimum version selection carries those commits into `go.mod`. gnark and
 gnark-crypto are raised to tagged releases that satisfy it; go-iden3-crypto has
 no tag newer than the required commit, so it stays on that commit.
 
+## Next
+
+- Outgoing viewing keys (a sender recovering its own outputs), memo
+  fields, and the fvk registration flow with the custodian.
+- Relayer fees and a public-value field in `C_transfer`, so a relayer can
+  submit on a user's behalf.
+- The prover as a service the wallet calls, and a wallet that keeps its
+  own state instead of rescanning; the demo's CLI is one shot per step.
+- Cross-pool transfers (`C_crosspool`, the claim accumulator, the
+  receiving institution's co-signature).
+- Pool program: a real program id, Token-2022 (by vault balance delta), a
+  Groth16 ceremony or the Plonk fallback.

@@ -1,0 +1,44 @@
+# Standalone crate, like e2e/ and program/: the live-cluster client of the
+# demo. Builds transactions from the proofs `privtx` writes, submits them
+# over RPC, and indexes the pool from transaction history.
+[workspace]
+
+[package]
+name = "private-tx-cli"
+description = "Live-cluster client for the private-tx pool: key registration, pool creation, shield / transfer / unshield transactions, indexing"
+version = "0.0.0"
+edition = "2021"
+authors = ["Anza Maintainers <maintainers@anza.xyz>"]
+repository = "https://github.com/anza-xyz/cryptography"
+license = "Apache-2.0"
+publish = false
+
+[[bin]]
+name = "privtx-cli"
+path = "src/main.rs"
+
+[dependencies]
+private-tx-pool = { path = "../program", features = ["instruction"] }
+private-tx-e2e = { path = "../e2e" }
+solana-groth16-verify = { git = "https://github.com/solana-program/groth16-verifier-program", rev = "8bd06b4fb07f636c1872993a99f1a296b23b69fa", default-features = false, features = ["verify", "instruction"] }
+groth16-convert = { git = "https://github.com/solana-program/groth16-verifier-program", rev = "8bd06b4fb07f636c1872993a99f1a296b23b69fa" }
+
+solana-rpc-client = "3"
+solana-rpc-client-api = "3"
+solana-keypair = "3"
+solana-signer = "3"
+solana-transaction = "3"
+solana-message = "3"
+solana-instruction = "3.3.0"
+solana-address = { version = "2.7.0", features = ["curve25519"] }
+solana-compute-budget-interface = "3"
+solana-system-interface = { version = "2", features = ["bincode"] }
+solana-commitment-config = "3"
+solana-transaction-status-client-types = "3"
+solana-signature = "3"
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1"
+hex = "0.4.2"
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"

@@ -5,6 +5,9 @@
 //	privtx burn-fixture    [-out DIR] [-notes N] [-index I] [-forced] [-seed STRING]
 //	privtx pool-fixture    [-out DIR] [-notes N] [-seed STRING]
 //
+// and, for a live cluster (wallet.go): setup, keygen, audit-keygen,
+// address, shield, scan, transfer, unshield.
+//
 // Each fixture subcommand compiles its circuit(s), runs a (development) Groth16
 // setup, proves fixed witnesses, self-verifies, and writes vk.bin,
 // proof*.bin and public*.bin in gnark's native encodings into DIR for the
@@ -59,6 +62,22 @@ func main() {
 		err = burnFixture(os.Args[2:])
 	case "pool-fixture":
 		err = poolFixture(os.Args[2:])
+	case "setup":
+		err = setupCmd(os.Args[2:])
+	case "keygen":
+		err = keygenCmd(os.Args[2:])
+	case "audit-keygen":
+		err = auditKeygenCmd(os.Args[2:])
+	case "address":
+		err = addressCmd(os.Args[2:])
+	case "shield":
+		err = shieldCmd(os.Args[2:])
+	case "scan":
+		err = scanCmd(os.Args[2:])
+	case "transfer":
+		err = transferCmd(os.Args[2:])
+	case "unshield":
+		err = unshieldCmd(os.Args[2:])
 	default:
 		usage()
 	}
@@ -73,6 +92,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "       privtx mint-fixture [-out DIR] [-value N] [-seed STRING]")
 	fmt.Fprintln(os.Stderr, "       privtx burn-fixture [-out DIR] [-notes N] [-index I] [-forced] [-seed STRING]")
 	fmt.Fprintln(os.Stderr, "       privtx pool-fixture [-out DIR] [-notes N] [-seed STRING]")
+	fmt.Fprintln(os.Stderr, "       privtx setup | keygen | audit-keygen | address | shield | scan | transfer | unshield  (see wallet.go)")
 	os.Exit(2)
 }
 

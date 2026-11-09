@@ -11,19 +11,20 @@ POOL_SBF_OUT_DIR = $(CURDIR)/program/target/deploy
 # which is what CI uses. Older toolchains stop at v2: `make SBF_ARCH=v2`.
 SBF_ARCH     ?= v3
 
-.PHONY: all lint test test-go test-e2e fixtures verifier-sbf pool-sbf clean
+.PHONY: all lint test test-go test-e2e fixtures verifier-sbf pool-sbf demo clean
 
 all: lint test
 
-# Formatting and lints for all three. The Rust crates are their own
+# Formatting and lints for all four. The Rust crates are their own
 # workspaces, so the repository-level `cargo fmt` / `cargo clippy` do not
 # reach them.
 lint:
 	cd circuits && test -z "$$(gofmt -l .)" && go vet ./...
 	cd program && cargo fmt --all -- --check && cargo clippy --all-targets --features instruction -- -D warnings
 	cd e2e && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings
+	cd cli && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings
 
-# Go unit tests: Poseidon known answers, gadget vs native, keys and notes, Merkle tree, encryption, circuits, client lifecycle.
+# Go unit tests: Poseidon known answers, gadget vs native, Merkle tree, circuit prove/verify.
 # The burn fixture is an owner unshield; `-forced` would make it a forfeiture.
 test-go:
 	cd circuits && go test ./...
@@ -55,5 +56,9 @@ verifier-sbf:
 pool-sbf:
 	cd program && cargo build-sbf --arch $(SBF_ARCH) -- --locked
 
+# Shield → transfer → unshield on a local validator, checked on-chain.
+demo: verifier-sbf pool-sbf
+	./demo.sh
+
 clean:
-	rm -rf target e2e/target program/target
+	rm -rf target e2e/target program/target cli/target
