@@ -6,12 +6,12 @@ commitments, gnark circuits, verified on-chain by the generic
 Tracker: [anza-xyz/cryptography#123](https://github.com/anza-xyz/cryptography/issues/123).
 
 Status: `C_mint`, `C_transfer` and `C_burn` are implemented with note
-encryption to recipients and to the custodian's audit key, and a Go client
-builds their witnesses from a ledger and proves them. The mint and burn
-fixtures it writes verify through the Groth16 verifier program, on the host
-path and under Mollusk, with every in-circuit hash recomputed in Rust with
-the Solana syscall's Poseidon and both ciphertexts decrypted. The pool
-program is next.
+encryption to recipients and to the custodian's audit key, a Go client
+builds and proves their witnesses, and the pool program consumes their
+proofs over an SPL Token vault: it CPIs the verifier, keeps the commitment
+tree and the nullifier set on-chain and moves the tokens. Its Mollusk
+lifecycle test and an indexer are next; the mint and burn fixtures already
+verify through the verifier program.
 
 ## Layout
 
@@ -31,6 +31,7 @@ program is next.
 | `circuits/export/` | writes gnark's native `vk.bin` / `proof.bin` / `public.bin` |
 | `circuits/cmd/privtx/` | `privtx <circuit>-fixture`: setup, prove, export |
 | `fixtures/<circuit>/` | a key, proof and public witness per circuit, with the opened witness as JSON, consumed by `e2e/` |
+| `program/` | Rust crate (own workspace): the pool program, Pinocchio SBF, with host-side instruction builders behind the `instruction` feature |
 | `e2e/` | Rust crate (own workspace): fixture → on-chain format → verifier host path and SBF program; plus the embedded curve and note decryption (`curve`, `encrypt`) |
 
 ## Poseidon
@@ -168,8 +169,8 @@ Leaves are appended left to right; bit `i` of the leaf index picks the right
 child at height `i`. `circuits/merkle/` has the native tree (witness side)
 and the membership gadget, with the native path and the gadget cross-checked
 in its tests; the e2e crate rebuilds the fixture tree with light-poseidon to
-pin the gadget against the Solana syscall's Poseidon. The pool program will
-keep the same tree on-chain.
+pin the gadget against the Solana syscall's Poseidon. The pool program keeps
+the same tree on-chain.
 
 ## C_mint
 
@@ -295,29 +296,92 @@ Two spec items this depends on: the audit ciphertext must carry the full
 opening (`d`, `pk_d`, `r`), not only the value, and clients must register
 their full viewing keys with the custodian, for forfeiture to work.
 
+## Pool program
+
+`program/` is one shielded pool over one SPL Token mint as a Solana
+program, written with Pinocchio like the verifier. It holds no proof logic:
+every `Mint` and `Burn` CPIs the Groth16 verifier program's `Verify` with
+the circuit's content-addressed verifying-key account, whose address the
+pool pins at initialization. The program decides which public inputs the
+proof must open to and what to do with them: move tokens between the
+depositor, the vault and the destination, append to the tree, record the
+nullifier.
+
+One pool account (4,448 bytes):
+
+| field | what |
+| --- | --- |
+| `custodian`, `issuer` | signers of forced burns and of mints |
+| `mint_key`, `burn_key` | the verifier key accounts of `C_mint` and `C_burn` |
+| `transfer_key` | the verifier key account of `C_transfer` |
+| `token_program`, `token_mint`, `vault` | the asset and the token account holding its backing, owned by the vault authority PDA `["vault", pool]` |
+| `audit_pk` | the custodian's audit key; every output's audit ciphertext is checked against it |
+| `supply` | minted minus burned; equals the vault balance |
+| `next_index`, `filled[32]`, `zeros[32]` | the incremental Merkle tree (depth 32, `Poseidon(NODE, left, right)` via `sol_poseidon`), the same tree `circuits/merkle` defines |
+| `roots[64]` | ring of recent roots a burn may prove against |
+
+Nullifiers are one PDA each, `["nullifier", pool, nullifier]`, created by
+`Burn`; a second burn of the same note fails because the account exists.
+
+| instruction | accounts | data | effect |
+| --- | --- | --- | --- |
+| `InitializePool` | pool (s, w), vault, token program | custodian, issuer, mint_key, burn_key, transfer_key, token_mint, audit_pk | token program must be classic SPL Token; checks the vault is an initialized token account of the mint owned by the vault authority; fills the empty tree (32 Poseidon calls), pushes the empty root |
+| `Mint` (shield) | pool (w), issuer (s), verifier, mint key, source token account (w), source owner (s), vault (w), token program | proof, commitment, value, audit blob (160), recipient blob (83) | `audit_hash` from the blobs and `audit_pk`; verify `(commitment, value, audit_hash)`; transfer `value` source → vault (source owner's authority); append; `supply += value` |
+| `Transfer` | pool (w), payer (s, w), nullifier PDA 0 (w), nullifier PDA 1 (w), system, verifier, transfer key | proof, root slot (1), nf_0, nf_1, cm_0, cm_1, audit blob (256), recipient blobs (166) | root = history[slot]; `nf_0 ≠ nf_1`; `audit_hash`, `enc_hash`, `sighash` from the data; verify `(root, nf_0, nf_1, cm_0, cm_1, audit_hash, sighash)`; create both PDAs; append both |
+| `Burn` (unshield / forfeit) | pool (w), payer (s, w), nullifier PDA (w), system, verifier, burn key, custodian (s iff forced), vault (w), destination token account (w), vault authority, token program | proof, root, nullifier, value, forced | root ∈ history; `sighash = Poseidon(SIGHASH, pool, destination, nullifier, value)` with the destination account's address; verify `(root, nullifier, value, forced, sighash)`; create the PDA; transfer `value` vault → destination (PDA authority); `supply -= value` |
+
+The destination of a burn is a token account named in the instruction, and
+the sighash the owner signed names it too, so the vault can only ever pay
+the account the proof was made for. The issuer co-signs every shield: who
+may bring assets into an institution's pool is the institution's business,
+and the deposit itself is the depositor's own token transfer, so the issuer
+cannot shield someone else's funds.
+
+Compute units under Mollusk (SBF v2, local): `InitializePool` 39.3k; `Mint`
+135k (verifier CPI, 32 Poseidon syscalls for the append, two wide Poseidon
+syscalls for the hashes, the token transfer); `Transfer` 206k (seven public
+inputs, 64 Poseidon syscalls for two appends, three wide ones for the
+hashes, two PDA creations); `Burn` 103k (unshield or forfeit). A `Transfer`
+names its root by history slot (one byte) instead of value: with that, the
+instruction is 808 bytes of data and the transaction, with its compute
+budget instruction, 1,217 of the 1,232 bytes a legacy transaction allows.
+
+What it does not do yet: Token-2022 is refused at `InitializePool` rather
+than supported (a transfer-fee or transfer-hook extension would make the
+vault receive less than the note minted and break `supply == vault
+balance`; supporting it means accounting by vault balance delta); the
+program id is a placeholder; nothing is emitted for indexers beyond the
+instruction data itself.
+
 ## Client
 
 `circuits/client/` is the wallet side in Go: a `Ledger` (leaves with their
 recipient blobs, nullifiers seen) rebuilt from the chain, a `Wallet` that
 scans it by trial decryption and builds shields, transfers (padding with a
 dummy input, paying change as just another output) and unshields, a
-`Forfeit` builder for the custodian, and a `Prover`. Its test runs a whole
-lifecycle through it (shields, a transfer with change, an unshield and a
-forfeiture) and proves every step. `privtx mint-fixture` and `privtx
-burn-fixture` build their witnesses through it.
+`Forfeit` builder for the custodian, and a `Prover`. `privtx pool-fixture`
+drives a whole lifecycle through it.
 
 The Rust side of the same in `e2e/src/`: `curve` (the embedded curve,
-compressed points, the group hash) and `encrypt` (recipient and audit
-decryption, the hashes the program recomputes). Proving stays in Go.
+compressed points, the group hash), `encrypt` (recipient and audit
+decryption, the hashes the program recomputes) and `indexer` (an `Indexer`
+that reads `Mint`, `Transfer` and `Burn` instructions as an indexer would
+read transaction history, rebuilds the tree and any leaf's Merkle path; a
+`Wallet` that scans it with `ivk` and `nk`). Proving stays in Go.
 
-The e2e tests `e2e/tests/mint.rs` and `e2e/tests/burn.rs` replay
-`fixtures/mint/` and `fixtures/burn/`: they recompute the commitment, the
-audit hash, the Merkle root, the nullifier and the sighash with
-light-poseidon from the opened witness (`note.json`, `burn.json`), decrypt
-the mint's recipient blob and audit ciphertext back to the note, check the
-public-input order and that the keys are plain Groth16, and verify the
-proofs on the host path and inside the verifier program, with tampered
-public inputs rejected.
+The e2e test `e2e/tests/pool.rs` replays `fixtures/pool/`: it registers
+the three keys, creates a pool over a token mint with a vault and the
+custodian's audit key, shields every note, lets Alice's and Bob's wallets
+scan the indexed instructions (Alice finds five notes, Bob none), runs the
+transfer (Alice then sees three notes and her change, Bob his payment, the
+custodian decrypts both outputs from the audit blob), checks the rebuilt
+Merkle path of the note Alice unshields against the one the prover used,
+and runs the three burns with the vault and destination balances checked
+after every step. Every rejection is covered: replayed or duplicate
+nullifier, unknown root, forfeiture without the custodian, the same proof
+with another destination, tampered ciphertexts, wrong vault or token
+program, a depositor who cannot cover the note, tampered public inputs,
+wrong key, wrong PDA.
 
 ## Circuit rules
 
@@ -337,22 +401,23 @@ make lint           # gofmt + go vet; cargo fmt + clippy for e2e
 make test-go        # Go: Poseidon vectors, gadget == native, keys and notes, Merkle tree, encryption, circuits, client lifecycle
 make test-e2e       # Rust (release): host-path verification of the fixtures
 make verifier-sbf   # clone + build the verifier program (needs cargo build-sbf 4.1+ for SBF v3; SBF_ARCH=v2 for older)
+make pool-sbf       # build the pool program
 make test-e2e       # now also verifies the proofs inside the SBF program
 make fixtures       # regenerate fixtures (random setup: bytes change)
 ```
 
-The e2e crate is a standalone Cargo workspace: Mollusk brings in the SVM
-runtime, which would otherwise bloat the root lockfile and every build in the
-repository. It pins the verifier repository to one git revision (in
-`e2e/Cargo.toml` and the `Makefile`); the fixture encodings
-are gnark's native `WriteTo` / `MarshalBinary` forms, which that revision's
+The e2e and program crates are standalone Cargo workspaces: Mollusk brings
+in the SVM runtime, which would otherwise bloat the root lockfile and every
+build in the repository. Both pin the verifier repository to one git revision
+(in their `Cargo.toml` and the `Makefile`); the fixture encodings are gnark's
+native `WriteTo` / `MarshalBinary` forms, which that revision's
 `groth16-convert` parses. The Groth16 setup in `privtx` is for development
 only.
 
 CI (`.github/workflows/private-tx.yml`, run only when this directory or the
-workflow changes) lints and tests the Go side, builds the verifier program at
-the pinned revision, regenerates the fixtures, and runs the e2e crate with the
-SBF test enabled.
+workflow changes) lints and tests the Go side, builds the verifier and pool
+programs, regenerates the fixtures, and runs the e2e crate with the SBF
+tests enabled.
 
 ## Dependency pins
 
