@@ -24,6 +24,9 @@ use {
 };
 
 pub const PROGRAM_SO: &str = "solana_groth16_program";
+/// The pool program's artifact, under `POOL_SBF_OUT_DIR` (default
+/// `../program/target/deploy`); `make pool-sbf` builds it.
+pub const POOL_SO: &str = "private_tx_pool";
 
 /// Custom error codes of the verifier program.
 pub mod code {
@@ -36,6 +39,16 @@ pub mod code {
 pub struct Harness {
     pub mollusk: Mollusk,
     pub program_id: Address,
+}
+
+/// Where the pool program's `.so` is looked for.
+pub fn pool_so_path() -> std::path::PathBuf {
+    let dir = std::env::var_os("POOL_SBF_OUT_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../program/target/deploy")
+        });
+    dir.join(format!("{POOL_SO}.so"))
 }
 
 impl Harness {
@@ -64,7 +77,30 @@ impl Harness {
         })
     }
 
-    fn rent_exempt(&self, data_len: usize) -> u64 {
+    /// Also loads the pool program, or returns `None` if its artifact is
+    /// missing.
+    pub fn with_pool() -> Option<Self> {
+        let h = Self::new()?;
+        let so = pool_so_path();
+        let Ok(elf) = std::fs::read(&so) else {
+            eprintln!(
+                "skipping pool test: {} not found (see `make pool-sbf`)",
+                so.display()
+            );
+            return None;
+        };
+        let mut h = h;
+        h.mollusk.add_program_with_loader_and_elf(
+            &private_tx_pool::ID,
+            &mollusk_svm::program::loader_keys::LOADER_V3,
+            &elf,
+        );
+        // The pool's vault is an SPL Token account.
+        mollusk_svm_programs_token::token::add_program(&mut h.mollusk);
+        Some(h)
+    }
+
+    pub fn rent_exempt(&self, data_len: usize) -> u64 {
         self.mollusk.sysvars.rent.minimum_balance(data_len)
     }
 
