@@ -5,11 +5,11 @@ commitments, gnark circuits, verified on-chain by the generic
 [Groth16 verifier program](https://github.com/solana-program/groth16-verifier-program).
 Tracker: [anza-xyz/cryptography#123](https://github.com/anza-xyz/cryptography/issues/123).
 
-Status: the framework (Go module, Poseidon library choice, fixture
-tooling, Rust end-to-end harness against the verifier program, CI) and the
-protocol's primitives: the key hierarchy, notes with their commitment and
-nullifier, the commitment tree, and note encryption to the recipient and
-to the custodian's audit key. Circuits are added on top of them.
+Status: `C_mint` (shield) and `C_burn` (owner unshield and custodian
+forfeiture) are implemented over the key hierarchy, notes, commitment tree
+and note encryption, with Zcash-style spend authorization: a signature
+over a sighash that binds the pool and the destination. The in-pool
+transfer circuit, the pool program and the client are next.
 
 ## Layout
 
@@ -22,6 +22,8 @@ to the custodian's audit key. Circuits are added on top of them.
 | `circuits/merkle/` | commitment tree: native tree and membership gadget |
 | `circuits/domain/` | Poseidon domain tags |
 | `circuits/encrypt/` | note encryption to the recipient (off-circuit) and to the audit key (gadget + native) |
+| `circuits/mint/` | `C_mint` |
+| `circuits/burn/` | `C_burn` (owner unshield and custodian forfeiture) |
 | `circuits/export/` | writes gnark's native `vk.bin` / `proof.bin` / `public.bin` |
 | `circuits/cmd/privtx/` | `privtx <circuit>-fixture`: setup, prove, export |
 | `fixtures/<circuit>/` | a key, proof and public witness per circuit, consumed by `e2e/` |
@@ -75,7 +77,7 @@ address = (d, pk_d)
 - Spending needs `ask` (to sign) and `nk` (to derive the nullifier).
   Seeing a note, and forfeiting it through the custodian, needs `fvk` only.
   Institutions register their clients' `fvk`; that is what makes the
-  custodian able to audit and forfeit.
+  custodian able to audit and forfeit (§C_burn).
 - One key has as many addresses as diversifiers; without `ivk` two of them
   are unlinkable (`pk_d = [ivk]g_d` with independent bases).
 - `GroupHash(d)`: `x = Poseidon(GD, d, counter)` for the first counter that
@@ -141,14 +143,13 @@ per note:  (packed, pk_d.y, r) + Poseidon(ENC, key, i),  packed = lsb(pk_d.x)·2
 audit_hash = Poseidon(AUDIT, apk.x, apk.y, epk.x, epk.y, c_0, ..., extra...)
 ```
 
-The circuits that create notes compute the ciphertext in-circuit from the
-very notes they commit to and publish `audit_hash`; the pool program
-recomputes it from the blob in the instruction and the pool's audit key.
-So the custodian can read every note's full opening, which forfeiture
-needs, and a sender cannot put anything else there. Recipient blobs are
-bound too: their hash `enc_hash = Poseidon(ENCH, 31-byte chunks)` enters
-the circuits' public statement (`extra` above), so a transaction cannot
-be altered in flight.
+`C_mint` computes the ciphertext from the very note it commits to and
+publishes `audit_hash`; the pool program recomputes it from the blob in
+the instruction and the pool's audit key. So the custodian can read every
+note's full opening, which forfeiture needs, and a sender cannot put
+anything else there. Recipient blobs are bound too: their hash
+`enc_hash = Poseidon(ENCH, 31-byte chunks)` enters the mint's
+`audit_hash`, so a transaction cannot be altered in flight.
 
 ## Commitment tree
 
@@ -165,6 +166,106 @@ and the membership gadget, with the native path and the gadget cross-checked
 in its tests. The pool program will keep the same tree on-chain, so the
 node hash is one `sol_poseidon` call.
 
+## C_mint
+
+Issuance of one note with a public amount. The issuer proves the published
+commitment opens to a well-formed note carrying exactly the published value,
+so the pool program can account for minted supply (and match a vault deposit
+for a wrapped asset) while the recipient stays hidden. Who may mint is the
+pool program's business (issuer authority), not the circuit's.
+
+| | |
+| --- | --- |
+| public inputs | `commitment`, `value`, `audit_hash` (in that order) |
+| witness | `g_d`, `pk_d`, `r`, `d`, `apk`, `esk`, `enc_hash` |
+| constraints | `value ∈ [0, 2^64)` by bit decomposition; `d < 2^88`; `g_d = GroupHash(d)`, not of small order; `pk_d` on the curve; `commitment = Poseidon(CM, value, g_d, pk_d, r)`; `audit_hash` over the note's audit ciphertext and `enc_hash` |
+| size | 12587 R1CS constraints (pinned by `TestVerifyingKeyShape`) |
+
+A confidential-issuance variant (hidden amount) is the same circuit with
+`Value` moved to the private witness. The point checks are Sapling's
+Output checks: without them a note could be created whose owner relation
+`pk_d = [ivk]g_d` binds only a few bits of `ivk`.
+
+The circuit touches neither Merkle tree. The commitment is a public input, so
+the pool program appends it to the commitment tree itself after verifying the
+proof; proving the insertion in-circuit would only repeat work the program
+does in the clear. Membership in the tree is proved when a note is spent, by
+`C_burn` (and by the transfer circuit). The nullifier set is untouched because a mint
+spends nothing. The on-chain mint flow is therefore: verify the proof,
+check issuer authority, add `value` to minted supply, append `commitment`.
+
+## C_burn
+
+Removal of one note from the pool with a public amount: the owner's unshield
+and the custodian's forfeiture are the same relation, so they are one circuit
+with a public flag saying which authorization applies. The prover shows the
+note is in the commitment tree and publishes its nullifier and value; the
+pool program records the nullifier, so the note cannot be spent again, and
+releases the amount (vault withdrawal, supply decrease).
+
+| | |
+| --- | --- |
+| public inputs | `root`, `nullifier`, `value`, `forced`, `sighash` (in that order) |
+| witness | `ak`, `nk`, `g_d`, `pk_d`, `r`, signature `(R, S)`, leaf index, 32 Merkle siblings |
+| constraints | `forced ∈ {0, 1}`; `ivk = Poseidon(IVK, ak, nk)`; `g_d` not of small order; `pk_d = [ivk]g_d`; `forced ∨ EdDSA.Verify(ak, sighash, (R, S))`; `cm = Poseidon(CM, value, g_d, pk_d, r)`; `root = MerkleRoot(cm, index, siblings)`; `nullifier = Poseidon(NF, nk, cm, index)` |
+| size | 20919 R1CS constraints (pinned by `TestVerifyingKeyShape`) |
+
+The owner relation `pk_d = [ivk]g_d` is checked in both modes. It is what
+ties `nk`, and so the published nullifier, to this note: a forfeiture with a
+made-up `nk` would publish a nullifier that leaves the real one unspent,
+and the note could be spent again after its value had been released. The
+scalar multiplication is gnark's complete double-and-add, not its faster
+lattice path, whose range checks are commitment-based under Groth16.
+
+Authorization follows Zcash. Spending is a **spend authorization signature**
+by the owner's key over a **sighash** of the transaction, not knowledge of a
+secret inside the proof. The sighash is
+
+```
+sighash = Poseidon(SIGHASH, pool[0:16], pool[16:32], destination[0:16], destination[16:32], nullifier, value)
+```
+
+(Solana addresses are 256 bits, so each is two 128-bit halves.) The pool
+program recomputes it from the instruction it is executing and passes it as
+the last public input, so a proof is good for exactly one pool and one
+destination: a copy fished out of the mempool with the recipient swapped
+fails verification. Root and `forced` are public inputs of the same proof,
+so the hash need not repeat them.
+
+One deviation from Zcash: the signature is verified **inside the circuit**,
+not on-chain. Zcash publishes a re-randomized key `rk` and checks the
+signature in the transaction; Solana has no syscall for Baby Jubjub, so that
+check would cost on the order of a million compute units in software, more
+than ten proof verifications. In-circuit it costs about 7,800 constraints
+(gnark's `std/signature/eddsa` with its MiMC challenge hash, which never
+needs to match anything on-chain), and nothing about the key, not even a
+re-randomization, is ever published. What Zcash's split buys is kept: the
+prover needs the full viewing key and the signature, never `ask`, so proving
+and signing can run on different machines (an HSM signs, a prover box
+proves).
+What is lost is proving before the transaction is final, since the sighash is
+a public input.
+
+- `forced = 0`, unshield: the proof carries the owner's signature over this
+  transaction, so the program accepts it from anyone.
+- `forced = 1`, forfeiture: no signature check, the "alternative
+  nullifier-authorization path" the design left open. The custodian holds
+  the owner's registered full viewing key and learns the opening from the
+  audit ciphertext, and removes the note without `ask`; the witness carries
+  a well-formed dummy signature the circuit ignores. The program must
+  require the custodian's signature whenever the flag is set; the circuit
+  only tells it which case it is in.
+
+No range check on `value`: it is bound to a leaf, and every leaf was
+range-checked by the circuit that created it. The root is checked by the
+program against its root history. The in-pool transfer circuit's spend side
+will be this relation with `forced = 0` and the output notes in place of
+`destination`.
+
+Two spec items this depends on: the audit ciphertext must carry the full
+opening (`d`, `pk_d`, `r`), not only the value, and clients must register
+their full viewing keys with the custodian, for forfeiture to work.
+
 ## Circuit rules
 
 - Plain Groth16 only. No `std/rangecheck` or anything else built on
@@ -180,7 +281,7 @@ node hash is one `sol_poseidon` call.
 
 ```bash
 make lint           # gofmt + go vet; cargo fmt + clippy for e2e
-make test-go        # Go: Poseidon vectors, gadget == native, keys and notes, Merkle tree, encryption, circuit prove/verify
+make test-go        # Go: Poseidon vectors, gadget == native, keys and notes, Merkle tree, encryption, circuits
 make test-e2e       # Rust (release): host-path verification of the fixtures
 make verifier-sbf   # clone + build the verifier program (needs cargo build-sbf 4.1+ for SBF v3; SBF_ARCH=v2 for older)
 make test-e2e       # now also verifies the proofs inside the SBF program
