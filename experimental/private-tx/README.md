@@ -5,11 +5,10 @@ commitments, gnark circuits, verified on-chain by the generic
 [Groth16 verifier program](https://github.com/solana-program/groth16-verifier-program).
 Tracker: [anza-xyz/cryptography#123](https://github.com/anza-xyz/cryptography/issues/123).
 
-Status: `C_mint` (shield) and `C_burn` (owner unshield and custodian
-forfeiture) are implemented over the key hierarchy, notes, commitment tree
-and note encryption, with Zcash-style spend authorization: a signature
-over a sighash that binds the pool and the destination. The in-pool
-transfer circuit, the pool program and the client are next.
+Status: the three circuits of the single-pool protocol, `C_mint`,
+`C_transfer` and `C_burn`, are implemented with note encryption to
+recipients and to the custodian's audit key, over the key hierarchy, notes
+and commitment tree. The pool program and the client are next.
 
 ## Layout
 
@@ -23,6 +22,7 @@ transfer circuit, the pool program and the client are next.
 | `circuits/domain/` | Poseidon domain tags |
 | `circuits/encrypt/` | note encryption to the recipient (off-circuit) and to the audit key (gadget + native) |
 | `circuits/mint/` | `C_mint` |
+| `circuits/transfer/` | `C_transfer` (2-in/2-out) |
 | `circuits/burn/` | `C_burn` (owner unshield and custodian forfeiture) |
 | `circuits/export/` | writes gnark's native `vk.bin` / `proof.bin` / `public.bin` |
 | `circuits/cmd/privtx/` | `privtx <circuit>-fixture`: setup, prove, export |
@@ -143,13 +143,13 @@ per note:  (packed, pk_d.y, r) + Poseidon(ENC, key, i),  packed = lsb(pk_d.x)·2
 audit_hash = Poseidon(AUDIT, apk.x, apk.y, epk.x, epk.y, c_0, ..., extra...)
 ```
 
-`C_mint` computes the ciphertext from the very note it commits to and
-publishes `audit_hash`; the pool program recomputes it from the blob in
-the instruction and the pool's audit key. So the custodian can read every
-note's full opening, which forfeiture needs, and a sender cannot put
-anything else there. Recipient blobs are bound too: their hash
-`enc_hash = Poseidon(ENCH, 31-byte chunks)` enters the mint's
-`audit_hash`, so a transaction cannot be altered in flight.
+`C_mint` and `C_transfer` compute the ciphertext from the very notes they
+commit to and publish `audit_hash`; the program recomputes it from the
+blob in the instruction and the pool's audit key. So the custodian can
+read every note's full opening, which forfeiture needs, and a sender
+cannot put anything else there. Recipient blobs are bound too: their hash
+`enc_hash = Poseidon(ENCH, 31-byte chunks)` enters the mint's `audit_hash`
+and the transfer's sighash, so a transaction cannot be altered in flight.
 
 ## Commitment tree
 
@@ -190,9 +190,34 @@ The circuit touches neither Merkle tree. The commitment is a public input, so
 the pool program appends it to the commitment tree itself after verifying the
 proof; proving the insertion in-circuit would only repeat work the program
 does in the clear. Membership in the tree is proved when a note is spent, by
-`C_burn` (and by the transfer circuit). The nullifier set is untouched because a mint
+`C_transfer` and `C_burn`. The nullifier set is untouched because a mint
 spends nothing. The on-chain mint flow is therefore: verify the proof,
 check issuer authority, add `value` to minted supply, append `commitment`.
+
+## C_transfer
+
+An in-pool shielded transfer of fixed arity: two notes in, two out
+(`circuits/transfer/`). Each input is `C_burn`'s spend relation (owner,
+membership, nullifier, signature over the sighash); each output is
+`C_mint`'s note relation; values are conserved exactly, with no fee or
+public value. A zero-value input is a dummy, as in Sapling: its root check
+is skipped (the note is in no tree) but it still carries a well-formed
+owner, nullifier and signature, so every transaction has the same shape.
+
+| | |
+| --- | --- |
+| public inputs | `root`, `nf_0`, `nf_1`, `cm_0`, `cm_1`, `audit_hash`, `sighash` (in that order) |
+| witness | per input: `ak`, `nk`, `g_d`, `pk_d`, `r`, `value`, leaf index, 32 siblings, signature; per output: `g_d`, `pk_d`, `r`, `value`, `d`; `apk`, `esk` |
+| constraints | per input: owner relation, `(root_i − root)·(1 − [value_i = 0]) = 0`, nullifier, `EdDSA.Verify(ak_i, sighash)`; per output: `value < 2^64`, `d < 2^88`, `g_d = GroupHash(d)`, point checks, commitment; `Σ in = Σ out`; `audit_hash` over both outputs |
+| size | 59234 R1CS constraints (pinned by `TestVerifyingKeyShape`) |
+
+```
+sighash = Poseidon(TSIGHASH, pool[0:16], pool[16:32], nf_0, nf_1, cm_0, cm_1, audit_hash, enc_hash)
+```
+
+Both owners sign it, so consent covers every byte of the transaction. The
+circuit itself allows the same note as both inputs (equal nullifiers); the
+program rejects that, as Zcash's consensus rules do.
 
 ## C_burn
 
@@ -258,9 +283,8 @@ a public input.
 
 No range check on `value`: it is bound to a leaf, and every leaf was
 range-checked by the circuit that created it. The root is checked by the
-program against its root history. The in-pool transfer circuit's spend side
-will be this relation with `forced = 0` and the output notes in place of
-`destination`.
+program against its root history. `C_transfer`'s spend side is this relation
+with `forced = 0` and the output notes in place of `destination`.
 
 Two spec items this depends on: the audit ciphertext must carry the full
 opening (`d`, `pk_d`, `r`), not only the value, and clients must register
