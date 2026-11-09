@@ -5,10 +5,13 @@ commitments, gnark circuits, verified on-chain by the generic
 [Groth16 verifier program](https://github.com/solana-program/groth16-verifier-program).
 Tracker: [anza-xyz/cryptography#123](https://github.com/anza-xyz/cryptography/issues/123).
 
-Status: the three circuits of the single-pool protocol, `C_mint`,
-`C_transfer` and `C_burn`, are implemented with note encryption to
-recipients and to the custodian's audit key, over the key hierarchy, notes
-and commitment tree. The pool program and the client are next.
+Status: `C_mint`, `C_transfer` and `C_burn` are implemented with note
+encryption to recipients and to the custodian's audit key, and a Go client
+builds their witnesses from a ledger and proves them. The mint and burn
+fixtures it writes verify through the Groth16 verifier program, on the host
+path and under Mollusk, with every in-circuit hash recomputed in Rust with
+the Solana syscall's Poseidon and both ciphertexts decrypted. The pool
+program is next.
 
 ## Layout
 
@@ -24,10 +27,11 @@ and commitment tree. The pool program and the client are next.
 | `circuits/mint/` | `C_mint` |
 | `circuits/transfer/` | `C_transfer` (2-in/2-out) |
 | `circuits/burn/` | `C_burn` (owner unshield and custodian forfeiture) |
+| `circuits/client/` | wallet side: ledger, scanning, witness building, proving |
 | `circuits/export/` | writes gnark's native `vk.bin` / `proof.bin` / `public.bin` |
 | `circuits/cmd/privtx/` | `privtx <circuit>-fixture`: setup, prove, export |
-| `fixtures/<circuit>/` | a key, proof and public witness per circuit, consumed by `e2e/` |
-| `e2e/` | Rust crate (its own workspace, not a member of the repository root): fixture → on-chain format → verifier host path and SBF program |
+| `fixtures/<circuit>/` | a key, proof and public witness per circuit, with the opened witness as JSON, consumed by `e2e/` |
+| `e2e/` | Rust crate (own workspace): fixture → on-chain format → verifier host path and SBF program; plus the embedded curve and note decryption (`curve`, `encrypt`) |
 
 ## Poseidon
 
@@ -163,8 +167,9 @@ depth         = 32                              // provisional, spec decides
 Leaves are appended left to right; bit `i` of the leaf index picks the right
 child at height `i`. `circuits/merkle/` has the native tree (witness side)
 and the membership gadget, with the native path and the gadget cross-checked
-in its tests. The pool program will keep the same tree on-chain, so the
-node hash is one `sol_poseidon` call.
+in its tests; the e2e crate rebuilds the fixture tree with light-poseidon to
+pin the gadget against the Solana syscall's Poseidon. The pool program will
+keep the same tree on-chain.
 
 ## C_mint
 
@@ -290,6 +295,30 @@ Two spec items this depends on: the audit ciphertext must carry the full
 opening (`d`, `pk_d`, `r`), not only the value, and clients must register
 their full viewing keys with the custodian, for forfeiture to work.
 
+## Client
+
+`circuits/client/` is the wallet side in Go: a `Ledger` (leaves with their
+recipient blobs, nullifiers seen) rebuilt from the chain, a `Wallet` that
+scans it by trial decryption and builds shields, transfers (padding with a
+dummy input, paying change as just another output) and unshields, a
+`Forfeit` builder for the custodian, and a `Prover`. Its test runs a whole
+lifecycle through it (shields, a transfer with change, an unshield and a
+forfeiture) and proves every step. `privtx mint-fixture` and `privtx
+burn-fixture` build their witnesses through it.
+
+The Rust side of the same in `e2e/src/`: `curve` (the embedded curve,
+compressed points, the group hash) and `encrypt` (recipient and audit
+decryption, the hashes the program recomputes). Proving stays in Go.
+
+The e2e tests `e2e/tests/mint.rs` and `e2e/tests/burn.rs` replay
+`fixtures/mint/` and `fixtures/burn/`: they recompute the commitment, the
+audit hash, the Merkle root, the nullifier and the sighash with
+light-poseidon from the opened witness (`note.json`, `burn.json`), decrypt
+the mint's recipient blob and audit ciphertext back to the note, check the
+public-input order and that the keys are plain Groth16, and verify the
+proofs on the host path and inside the verifier program, with tampered
+public inputs rejected.
+
 ## Circuit rules
 
 - Plain Groth16 only. No `std/rangecheck` or anything else built on
@@ -305,7 +334,7 @@ their full viewing keys with the custodian, for forfeiture to work.
 
 ```bash
 make lint           # gofmt + go vet; cargo fmt + clippy for e2e
-make test-go        # Go: Poseidon vectors, gadget == native, keys and notes, Merkle tree, encryption, circuits
+make test-go        # Go: Poseidon vectors, gadget == native, keys and notes, Merkle tree, encryption, circuits, client lifecycle
 make test-e2e       # Rust (release): host-path verification of the fixtures
 make verifier-sbf   # clone + build the verifier program (needs cargo build-sbf 4.1+ for SBF v3; SBF_ARCH=v2 for older)
 make test-e2e       # now also verifies the proofs inside the SBF program
