@@ -20,7 +20,7 @@ lint:
 	cd circuits && test -z "$$(gofmt -l .)" && go vet ./...
 	cd e2e && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings
 
-# Go unit tests: Poseidon known answers, gadget vs native, circuit prove/verify.
+# Go unit tests: Poseidon known answers, gadget vs native, keys and notes, Merkle tree, encryption, circuits.
 test-go:
 	cd circuits && go test ./...
 
