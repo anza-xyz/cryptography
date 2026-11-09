@@ -6,6 +6,7 @@ VERIFIER_REPO = https://github.com/solana-program/groth16-verifier-program
 VERIFIER_REV  = 8bd06b4fb07f636c1872993a99f1a296b23b69fa
 VERIFIER_DIR  = $(CURDIR)/target/groth16-verifier-program
 SBF_OUT_DIR   = $(VERIFIER_DIR)/target/deploy
+POOL_SBF_OUT_DIR = $(CURDIR)/program/target/deploy
 # solana-cli 4.2+ (cargo-build-sbf 4.1, platform-tools v1.54) builds SBF v3,
 # which is what CI uses. Older toolchains stop at v2: `make SBF_ARCH=v2`.
 SBF_ARCH     ?= v3
@@ -27,10 +28,10 @@ lint:
 test-go:
 	cd circuits && go test ./...
 
-# Rust end to end. The SBF tests run only if the verifier artifact exists;
-# `make verifier-sbf` first for the full run.
+# Rust end to end. The SBF tests run only if the artifacts exist: `make
+# verifier-sbf` for the proof tests, plus `make pool-sbf` for the pool test.
 test-e2e:
-	cd e2e && SBF_OUT_DIR=$(SBF_OUT_DIR) cargo test --release
+	cd e2e && SBF_OUT_DIR=$(SBF_OUT_DIR) POOL_SBF_OUT_DIR=$(POOL_SBF_OUT_DIR) cargo test --release
 
 test: test-go test-e2e
 
@@ -40,6 +41,7 @@ fixtures:
 	cd circuits && go run ./cmd/privtx smoke-fixture -out ../fixtures/smoke
 	cd circuits && go run ./cmd/privtx mint-fixture -out ../fixtures/mint
 	cd circuits && go run ./cmd/privtx burn-fixture -out ../fixtures/burn
+	cd circuits && go run ./cmd/privtx pool-fixture -out ../fixtures/pool
 
 # Clone the verifier program at the pinned revision and build its SBF artifact.
 verifier-sbf:

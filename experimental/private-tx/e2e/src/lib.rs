@@ -9,6 +9,7 @@
 
 pub mod curve;
 pub mod encrypt;
+pub mod indexer;
 
 use {
     ark_bn254::Fr,
@@ -283,5 +284,152 @@ impl BurnFixture {
             &bytes_from_hex(&self.nullifier),
             self.note.value,
         )
+    }
+}
+
+/// The pool fixture (`pool.json`), as written by `privtx pool-fixture`: a
+/// whole lifecycle. Shields to Alice (`mints`), a transfer paying Bob with
+/// change, then burns against the final tree. Proofs live in `mint/` (one
+/// per shield, sharing `mint/vk.bin`), `transfer/` and `burn/` (one per
+/// burn, sharing `burn/vk.bin`).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct PoolFixture {
+    pub depth: usize,
+    pub pool: String,
+    pub destination: String,
+    pub custodian: PoolCustodian,
+    pub wallets: std::collections::BTreeMap<String, PoolKeys>,
+    pub mints: Vec<PoolMint>,
+    pub transfer: PoolTransfer,
+    pub leaves: Vec<String>,
+    pub root: String,
+    pub burns: Vec<PoolBurn>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct PoolCustodian {
+    pub audit_sk: String,
+    pub audit_pk_x: String,
+    pub audit_pk_y: String,
+}
+
+impl PoolCustodian {
+    pub fn audit_pk(&self) -> curve::Point {
+        curve::Point {
+            x: fr_from_hex(&self.audit_pk_x),
+            y: fr_from_hex(&self.audit_pk_y),
+        }
+    }
+    pub fn audit_pk_bytes(&self) -> [u8; 64] {
+        let mut out = [0u8; 64];
+        out[..32].copy_from_slice(&bytes_from_hex(&self.audit_pk_x));
+        out[32..].copy_from_slice(&bytes_from_hex(&self.audit_pk_y));
+        out
+    }
+}
+
+/// A wallet's full viewing key and ivk.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct PoolKeys {
+    pub ak_x: String,
+    pub ak_y: String,
+    pub nk: String,
+    pub ivk: String,
+}
+
+impl PoolKeys {
+    pub fn wallet(&self) -> indexer::Wallet {
+        indexer::Wallet {
+            ivk: fr_from_hex(&self.ivk),
+            nk: fr_from_hex(&self.nk),
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct PoolMint {
+    pub note: NoteOpening,
+    pub audit_blob: String,
+    pub enc_blob: String,
+    pub audit_hash: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct PoolTransfer {
+    pub root: String,
+    pub inputs: Vec<u64>,
+    pub nullifiers: Vec<String>,
+    pub commitments: Vec<String>,
+    pub outputs: Vec<NoteOpening>,
+    pub recipients: Vec<String>,
+    pub audit_blob: String,
+    pub enc_blobs: Vec<String>,
+    pub audit_hash: String,
+    pub enc_hash: String,
+    pub sighash: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct PoolBurn {
+    pub name: String,
+    pub owner: String,
+    pub index: u64,
+    pub nullifier: String,
+    pub forced: bool,
+    pub nk: String,
+    pub destination: String,
+    pub sighash: String,
+    pub siblings: Vec<String>,
+}
+
+impl PoolFixture {
+    pub fn load(fixture: &str) -> Self {
+        serde_json::from_slice(&read_fixture(fixture, "pool.json")).expect("pool.json")
+    }
+
+    /// The `C_mint` proof of shield `i`.
+    pub fn mint_proof(&self, fixture: &str, i: usize) -> Groth16Fixture {
+        load_groth16_files(
+            fixture,
+            "mint/vk.bin",
+            &format!("mint/proof-{i}.bin"),
+            &format!("mint/public-{i}.bin"),
+        )
+    }
+
+    /// The `C_transfer` proof.
+    pub fn transfer_proof(&self, fixture: &str) -> Groth16Fixture {
+        load_groth16_files(
+            fixture,
+            "transfer/vk.bin",
+            "transfer/proof.bin",
+            "transfer/public.bin",
+        )
+    }
+
+    /// The `C_burn` proof named by `burn.name`.
+    pub fn burn_proof(&self, fixture: &str, burn: &PoolBurn) -> Groth16Fixture {
+        load_groth16_files(
+            fixture,
+            "burn/vk.bin",
+            &format!("burn/proof-{}.bin", burn.name),
+            &format!("burn/public-{}.bin", burn.name),
+        )
+    }
+
+    /// The final tree root recomputed from the leaves.
+    pub fn poseidon_root(&self) -> [u8; 32] {
+        let leaves: Vec<Fr> = self.leaves.iter().map(|l| fr_from_hex(l)).collect();
+        merkle_root(&leaves, self.depth)
+    }
+
+    /// The note at leaf `index`: a shield's or a transfer output's.
+    pub fn note_at(&self, index: u64) -> &NoteOpening {
+        let i = index as usize;
+        if i < self.mints.len() {
+            &self.mints[i].note
+        } else {
+            &self.transfer.outputs[i - self.mints.len()]
+        }
     }
 }

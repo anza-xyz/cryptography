@@ -5,13 +5,14 @@ commitments, gnark circuits, verified on-chain by the generic
 [Groth16 verifier program](https://github.com/solana-program/groth16-verifier-program).
 Tracker: [anza-xyz/cryptography#123](https://github.com/anza-xyz/cryptography/issues/123).
 
-Status: `C_mint`, `C_transfer` and `C_burn` are implemented with note
-encryption to recipients and to the custodian's audit key, a Go client
-builds and proves their witnesses, and the pool program consumes their
-proofs over an SPL Token vault: it CPIs the verifier, keeps the commitment
-tree and the nullifier set on-chain and moves the tokens. Its Mollusk
-lifecycle test and an indexer are next; the mint and burn fixtures already
-verify through the verifier program.
+Status: the single-pool protocol runs end to end. `C_mint`, `C_transfer`
+and `C_burn` are implemented with note encryption to recipients and to the
+custodian's audit key; the pool program consumes their proofs over an SPL
+Token vault; and under Mollusk a whole lifecycle goes through: five shields
+to Alice, one transfer paying Bob with change, an unshield, a forfeiture
+and Bob's unshield, with an indexer rebuilding the pool from the
+instructions, the wallets finding their notes by trial decryption, and the
+custodian reading every output.
 
 ## Layout
 
@@ -31,8 +32,9 @@ verify through the verifier program.
 | `circuits/export/` | writes gnark's native `vk.bin` / `proof.bin` / `public.bin` |
 | `circuits/cmd/privtx/` | `privtx <circuit>-fixture`: setup, prove, export |
 | `fixtures/<circuit>/` | a key, proof and public witness per circuit, with the opened witness as JSON, consumed by `e2e/` |
+| `fixtures/pool/` | a whole pool lifecycle: shields, a transfer and burns with their ciphertexts, built through `client/` |
 | `program/` | Rust crate (own workspace): the pool program, Pinocchio SBF, with host-side instruction builders behind the `instruction` feature |
-| `e2e/` | Rust crate (own workspace): fixture → on-chain format → verifier host path and SBF program; plus the embedded curve and note decryption (`curve`, `encrypt`) |
+| `e2e/` | Rust crate (own workspace): fixture → on-chain format → verifier host path, verifier SBF program, the pool program under Mollusk; plus the indexer and wallet decryption (`curve`, `encrypt`, `indexer`) |
 
 ## Poseidon
 
@@ -402,7 +404,7 @@ make test-go        # Go: Poseidon vectors, gadget == native, keys and notes, Me
 make test-e2e       # Rust (release): host-path verification of the fixtures
 make verifier-sbf   # clone + build the verifier program (needs cargo build-sbf 4.1+ for SBF v3; SBF_ARCH=v2 for older)
 make pool-sbf       # build the pool program
-make test-e2e       # now also verifies the proofs inside the SBF program
+make test-e2e       # now also verifies the proofs inside the SBF program and runs the pool lifecycle
 make fixtures       # regenerate fixtures (random setup: bytes change)
 ```
 
