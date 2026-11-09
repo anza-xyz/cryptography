@@ -8,7 +8,8 @@ Tracker: [anza-xyz/cryptography#123](https://github.com/anza-xyz/cryptography/is
 Status: the framework (Go module, Poseidon library choice, fixture
 tooling, Rust end-to-end harness against the verifier program, CI) and the
 protocol's primitives: the key hierarchy, notes with their commitment and
-nullifier, and the commitment tree. Circuits are added on top of them.
+nullifier, the commitment tree, and note encryption to the recipient and
+to the custodian's audit key. Circuits are added on top of them.
 
 ## Layout
 
@@ -20,6 +21,7 @@ nullifier, and the commitment tree. Circuits are added on top of them.
 | `circuits/note/` | key hierarchy, note format, commitment and nullifier |
 | `circuits/merkle/` | commitment tree: native tree and membership gadget |
 | `circuits/domain/` | Poseidon domain tags |
+| `circuits/encrypt/` | note encryption to the recipient (off-circuit) and to the audit key (gadget + native) |
 | `circuits/export/` | writes gnark's native `vk.bin` / `proof.bin` / `public.bin` |
 | `circuits/cmd/privtx/` | `privtx <circuit>-fixture`: setup, prove, export |
 | `fixtures/<circuit>/` | a key, proof and public witness per circuit, consumed by `e2e/` |
@@ -110,6 +112,44 @@ the ASCII of a short name (`privtx/cm`, `privtx/nf`, `privtx/nk`,
 `privtx/ench`) read as a big-endian integer. `circuits/domain/` lists them;
 the pool program and the e2e crate spell the same strings.
 
+## Note encryption
+
+Every output note travels with two ciphertexts, Sapling's construction with
+Poseidon in place of BLAKE2b and ChaCha20 (`circuits/encrypt/`).
+
+To the recipient, off-circuit, 83 bytes:
+
+```
+esk random;  epk = [esk]·g_d;  ss = [esk]·pk_d = [ivk]·epk
+key  = Poseidon(KDF, ss.x, ss.y, epk.x, epk.y);  ks_i = Poseidon(ENC, key, i)[1:32]
+blob = epk (compressed, 32) ‖ (value LE 8 ‖ d 11 ‖ r 32) ⊕ (ks_0 ‖ ks_1)[0:51]
+```
+
+Each keystream element contributes its 31 low bytes: the top byte of a
+canonical field element is biased (always below 0x31) and would leak two
+bits of whatever it masked. A wallet trial-decrypts every blob with `ivk`, derives `pk_d` from `d`,
+recommits, and keeps the notes whose commitment is the leaf's: that check
+is the integrity check, as in Sapling, so there is no MAC. Nothing forces
+a sender to encrypt honestly; a garbage blob costs them the payment.
+
+To the custodian, inside the circuit, three field elements per note:
+
+```
+esk random, one per transaction;  epk = [esk]·G;  ss = [esk]·apk = [ask]·epk
+key = Poseidon(KDF, ss.x, ss.y, epk.x, epk.y)
+per note:  (packed, pk_d.y, r) + Poseidon(ENC, key, i),  packed = lsb(pk_d.x)·2^152 + value·2^88 + d
+audit_hash = Poseidon(AUDIT, apk.x, apk.y, epk.x, epk.y, c_0, ..., extra...)
+```
+
+The circuits that create notes compute the ciphertext in-circuit from the
+very notes they commit to and publish `audit_hash`; the pool program
+recomputes it from the blob in the instruction and the pool's audit key.
+So the custodian can read every note's full opening, which forfeiture
+needs, and a sender cannot put anything else there. Recipient blobs are
+bound too: their hash `enc_hash = Poseidon(ENCH, 31-byte chunks)` enters
+the circuits' public statement (`extra` above), so a transaction cannot
+be altered in flight.
+
 ## Commitment tree
 
 ```
@@ -140,7 +180,7 @@ node hash is one `sol_poseidon` call.
 
 ```bash
 make lint           # gofmt + go vet; cargo fmt + clippy for e2e
-make test-go        # Go: Poseidon vectors, gadget == native, keys and notes, Merkle tree, circuit prove/verify
+make test-go        # Go: Poseidon vectors, gadget == native, keys and notes, Merkle tree, encryption, circuit prove/verify
 make test-e2e       # Rust (release): host-path verification of the fixtures
 make verifier-sbf   # clone + build the verifier program (needs cargo build-sbf 4.1+ for SBF v3; SBF_ARCH=v2 for older)
 make test-e2e       # now also verifies the proofs inside the SBF program
