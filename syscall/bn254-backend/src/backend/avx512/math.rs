@@ -1,6 +1,5 @@
 //! High-throughput Montgomery CIOS IFMA Arithmetic.
 
-#![allow(unused_unsafe)]
 #![allow(unsafe_op_in_unsafe_fn)]
 
 use super::types::FieldElement8x52;
@@ -74,7 +73,7 @@ pub(crate) unsafe fn add_8x(a: &FieldElement8x52, b: &FieldElement8x52) -> Field
 /// 260-bit window spanned by five limbs, so no significant bits are discarded.
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
-unsafe fn scale_by_16(x: &FieldElement8x52) -> FieldElement8x52 {
+pub(super) unsafe fn scale_by_16(x: &FieldElement8x52) -> FieldElement8x52 {
     let mask_52 = _mm512_set1_epi64(0xFFFFFFFFFFFFF);
 
     let s0 = _mm512_slli_epi64(x.l0, 4);

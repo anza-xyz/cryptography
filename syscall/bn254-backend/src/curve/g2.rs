@@ -12,12 +12,6 @@ use core::ops::{Add, Neg};
 
 type B = Backend<Fq>;
 
-const RAW_WINDOW_WIDTH: u32 = 3;
-const RAW_WINDOW_TABLE_SIZE: usize = 1 << (RAW_WINDOW_WIDTH - 2);
-
-const GLV_WINDOW_WIDTH: u32 = 4;
-const GLV_WINDOW_TABLE_SIZE: usize = 1 << (GLV_WINDOW_WIDTH - 2);
-
 // xi = 9+u; b = 3/xi; psi coefficients are xi^((q-1)/3), xi^((q-1)/2).
 pub(crate) const CURVE_B: Fq2 = Fq2 {
     c0: U256::new([
@@ -292,7 +286,7 @@ impl Affine {
                 })
                 .sum();
             let windowed = if transitions <= 32 {
-                self.mul_raw_window::<RAW_WINDOW_WIDTH, RAW_WINDOW_TABLE_SIZE>(scalar)
+                self.mul_raw_window::<3, 2>(scalar)
             } else if scalar.0[3] != 0 {
                 self.mul_raw_window::<5, 8>(scalar)
             } else {
@@ -354,8 +348,7 @@ impl Affine {
         // table. Keep the existing selector for shorter/sparse integers.
         if (scalar.0[3] | scalar.0[2] | (scalar.0[1] >> 31)) != 0
             && scalar.0.iter().map(|word| word.count_ones()).sum::<u32>() > 32
-            && let Some(result) =
-                self.mul_glv_window::<GLV_WINDOW_WIDTH, GLV_WINDOW_TABLE_SIZE>(&split)
+            && let Some(result) = self.mul_glv_window::<4, 4>(&split)
         {
             return result;
         }

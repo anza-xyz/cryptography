@@ -4,15 +4,12 @@
 //! Multiplication accepts a raw 256-bit integer, not a Montgomery Fr element.
 //! Execution is variable-time, as permitted by the crate's public-data contract.
 
-use crate::backend::{Backend, Fq, MontgomeryBackend, U256};
+use crate::backend::{BETA_MONT, Backend, Fq, MontgomeryBackend, U256};
 use core::ops::{Add, Neg};
 
 use super::glv;
 
 type B = Backend<Fq>;
-
-const GLV_WINDOW_WIDTH: u32 = 4;
-const GLV_WINDOW_TABLE_SIZE: usize = 1 << (GLV_WINDOW_WIDTH - 2);
 
 // 2^256 mod q: the Montgomery representation of one.
 const ONE: U256 = U256::new([
@@ -186,7 +183,7 @@ impl Affine {
                 let windowed = if scalar.0[3] != 0 {
                     self.mul_glv_window::<5, 8>(&split)
                 } else {
-                    self.mul_glv_window::<GLV_WINDOW_WIDTH, GLV_WINDOW_TABLE_SIZE>(&split)
+                    self.mul_glv_window::<4, 4>(&split)
                 };
                 if let Some(result) = windowed {
                     return if negative { -result } else { result };
@@ -223,7 +220,7 @@ impl Affine {
     // The caller supplies a nonzero signed schedule, including component signs.
     fn mul_glv(&self, digits: &glv::JointDigits) -> Self {
         let image = Self {
-            x: B::mul(&self.x, &glv::BETA_MONT),
+            x: B::mul(&self.x, &BETA_MONT),
             y: self.y,
         };
         // Give all four entries the common denominator H=phi(P).x-P.x.
@@ -481,7 +478,7 @@ impl Affine {
         } else {
             table.map(|p| {
                 let image = Self {
-                    x: B::mul(&p.x, &glv::BETA_MONT),
+                    x: B::mul(&p.x, &BETA_MONT),
                     y: p.y,
                 };
                 if split.k2_negative { -image } else { image }
@@ -610,7 +607,7 @@ mod tests {
                 Affine::from_montgomery(raw(p.x), raw(p.y)).unwrap()
             }
         };
-        assert_eq!(glv::BETA_MONT, raw(Config::ENDO_COEFFS[0]));
+        assert_eq!(BETA_MONT, raw(Config::ENDO_COEFFS[0]));
         // Includes r-1, r, r+1, the maximum raw scalar, and four reciprocal
         // quotient boundaries with negative second components.
         let scalars = [
@@ -691,7 +688,7 @@ mod tests {
             let p = G1Affine::generator().mul_bigint([n]).into_affine();
             let point = ours(p);
             let phi = Affine {
-                x: B::mul(&point.x, &glv::BETA_MONT),
+                x: B::mul(&point.x, &BETA_MONT),
                 y: point.y,
             };
             // Arkworks' affine mul_bigint uses binary double-and-add, not GLV.

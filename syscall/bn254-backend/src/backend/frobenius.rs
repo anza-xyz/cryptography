@@ -241,5 +241,8 @@ pub(super) const FQ12_C1: [Fq2; 12] = [
 // G2 twist x-coordinate Frobenius coefficient, xi^((q-1)/3).
 pub(crate) const PSI_X: Fq2 = FQ6_C1[1];
 
+// G1 endomorphism coefficient beta, a cube root of unity, in Montgomery form.
+pub(crate) const BETA_MONT: U256 = FQ6_C1[2].c0;
+
 // Conjugate G2 endomorphism coefficient beta^2, in Montgomery form.
 pub(crate) const BETA_SQUARED_MONT: U256 = FQ6_C1[4].c0;

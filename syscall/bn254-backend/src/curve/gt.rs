@@ -160,7 +160,7 @@ fn pow_window3(value: &Gt, exponent: &U256, bits: usize) -> Gt {
 
 // q-r = 6*x^2. On validated Gt, g^q = g^(6*x^2), so exact division
 // e = low + LAMBDA*high allows a joint exponent using g and Frobenius(g).
-const GT_LAMBDA: u128 = 147946756881789318990833708069417712966;
+const GT_LAMBDA: u128 = 6 * (super::g2::BN_X as u128).pow(2);
 
 // Exact unsigned division: the remainder is < 2^127 and the quotient < 2^130.
 fn split_frobenius(exponent: &U256) -> (U256, U256) {
@@ -275,7 +275,6 @@ mod frobenius_tests {
         let r = BigUint::from_bytes_le(&ark_bn254::Fr::MODULUS.to_bytes_le());
         let lambda = BigUint::from(GT_LAMBDA);
         assert_eq!(q - r, lambda);
-        assert_eq!(GT_LAMBDA, 6 * u128::from(crate::curve::g2::BN_X).pow(2));
         let limit = BigUint::from(1u8) << 256usize;
         let mut cases = std::vec![BigUint::from(0u8), &limit - 1u8];
         for bit in 0..256usize {
