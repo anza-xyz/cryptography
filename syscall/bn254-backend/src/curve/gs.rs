@@ -6,9 +6,14 @@
 //! below differs from nearest-integer Babai rounding and has its own bounds.
 //! This module manipulates ordinary integers, never Montgomery residues.
 
+use super::{
+    g2::BN_X,
+    glv::{mul_wide, narrow},
+    scalar::sub_integer,
+};
 use crate::backend::U256;
 
-const X: i128 = 4_965_661_367_192_848_881;
+const X: i128 = BN_X as i128;
 const BASIS: [[i128; 4]; 4] = [
     [X + 1, X, X, -2 * X],
     [2 * X + 1, -X, -X - 1, -X],
@@ -56,24 +61,6 @@ const _: () = {
     }
 };
 
-// Exact schoolbook product for unrestricted limbs. In particular, these
-// reciprocals do not satisfy the small limb-sum bound of the G05 Comba helper.
-#[inline(always)]
-fn product<const N: usize>(a: &U256, b: &[u64; N]) -> [u64; 8] {
-    assert!(N <= 4);
-    let mut out = [0; 8];
-    for (i, &factor) in b.iter().enumerate() {
-        let mut carry = 0;
-        for (j, &word) in a.0.iter().enumerate() {
-            let value = word as u128 * factor as u128 + out[i + j] as u128 + carry;
-            out[i + j] = value as u64;
-            carry = value >> 64;
-        }
-        out[i + 4] = carry as u64;
-    }
-    out
-}
-
 // Arithmetic modulo 2^256 intentionally discards the final carry/borrow.
 // Only the final small result is interpreted as a signed integer.
 #[inline(always)]
@@ -90,15 +77,7 @@ fn add(a: U256, b: U256) -> U256 {
 
 #[inline(always)]
 fn subtract(a: U256, b: U256) -> U256 {
-    let mut result = [0; 4];
-    let mut borrow = false;
-    for (i, word) in result.iter_mut().enumerate() {
-        let (difference, first) = a.0[i].overflowing_sub(b.0[i]);
-        let (difference, second) = difference.overflowing_sub(u64::from(borrow));
-        *word = difference;
-        borrow = first || second;
-    }
-    U256::new(result)
+    sub_integer(&a, &b).0
 }
 
 /// Returns signed k_i with scalar = sum(k_i * p^i) (mod r), each |k_i|<2^67.
@@ -108,11 +87,12 @@ pub(super) fn decompose(scalar: &U256) -> [i128; 4] {
     // k=(s,0,0,0)-q*B has |k_j|<2*sum_i |B_ij|<2^67.
     let mut components = [*scalar, U256::zero(), U256::zero(), U256::zero()];
     for (i, reciprocal) in RECIPROCALS.iter().enumerate() {
-        let wide = product(scalar, reciprocal);
+        // The reciprocals exceed the limb-sum bound of `glv::mul_fixed`.
+        let wide = mul_wide(scalar, reciprocal);
         let quotient = U256::new([wide[4], wide[5], wide[6], wide[7]]);
         for (j, component) in components.iter_mut().enumerate() {
             let magnitude = BASIS[i][j].unsigned_abs();
-            let wide = product(&quotient, &[magnitude as u64, (magnitude >> 64) as u64]);
+            let wide = mul_wide(&quotient, &[magnitude as u64, (magnitude >> 64) as u64]);
             let term = U256::new([wide[0], wide[1], wide[2], wide[3]]);
             // Only the fourth inverse-row numerator is negative.
             *component = if (i == 3) ^ (BASIS[i][j] < 0) {
@@ -129,8 +109,7 @@ pub(super) fn decompose(scalar: &U256) -> [i128; 4] {
         } else {
             components[i]
         };
-        debug_assert_eq!(magnitude.0[2] | magnitude.0[3], 0);
-        let magnitude = magnitude.0[0] as u128 | ((magnitude.0[1] as u128) << 64);
+        let magnitude = narrow(magnitude);
         debug_assert!(magnitude < COMPONENT_BOUNDS[i]);
         if negative {
             -(magnitude as i128)

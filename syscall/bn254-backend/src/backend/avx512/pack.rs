@@ -1,6 +1,5 @@
 //! Conversion bridge between public 4-limb arrays and internal 5-limb SIMD vectors.
 
-#![allow(unused_unsafe)]
 #![allow(unsafe_op_in_unsafe_fn)]
 
 use super::types::FieldElement8x52;
