@@ -287,6 +287,11 @@ impl CompressedEdwardsY {
     }
 
     /// Like `is_valid`, but in variable time. For public data only.
+    ///
+    /// Equivalent to `self.decompress().is_some()`, including non-canonical
+    /// encodings, but tests quadratic residuosity with a binary GCD instead
+    /// of an exponentiation. Uses one field squaring, one small-constant
+    /// multiplication and at most 255 GCD iterations.
     pub fn is_valid_vartime(&self) -> bool {
         let u = &FieldElement::from_bytes(self.as_bytes()).square() - &FieldElement::ONE;
         // 121666 (y² - 1)(d y² + 1) = u - 121665u², and 121666 is a nonzero square.
