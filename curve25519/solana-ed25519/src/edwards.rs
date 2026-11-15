@@ -2507,13 +2507,19 @@ mod test {
         use std::vec::Vec;
         let mut rng = rand::rng();
         let mut encodings: Vec<[u8; 32]> = Vec::new();
-        // A structured y with (y² - 1)(d*y² + 1) = 2^254 + 2^250.
-        encodings.push(
-            hex::decode("7379fce5984ae7b06649cb0a9134e7439357b9c2fdeb244b527e77755233217f")
-                .expect("valid hex")
-                .try_into()
-                .expect("32 bytes"),
-        );
+        // A structured y with (y² - 1)(d*y² + 1) = 2^254 + 2^250, and one with
+        // u - 121665u² = p - 2^96, which takes 253 of at most 255 iterations.
+        for structured in [
+            "7379fce5984ae7b06649cb0a9134e7439357b9c2fdeb244b527e77755233217f",
+            "c8ae8bc6688e483d1384672a8861c60da024e06fd83a337a1d6871018978244d",
+        ] {
+            encodings.push(
+                hex::decode(structured)
+                    .expect("valid hex")
+                    .try_into()
+                    .expect("32 bytes"),
+            );
+        }
         for small in 0u8..64 {
             let mut bytes = [0u8; 32];
             bytes[0] = small;
@@ -2545,7 +2551,12 @@ mod test {
         for bytes in encodings {
             let compressed = CompressedEdwardsY(bytes);
             let expected = compressed.decompress().is_some();
+            let upstream = curve25519_dalek::edwards::CompressedEdwardsY(bytes)
+                .decompress()
+                .is_some();
+            assert_eq!(expected, upstream, "{bytes:02x?}");
             assert_eq!(compressed.is_valid(), expected, "{bytes:02x?}");
+            assert_eq!(compressed.is_valid_vartime(), expected, "{bytes:02x?}");
             if expected {
                 valid += 1;
             } else {
