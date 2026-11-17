@@ -117,11 +117,11 @@ impl<F: Field> PortableBackend<F> {
         let has_spare_bit = F::MODULUS.0[3] < (1u64 << 63);
         let mut t = [0u64; 5];
 
-        for i in 0..4 {
-            let (r0, c) = mac(t[0], a.0[i], b.0[0], 0);
-            let (r1, c) = mac(t[1], a.0[i], b.0[1], c);
-            let (r2, c) = mac(t[2], a.0[i], b.0[2], c);
-            let (r3, c) = mac(t[3], a.0[i], b.0[3], c);
+        for a_i in a.0 {
+            let (r0, c) = mac(t[0], a_i, b.0[0], 0);
+            let (r1, c) = mac(t[1], a_i, b.0[1], c);
+            let (r2, c) = mac(t[2], a_i, b.0[2], c);
+            let (r3, c) = mac(t[3], a_i, b.0[3], c);
             let (r4, r5) = if has_spare_bit {
                 (c, 0)
             } else {
