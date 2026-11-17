@@ -98,8 +98,8 @@ fn run<const N: usize>(a: &mut [u64; 4], b: &mut [u64; 4], flips: &mut u64) {
 pub(crate) fn is_square_vartime(x: &FieldElement51) -> bool {
     let bytes = x.to_bytes();
     let mut a = [0u64; 4];
-    for (limb, chunk) in a.iter_mut().zip(bytes.chunks_exact(8)) {
-        *limb = u64::from_le_bytes(chunk.try_into().expect("8-byte chunk"));
+    for (limb, chunk) in a.iter_mut().zip(bytes.as_chunks::<8>().0) {
+        *limb = u64::from_le_bytes(*chunk);
     }
     if a == [0; 4] {
         return true;
@@ -160,8 +160,8 @@ mod test {
     /// A field element from little-endian words, ignoring bit 255.
     fn fe(words: [u64; 4]) -> FieldElement51 {
         let mut bytes = [0u8; 32];
-        for (chunk, word) in bytes.chunks_exact_mut(8).zip(words) {
-            chunk.copy_from_slice(&word.to_le_bytes());
+        for (chunk, word) in bytes.as_chunks_mut::<8>().0.iter_mut().zip(words) {
+            *chunk = word.to_le_bytes();
         }
         FieldElement51::from_bytes(&bytes)
     }
