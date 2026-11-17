@@ -5,16 +5,11 @@
 //! vanish modulo r. The conjugate G2 endomorphism has the same eigenvalue.
 //! None of these integer operations use Montgomery form.
 
+use super::scalar::sub_integer;
 use crate::backend::U256;
 
-// beta * 2^256 mod q. The paired eigenvalue is
+// lambda, the eigenvalue paired with `BETA_MONT`, is
 // 21888242871839275217838484774961031246154997185409878258781734729429964517155.
-pub(super) const BETA_MONT: U256 = U256::new([
-    0x3350c88e13e80b9c,
-    0x7dce557cdb5e56b9,
-    0x6001b4b8b615564a,
-    0x2682e617020217e0,
-]);
 const A: [u64; 2] = [0x8211bbeb7d4f1128, 0x6f4d8248eeb859fc];
 const B: [u64; 1] = [0x89d3256894d213e3];
 const C: [u64; 2] = [0x0be4e1541221250b, 0x6f4d8248eeb859fd];
@@ -154,22 +149,21 @@ fn mul_fixed<const M: usize, const N: usize>(a: &U256, b: &[u64; N]) -> [u64; 8]
     out
 }
 
-#[cfg(any(test, not(all(target_arch = "x86_64", not(target_feature = "bmi2")))))]
 /// Full unsigned product, retaining every carry. N is at most four.
 #[inline(always)]
-fn mul_wide<const N: usize>(a: &U256, b: &[u64; N]) -> [u64; 8] {
+pub(super) fn mul_wide<const N: usize>(a: &U256, b: &[u64; N]) -> [u64; 8] {
     assert!(N <= 4);
     let mut out = [0u64; 8];
     for (i, factor) in b.iter().enumerate() {
         let mut carry = 0;
         for (j, limb) in a.0.iter().enumerate() {
             // For W=2^64, (W-1)^2 + (W-1) + (W-1) = W^2-1.
-            let t = (*limb as u128) * (*factor as u128) + (out[i + j] as u128) + (carry as u128);
+            let t = (*limb as u128) * (*factor as u128) + (out[i + j] as u128) + carry;
             out[i + j] = t as u64;
-            carry = (t >> 64) as u64;
+            carry = t >> 64;
         }
         // Earlier rows have not written this limb.
-        out[i + 4] = carry;
+        out[i + 4] = carry as u64;
     }
     out
 }
@@ -208,20 +202,7 @@ fn add_integer(a: &U256, b: &U256) -> U256 {
 }
 
 #[inline(always)]
-fn sub_integer(a: &U256, b: &U256) -> (U256, bool) {
-    let mut out = U256::zero();
-    let mut borrow = false;
-    for (i, limb) in out.0.iter_mut().enumerate() {
-        let (diff, first) = a.0[i].overflowing_sub(b.0[i]);
-        let (diff, second) = diff.overflowing_sub(borrow as u64);
-        *limb = diff;
-        borrow = first || second;
-    }
-    (out, borrow)
-}
-
-#[inline(always)]
-fn narrow(value: U256) -> u128 {
+pub(super) fn narrow(value: U256) -> u128 {
     debug_assert_eq!(value.0[2] | value.0[3], 0);
     (value.0[0] as u128) | ((value.0[1] as u128) << 64)
 }

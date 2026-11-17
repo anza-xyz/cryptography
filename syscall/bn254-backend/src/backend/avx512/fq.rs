@@ -13,10 +13,12 @@
 //! <https://doc.rust-lang.org/core/arch/x86_64/fn._mm512_madd52lo_epu64.html>.
 //! The packed Fq2 formula products and radix correction are local adaptations.
 
-#![allow(unused_unsafe)]
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use super::{math::add_lazy, types::FieldElement8x52};
+use super::{
+    math::{add_lazy, scale_by_16},
+    types::FieldElement8x52,
+};
 use core::arch::x86_64::*;
 
 // Mathematically pre-computed 52-bit modulus constants for the BN254 Fq field.
@@ -61,47 +63,6 @@ unsafe fn add_unreduced(a: &FieldElement8x52, b: &FieldElement8x52) -> FieldElem
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 unsafe fn add_8x(a: &FieldElement8x52, b: &FieldElement8x52) -> FieldElement8x52 {
     cond_sub_modulus(&add_unreduced(a, b))
-}
-
-/// Multiplies each lane by `2^4`, renormalizing to 52-bit limbs.
-///
-/// Used to reconcile Montgomery radices: five 52-bit CIOS iterations divide by
-/// `2^260`, while the rest of the crate represents field elements with `R = 2^256`.
-///
-/// The input must be below `2^256`, which keeps the scaled result inside the
-/// 260-bit window spanned by five limbs, so no significant bits are discarded.
-#[inline]
-#[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
-unsafe fn scale_by_16(x: &FieldElement8x52) -> FieldElement8x52 {
-    let mask_52 = _mm512_set1_epi64(0xFFFFFFFFFFFFF);
-
-    let s0 = _mm512_slli_epi64(x.l0, 4);
-    let s1 = _mm512_slli_epi64(x.l1, 4);
-    let s2 = _mm512_slli_epi64(x.l2, 4);
-    let s3 = _mm512_slli_epi64(x.l3, 4);
-    let s4 = _mm512_slli_epi64(x.l4, 4);
-
-    let mut out = FieldElement8x52::zero();
-
-    let carry0 = _mm512_srli_epi64(s0, 52);
-    out.l0 = _mm512_and_si512(s0, mask_52);
-
-    let s1 = _mm512_add_epi64(s1, carry0);
-    let carry1 = _mm512_srli_epi64(s1, 52);
-    out.l1 = _mm512_and_si512(s1, mask_52);
-
-    let s2 = _mm512_add_epi64(s2, carry1);
-    let carry2 = _mm512_srli_epi64(s2, 52);
-    out.l2 = _mm512_and_si512(s2, mask_52);
-
-    let s3 = _mm512_add_epi64(s3, carry2);
-    let carry3 = _mm512_srli_epi64(s3, 52);
-    out.l3 = _mm512_and_si512(s3, mask_52);
-
-    let s4 = _mm512_add_epi64(s4, carry3);
-    out.l4 = _mm512_and_si512(s4, mask_52);
-
-    out
 }
 
 /// Subtracts the modulus from every lane whose value is at least the modulus.

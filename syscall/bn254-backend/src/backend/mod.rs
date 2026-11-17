@@ -31,7 +31,7 @@ pub use u256::U256;
 pub type Backend<F> = portable::PortableBackend<F>;
 
 mod frobenius;
-pub(crate) use frobenius::{BETA_SQUARED_MONT, PSI_X};
+pub(crate) use frobenius::{BETA_MONT, BETA_SQUARED_MONT, PSI_X};
 
 #[cfg(test)]
 #[path = "../../tests/common/tower.rs"]
