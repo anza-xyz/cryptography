@@ -27,29 +27,44 @@ type Artifacts struct {
 // Write stores vk.bin, proof.bin and public.bin under dir, creating it.
 // It returns the written sizes by file name.
 func Write(dir string, a Artifacts) (map[string]int, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	sizes, err := WriteVK(dir, "vk.bin", a.VK)
+	if err != nil {
 		return nil, err
 	}
-	sizes := map[string]int{}
-	write := func(name string, f func(w io.Writer) error) error {
-		var buf bytes.Buffer
-		if err := f(&buf); err != nil {
-			return fmt.Errorf("%s: %w", name, err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, name), buf.Bytes(), 0o644); err != nil {
-			return err
-		}
-		sizes[name] = buf.Len()
-		return nil
-	}
-	if err := write("vk.bin", func(w io.Writer) error { _, err := a.VK.WriteTo(w); return err }); err != nil {
+	more, err := WriteProof(dir, "proof.bin", "public.bin", a.Proof, a.Public)
+	if err != nil {
 		return nil, err
 	}
-	if err := write("proof.bin", func(w io.Writer) error { _, err := a.Proof.WriteTo(w); return err }); err != nil {
+	for k, v := range more {
+		sizes[k] = v
+	}
+	return sizes, nil
+}
+
+// WriteVK stores a verifying key under dir/name, creating dir.
+func WriteVK(dir, name string, vk groth16.VerifyingKey) (map[string]int, error) {
+	w := writer{dir: dir, sizes: map[string]int{}}
+	if err := w.mkdir(); err != nil {
 		return nil, err
 	}
-	if err := write("public.bin", func(w io.Writer) error {
-		data, err := a.Public.MarshalBinary()
+	if err := w.write(name, func(w io.Writer) error { _, err := vk.WriteTo(w); return err }); err != nil {
+		return nil, err
+	}
+	return w.sizes, nil
+}
+
+// WriteProof stores a proof and its public witness under dir, creating dir.
+// Several proofs for one key share a directory by using distinct names.
+func WriteProof(dir, proofName, publicName string, proof groth16.Proof, public witness.Witness) (map[string]int, error) {
+	w := writer{dir: dir, sizes: map[string]int{}}
+	if err := w.mkdir(); err != nil {
+		return nil, err
+	}
+	if err := w.write(proofName, func(w io.Writer) error { _, err := proof.WriteTo(w); return err }); err != nil {
+		return nil, err
+	}
+	if err := w.write(publicName, func(w io.Writer) error {
+		data, err := public.MarshalBinary()
 		if err != nil {
 			return err
 		}
@@ -58,5 +73,24 @@ func Write(dir string, a Artifacts) (map[string]int, error) {
 	}); err != nil {
 		return nil, err
 	}
-	return sizes, nil
+	return w.sizes, nil
+}
+
+type writer struct {
+	dir   string
+	sizes map[string]int
+}
+
+func (w *writer) mkdir() error { return os.MkdirAll(w.dir, 0o755) }
+
+func (w *writer) write(name string, f func(w io.Writer) error) error {
+	var buf bytes.Buffer
+	if err := f(&buf); err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	if err := os.WriteFile(filepath.Join(w.dir, name), buf.Bytes(), 0o644); err != nil {
+		return err
+	}
+	w.sizes[name] = buf.Len()
+	return nil
 }
