@@ -1,0 +1,50 @@
+# Standalone crate, like the e2e crate next to it: not a member of the
+# repository root workspace. The e2e crate depends on it by path (host build,
+# `instruction` feature) and loads its SBF artifact from `target/deploy/`.
+[workspace]
+
+[package]
+name = "private-tx-pool"
+description = "Pinocchio SBF program: one shielded pool (commitment tree, nullifier set, supply) gated by C_mint / C_burn proofs verified through the Groth16 verifier program"
+version = "0.0.0"
+edition = "2021"
+authors = ["Anza Maintainers <maintainers@anza.xyz>"]
+repository = "https://github.com/anza-xyz/cryptography"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# Client-side instruction builders and PDA derivations. Pulls in `std`; keep
+# it off for the SBF build.
+instruction = ["dep:solana-instruction"]
+# Build the library without the program entrypoint (for host-side consumers
+# that also link another program).
+no-entrypoint = []
+
+[dependencies]
+# `copy` makes `AccountView` `Copy`; `cpi` is the verifier and system-program
+# invocations.
+pinocchio = { version = "0.11.2", default-features = false, features = ["copy", "cpi"] }
+pinocchio-system = "0.6.1"
+# `sol_poseidon` on-chain, light-poseidon on the host, behind one `hashv`:
+# the same circom-parameter Poseidon the circuits use.
+solana-poseidon = "5.0.1"
+# Verify-instruction tag and wire sizes, pinned to the revision the e2e crate
+# and ../Makefile pin.
+solana-groth16-verify = { git = "https://github.com/solana-program/groth16-verifier-program", rev = "8bd06b4fb07f636c1872993a99f1a296b23b69fa", default-features = false }
+solana-instruction = { version = "3.3.0", optional = true }
+
+# `find_program_address` is a syscall on SBF; off-chain it needs the
+# `curve25519` implementation so the lib compiles on the host by itself.
+[target.'cfg(not(target_os = "solana"))'.dependencies]
+solana-address = { version = "2.7.0", features = ["curve25519"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(target_arch, values("bpf"))',
+] }
