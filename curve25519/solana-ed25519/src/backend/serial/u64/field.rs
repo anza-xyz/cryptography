@@ -617,6 +617,19 @@ impl FieldElement51 {
 
         square
     }
+
+    /// Returns `k` times this field element, for `k < 2^17`.
+    pub(crate) fn mul_small(&self, k: u64) -> FieldElement51 {
+        debug_assert!(k < 1 << 17);
+        let a = &self.0;
+        FieldElement51(carry_serial([
+            m(a[0], k),
+            m(a[1], k),
+            m(a[2], k),
+            m(a[3], k),
+            m(a[4], k),
+        ]))
+    }
 }
 
 #[cfg(test)]
