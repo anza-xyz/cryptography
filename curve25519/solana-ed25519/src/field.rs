@@ -430,17 +430,17 @@ impl FieldElement {
         r
     }
 
+    /// The Legendre symbol of this field element in constant time: `1` for a
+    /// nonzero square, `-1` for a nonsquare and `0` for zero.
+    pub(crate) fn legendre(&self) -> i64 {
+        backend::serial::u64::legendre::legendre(self)
+    }
+
     /// Test quadratic residuosity, accepting zero, with a fixed schedule.
     pub(crate) fn is_square(&self) -> Choice {
-        // For nonzero w, Euler's criterion says w^((p-1)/2) = 1 iff
-        // w is square. Equivalently, w^((p-1)/4) is 1 or -1. Since
-        // (p-1)/4 = 2 * (p-5)/8 + 1, reuse the square-root exponent chain.
-        // Zero produces zero and is also a square.
-        let quartic = &self.pow_p58().square() * self;
-        let bytes = quartic.to_bytes();
-        bytes.ct_eq(&FieldElement::ONE.to_bytes())
-            | bytes.ct_eq(&FieldElement::MINUS_ONE.to_bytes())
-            | bytes.ct_eq(&[0u8; 32])
+        let symbol = self.legendre();
+        // symbol is -1, 0 or 1; it is a square unless the sign bit is set.
+        !Choice::from(((symbol >> 63) & 1) as u8)
     }
 
     /// Given `FieldElements` `u` and `v`, compute either `sqrt(u/v)`
@@ -721,6 +721,18 @@ mod test {
         }
     }
 
+    /// Euler's criterion, independent of the binary GCD: for nonzero w,
+    /// w^((p-1)/2) = 1 iff w is square. Equivalently, w^((p-1)/4) is 1 or -1.
+    /// Since (p-1)/4 = 2 * (p-5)/8 + 1, this reuses the square-root exponent
+    /// chain. Zero produces zero and is also a square.
+    fn is_square_euler(w: &FieldElement) -> Choice {
+        let quartic = &w.pow_p58().square() * w;
+        let bytes = quartic.to_bytes();
+        bytes.ct_eq(&FieldElement::ONE.to_bytes())
+            | bytes.ct_eq(&FieldElement::MINUS_ONE.to_bytes())
+            | bytes.ct_eq(&[0u8; 32])
+    }
+
     #[test]
     fn square_test_matches_roots_and_known_residue_classes() {
         use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -753,6 +765,11 @@ mod test {
                 bool::from(FieldElement::sqrt_ratio_i(&x, &FieldElement::ONE).0),
                 "x = {x:?}"
             );
+            assert_eq!(
+                bool::from(x.is_square()),
+                bool::from(is_square_euler(&x)),
+                "x = {x:?}"
+            );
             let square = x.square();
             assert!(bool::from(square.is_square()));
             // sqrt(-1) is nonsquare since p = 5 mod 8. Multiplication by it
@@ -763,6 +780,70 @@ mod test {
                 "x = {x:?}"
             );
         }
+    }
+
+    #[test]
+    fn legendre_matches_euler_on_edge_cases_and_random_inputs() {
+        use rand::{Rng, SeedableRng, rngs::StdRng};
+        let mut rng = StdRng::seed_from_u64(0x6c65_6765_6e64_7265);
+        let mut inputs = std::vec![
+            FieldElement::ZERO,
+            FieldElement::ONE,
+            FieldElement::MINUS_ONE,
+            constants::SQRT_M1,
+            constants::EDWARDS_D,
+        ];
+        // 0..=63, p - 64..=p - 1 and the non-canonical encodings p..=2^255 - 1.
+        for k in 0u8..64 {
+            let mut bytes = [0u8; 32];
+            bytes[0] = k;
+            inputs.push(FieldElement::from_bytes(&bytes));
+        }
+        for low in 0xedu8 - 64..=0xff {
+            let mut bytes = [0xffu8; 32];
+            bytes[0] = low;
+            bytes[31] = 0x7f;
+            inputs.push(FieldElement::from_bytes(&bytes));
+        }
+        // Every power of two and its neighbours.
+        for bit in 0..255 {
+            let mut bytes = [0u8; 32];
+            bytes[bit / 8] = 1 << (bit % 8);
+            let power = FieldElement::from_bytes(&bytes);
+            inputs.extend([
+                power,
+                &power - &FieldElement::ONE,
+                &power + &FieldElement::ONE,
+                -&power,
+            ]);
+        }
+        let mut bytes = [0u8; 32];
+        for _ in 0..16384 {
+            rng.fill_bytes(&mut bytes);
+            inputs.push(FieldElement::from_bytes(&bytes));
+        }
+        let mut seen = [0usize; 3];
+        for x in &inputs {
+            let symbol = x.legendre();
+            let expected = if bool::from(x.is_zero()) {
+                0
+            } else if bool::from(is_square_euler(x)) {
+                1
+            } else {
+                -1
+            };
+            assert_eq!(symbol, expected, "x = {x:?}");
+            seen[(symbol + 1) as usize] += 1;
+            // Multiplicativity against a random second operand.
+            rng.fill_bytes(&mut bytes);
+            let y = FieldElement::from_bytes(&bytes);
+            assert_eq!(
+                (x * &y).legendre(),
+                symbol * y.legendre(),
+                "x = {x:?}, y = {y:?}"
+            );
+        }
+        assert!(seen[0] > 1000 && seen[1] > 0 && seen[2] > 1000, "{seen:?}");
     }
 
     #[test]
