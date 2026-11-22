@@ -377,6 +377,61 @@ fn simd0376_rejects_all_small_order_combinations() {
     assert_eq!(checked, 196);
 }
 
+/// A signer can make any small-order `R` satisfy the cofactored equation: with
+/// `A = [a]B` and `s = h·a`, `[s]B - R - [h]A = -R`, which `[8]` sends to the
+/// identity for every message. `A` passes steps 1 and 5, so only steps 2 and
+/// 5 for `R` reject these signatures, individually and in a batch.
+#[test]
+#[allow(non_snake_case)]
+fn simd0376_rejects_small_order_r_when_equation_holds() {
+    use crate::constants::ED25519_BASEPOINT_POINT;
+    use crate::ed_sigs::{Error, Signature, VerificationKey, VerificationKeyBytes};
+    use crate::traits::IsIdentity;
+    use core::convert::TryFrom;
+
+    let a = Scalar::from(0x5eed_u64);
+    let A = ED25519_BASEPOINT_POINT * a;
+    let A_bytes = A.compress().to_bytes();
+    let vkb = VerificationKeyBytes::from(A_bytes);
+    let vk = VerificationKey::try_from(vkb).expect("A decodes");
+    let msg = b"pay attacker";
+
+    for R_bytes in low_order_encodings() {
+        let R = CompressedEdwardsY(R_bytes).decompress().expect("decodes");
+        let h = crate::ed_sigs::challenge_scalar(&R_bytes, &A_bytes, msg);
+        let s = h * a;
+        assert!(
+            (ED25519_BASEPOINT_POINT * s - R - A * h)
+                .mul_by_cofactor()
+                .is_identity()
+        );
+
+        let mut sig_bytes = [0u8; 64];
+        sig_bytes[..32].copy_from_slice(&R_bytes);
+        sig_bytes[32..].copy_from_slice(s.as_bytes());
+        let sig = Signature::from(sig_bytes);
+        assert_eq!(
+            vk.verify(&sig, msg),
+            Err(Error::InvalidSignature),
+            "small-order R={} accepted",
+            hex::encode(R_bytes),
+        );
+
+        #[cfg(all(feature = "alloc", feature = "rand_core"))]
+        {
+            use crate::ed_sigs::batch;
+            let mut bv = batch::Verifier::new();
+            bv.queue((vkb, sig, msg));
+            assert_eq!(
+                bv.verify(),
+                Err(Error::InvalidSignature),
+                "batch accepted small-order R={}",
+                hex::encode(R_bytes),
+            );
+        }
+    }
+}
+
 /// SIMD-0376 singles this case out: the all-zero public key
 /// (`Pubkey::default()`, the System Program ID) paired with the all-zero
 /// 64-byte signature must be rejected for every message.
