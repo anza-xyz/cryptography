@@ -6,6 +6,7 @@ import (
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
+	"github.com/consensys/gnark-crypto/ecc/bn254/twistededwards"
 	tedwards "github.com/consensys/gnark-crypto/ecc/twistededwards"
 	"github.com/consensys/gnark/frontend"
 	gadgetted "github.com/consensys/gnark/std/algebra/native/twistededwards"
@@ -52,6 +53,36 @@ func TestRecipientRoundTrip(t *testing.T) {
 	if _, ok := DecryptNote(&alice, tampered[:], cm); ok {
 		t.Fatal("tampered blob accepted")
 	}
+	// An epk with a small-order component is rejected, even when the blob
+	// is encrypted under the shared secret the recipient would derive.
+	esk := fr.NewElement(5)
+	mixed := EncryptNoteWith(esk, &n)
+	gd := n.GD()
+	epk := mul(&gd, esk)
+	ss := mul(&n.PKD, esk)
+	xorKeystream(mixed[fr.Bytes:], kdf(&ss, &epk)) // back to the plaintext
+	var order2 twistededwards.PointAffine
+	order2.Y.SetOne()
+	order2.Y.Neg(&order2.Y)
+	epk.Add(&epk, &order2)
+	if !epk.IsOnCurve() || epk.IsInSubGroup() {
+		t.Fatal("test point should be on the curve, outside the subgroup")
+	}
+	ss = mul(&epk, alice.IVK())
+	eb := epk.Bytes()
+	copy(mixed[:fr.Bytes], eb[:])
+	xorKeystream(mixed[fr.Bytes:], kdf(&ss, &epk))
+	if _, ok := DecryptNote(&alice, mixed[:], cm); ok {
+		t.Fatal("epk outside the prime-order subgroup accepted")
+	}
+	// So is the identity.
+	var zero twistededwards.PointAffine
+	zero.Y.SetOne()
+	zb := zero.Bytes()
+	copy(mixed[:fr.Bytes], zb[:])
+	if _, ok := DecryptNote(&alice, mixed[:], cm); ok {
+		t.Fatal("identity epk accepted")
+	}
 	// Two encryptions of the same note differ (fresh esk).
 	blob2, _ := EncryptNote(rand.Reader, &n)
 	if blob == blob2 {
@@ -80,7 +111,7 @@ func TestAuditRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := range notes {
-		if got[i] != *notes[i] {
+		if *got[i] != *notes[i] {
 			t.Fatalf("note %d: decrypted %+v, want %+v", i, got[i], *notes[i])
 		}
 	}
@@ -88,8 +119,24 @@ func TestAuditRoundTrip(t *testing.T) {
 	var other fr.Element
 	other.SetUint64(778)
 	wrong := NewAuditKey(other)
-	if dec, err := wrong.AuditDecrypt(&epk, cts); err == nil && dec[0] == *notes[0] {
+	if dec, err := wrong.AuditDecrypt(&epk, cts); err == nil && *dec[0] == *notes[0] {
 		t.Fatal("wrong key decrypted")
+	}
+	// A note whose pk_d.y has no curve point is reported alone.
+	bad := *notes[0]
+	for {
+		if _, ok := xFromY(bad.PKD.Y); !ok {
+			break
+		}
+		bad.PKD.Y.Add(&bad.PKD.Y, new(fr.Element).SetOne())
+	}
+	epkBad, ctsBad := AuditEncrypt(esk, &custodian.PK, &bad, notes[1])
+	got, err = custodian.AuditDecrypt(&epkBad, ctsBad)
+	if err == nil || len(got) != 2 || got[0] != nil {
+		t.Fatalf("malformed note not reported: %v, %v", got, err)
+	}
+	if got[1] == nil || *got[1] != *notes[1] {
+		t.Fatal("a malformed note hid the others")
 	}
 	// Blob round trip.
 	blob := AuditBlob(&epk, cts)
@@ -107,16 +154,36 @@ func TestEncHashBindsEveryByte(t *testing.T) {
 	for i := range a {
 		a[i] = byte(i)
 	}
-	base := EncHash(a[:RecipientBlobSize], a[RecipientBlobSize:])
+	base, err := EncHash(a[:RecipientBlobSize], a[RecipientBlobSize:])
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, i := range []int{0, 30, 31, 82, 83, 2*RecipientBlobSize - 1} {
 		b := append([]byte{}, a...)
 		b[i] ^= 1
-		if h := EncHash(b); h.Equal(&base) {
+		if h, err := EncHash(b); err != nil || h.Equal(&base) {
 			t.Fatalf("byte %d not bound", i)
 		}
 	}
-	if h := EncHash(a); !h.Equal(&base) {
+	if h, err := EncHash(a); err != nil || !h.Equal(&base) {
 		t.Fatal("hash depends on how the blobs are split")
+	}
+}
+
+func TestHashWidthErrors(t *testing.T) {
+	// 11 chunks plus the tag fit; 12 do not.
+	if _, err := EncHash(make([]byte, 11*ChunkSize)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EncHash(make([]byte, 11*ChunkSize+1)); err == nil {
+		t.Fatal("EncHash accepted more chunks than Poseidon takes")
+	}
+	var p twistededwards.PointAffine
+	if _, err := AuditHash(&p, &p, make([]fr.Element, 2*AuditElements), fr.Element{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AuditHash(&p, &p, make([]fr.Element, 3*AuditElements)); err == nil {
+		t.Fatal("AuditHash accepted more elements than Poseidon takes")
 	}
 }
 
@@ -163,7 +230,10 @@ func TestAuditGadgetMatchesNative(t *testing.T) {
 	var esk fr.Element
 	esk.SetUint64(123456789)
 	epk, cts := AuditEncrypt(esk, &custodian.PK, &n0, &n1)
-	h := AuditHash(&custodian.PK, &epk, cts)
+	h, err := AuditHash(&custodian.PK, &epk, cts)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	valid := &auditCircuit{
 		AuditHash: h,
@@ -176,12 +246,27 @@ func TestAuditGadgetMatchesNative(t *testing.T) {
 	wrongValue.Outputs[0].Value = 43
 	wrongESK := *valid
 	wrongESK.ESK = 1
+	// A pk_d off the curve is rejected even with its matching hash.
+	off := n1
+	off.PKD.Y.Add(&off.PKD.Y, new(fr.Element).SetOne())
+	if off.PKD.IsOnCurve() {
+		t.Fatal("test pk_d should be off the curve")
+	}
+	epkOff, ctsOff := AuditEncrypt(esk, &custodian.PK, &n0, &off)
+	hOff, err := AuditHash(&custodian.PK, &epkOff, ctsOff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	offCurve := *valid
+	offCurve.AuditHash = hOff
+	offCurve.Outputs[1] = outputVars(&off)
 
 	assert := test.NewAssert(t)
 	assert.CheckCircuit(&auditCircuit{},
 		test.WithValidAssignment(valid),
 		test.WithInvalidAssignment(&wrongValue),
 		test.WithInvalidAssignment(&wrongESK),
+		test.WithInvalidAssignment(&offCurve),
 		test.WithCurves(ecc.BN254),
 		test.NoFuzzing(),
 	)
@@ -190,7 +275,7 @@ func TestAuditGadgetMatchesNative(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got[0] != n0 || got[1] != n1 {
+	if *got[0] != n0 || *got[1] != n1 {
 		t.Fatal("decrypted notes differ from the circuit's outputs")
 	}
 }

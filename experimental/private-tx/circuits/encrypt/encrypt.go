@@ -40,6 +40,7 @@
 package encrypt
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -141,12 +142,17 @@ func xorKeystream(buf []byte, key fr.Element) {
 // DecryptNote trial-decrypts blob with fvk and returns the note if it
 // recommits to cm. The note's pk_d is derived from d with ivk, so a note
 // addressed to someone else fails the commitment check.
+//
+// epk must be a non-identity point of the prime-order subgroup, as every
+// honest epk = [esk]·g_d is. With a small-order component T in epk the
+// shared secret would be the honest one only when [ivk]·T is the identity,
+// and whether the wallet finds the note would leak ivk mod the cofactor.
 func DecryptNote(fvk *note.FullViewingKey, blob []byte, cm fr.Element) (note.Note, bool) {
 	if len(blob) != RecipientBlobSize {
 		return note.Note{}, false
 	}
 	var epk twistededwards.PointAffine
-	if _, err := epk.SetBytes(blob[:fr.Bytes]); err != nil || !epk.IsOnCurve() {
+	if _, err := epk.SetBytes(blob[:fr.Bytes]); err != nil || !epk.IsOnCurve() || !epk.IsInSubGroup() || epk.IsZero() {
 		return note.Note{}, false
 	}
 	ss := mul(&epk, fvk.IVK())
@@ -176,8 +182,9 @@ func DecryptNote(fvk *note.FullViewingKey, blob []byte, cm fr.Element) (note.Not
 
 // EncHash binds recipient blobs into one field element: the concatenation
 // in 31-byte big-endian chunks, zero-padded, under ENCH. The program
-// recomputes it from the instruction data.
-func EncHash(blobs ...[]byte) fr.Element {
+// recomputes it from the instruction data. It fails if the blobs need more
+// than poseidon.MaxInputs-1 chunks.
+func EncHash(blobs ...[]byte) (fr.Element, error) {
 	var all []byte
 	for _, b := range blobs {
 		all = append(all, b...)
@@ -192,7 +199,7 @@ func EncHash(blobs ...[]byte) fr.Element {
 		e.SetBytes(chunk[:])
 		inputs = append(inputs, e)
 	}
-	return poseidon.MustHash(inputs...)
+	return poseidon.Hash(inputs...)
 }
 
 // AuditKey is the custodian's decryption key.
@@ -251,15 +258,18 @@ func AuditEncrypt(esk fr.Element, apk *twistededwards.PointAffine, notes ...*not
 	return epk, cts
 }
 
-// AuditDecrypt recovers the notes from epk and the ciphertext elements.
-// It fails if a plaintext is malformed (which a proof rules out).
-func (k *AuditKey) AuditDecrypt(epk *twistededwards.PointAffine, cts []fr.Element) ([]note.Note, error) {
+// AuditDecrypt recovers the notes from epk and the ciphertext elements, one
+// entry per note. A malformed plaintext (which a proof rules out) leaves a
+// nil entry and is reported in the error, joined with any others; the
+// remaining notes are still returned.
+func (k *AuditKey) AuditDecrypt(epk *twistededwards.PointAffine, cts []fr.Element) ([]*note.Note, error) {
 	if len(cts)%AuditElements != 0 {
 		return nil, fmt.Errorf("encrypt: %d ciphertext elements", len(cts))
 	}
 	ss := mul(epk, k.sk)
 	key := kdf(&ss, epk)
-	notes := make([]note.Note, 0, len(cts)/AuditElements)
+	notes := make([]*note.Note, 0, len(cts)/AuditElements)
+	var errs []error
 	for i := 0; i < len(cts); i += AuditElements {
 		var pt [AuditElements]fr.Element
 		for j := range pt {
@@ -268,11 +278,13 @@ func (k *AuditKey) AuditDecrypt(epk *twistededwards.PointAffine, cts []fr.Elemen
 		}
 		n, err := unpack(pt)
 		if err != nil {
-			return nil, err
+			errs = append(errs, fmt.Errorf("note %d: %w", i/AuditElements, err))
+			notes = append(notes, nil)
+			continue
 		}
-		notes = append(notes, n)
+		notes = append(notes, &n)
 	}
-	return notes, nil
+	return notes, errors.Join(errs...)
 }
 
 func unpack(pt [AuditElements]fr.Element) (note.Note, error) {
@@ -331,11 +343,12 @@ func xFromY(y fr.Element) (fr.Element, bool) {
 }
 
 // AuditHash is Poseidon(AUDIT, apk.x, apk.y, epk.x, epk.y, cts..., extra...).
-func AuditHash(apk, epk *twistededwards.PointAffine, cts []fr.Element, extra ...fr.Element) fr.Element {
+// It fails if that is more than poseidon.MaxInputs elements.
+func AuditHash(apk, epk *twistededwards.PointAffine, cts []fr.Element, extra ...fr.Element) (fr.Element, error) {
 	inputs := []fr.Element{domain.Tag(domain.AUDIT), apk.X, apk.Y, epk.X, epk.Y}
 	inputs = append(inputs, cts...)
 	inputs = append(inputs, extra...)
-	return poseidon.MustHash(inputs...)
+	return poseidon.Hash(inputs...)
 }
 
 // OutputVars is an output note as the audit gadget needs it. Value must be
@@ -350,6 +363,10 @@ type OutputVars struct {
 // AuditGadget constrains the audit ciphertext of the outputs under apk with
 // ephemeral secret esk and returns audit_hash. extra is appended to the
 // hash, for statements that bind more (C_mint binds the recipient blob).
+//
+// Each output's pk_d is asserted to be on the curve: the ciphertext carries
+// only pk_d.y and the parity of x, so the custodian could not recover an
+// off-curve pk_d.
 func AuditGadget(api frontend.API, curve gadgetted.Curve, apk gadgetted.Point, esk frontend.Variable, outputs []OutputVars, extra ...frontend.Variable) (frontend.Variable, error) {
 	base := gadgetted.Point{X: curve.Params().Base[0], Y: curve.Params().Base[1]}
 	// Complete double-and-add (see burn.go on why not ScalarMul).
@@ -361,6 +378,7 @@ func AuditGadget(api frontend.API, curve gadgetted.Curve, apk gadgetted.Point, e
 	}
 	inputs := []frontend.Variable{domain.Tag(domain.AUDIT), apk.X, apk.Y, epk.X, epk.Y}
 	for i, o := range outputs {
+		curve.AssertIsOnCurve(o.PKD)
 		xbits := api.ToBinary(o.PKD.X)
 		shift152 := new(big.Int).Lsh(big.NewInt(1), 152)
 		shift88 := new(big.Int).Lsh(big.NewInt(1), 88)
