@@ -30,9 +30,7 @@ fn is_canonical(v: &U256) -> bool {
 }
 
 fn cpu_supported() -> bool {
-    let supported = std::is_x86_feature_detected!("avx512f")
-        && std::is_x86_feature_detected!("avx512dq")
-        && std::is_x86_feature_detected!("avx512ifma");
+    let supported = solana_bn254_backend::backend::avx512::ifma_supported();
     assert!(
         supported || std::env::var_os("BN254_REQUIRE_IFMA").is_none(),
         "BN254_REQUIRE_IFMA is set, but the CPU lacks AVX-512 IFMA"

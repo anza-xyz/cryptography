@@ -17,13 +17,15 @@
 //! This "lazy reduction" unlocks world-class cryptographic throughput for operations
 //! like Poseidon dense matrix multiplications and Batched Multi-Miller Loops.
 //!
-//! Every kernel requires AVX-512 F, DQ and IFMA on the executing CPU. Crate
+//! Every kernel requires AVX-512 F, DQ and IFMA on the executing CPU, and the
+//! features Rust enables along with them; `ifma_supported` checks them all. Crate
 //! callers check `cpu::has_ifma()` before entering this module.
 
 pub mod math;
 pub mod pack;
 pub mod types;
 
+pub use super::cpu::ifma_supported;
 pub use types::FieldElement8x52;
 
 pub(crate) mod fq;
@@ -33,9 +35,7 @@ pub(crate) mod fq;
 /// the kernels directly, so `bn254_disable` does not skip them.
 #[cfg(test)]
 pub(crate) fn test_cpu_supported() -> bool {
-    let supported = std::is_x86_feature_detected!("avx512f")
-        && std::is_x86_feature_detected!("avx512dq")
-        && std::is_x86_feature_detected!("avx512ifma");
+    let supported = ifma_supported();
     assert!(
         supported || std::env::var_os("BN254_REQUIRE_IFMA").is_none(),
         "BN254_REQUIRE_IFMA is set, but the CPU lacks AVX-512 IFMA"
