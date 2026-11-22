@@ -241,7 +241,9 @@ mod tests {
         let coefficients = gt.to_base_prime_field_elements().collect::<Vec<_>>();
         assert_eq!(coefficients.len(), 12);
         for (chunk, c) in bytes
-            .chunks_exact_mut(ALT_BN128_FIELD_SIZE)
+            .as_chunks_mut::<ALT_BN128_FIELD_SIZE>()
+            .0
+            .iter_mut()
             .zip(coefficients)
         {
             chunk.copy_from_slice(&c.into_bigint().to_bytes_le());
