@@ -3,7 +3,7 @@ use {
         Endianness, PodG1, PodG2, ALT_BN128_FIELD_SIZE, ALT_BN128_G1_POINT_SIZE,
         ALT_BN128_G2_POINT_SIZE, G1, G2,
     },
-    ark_bn254::{self, Config},
+    ark_bn254::{self, Config, Fq12},
     ark_ec::{bn::Bn, pairing::Pairing},
     ark_ff::{BigInteger, BigInteger256, One},
     ark_serialize::CanonicalSerialize,
@@ -129,10 +129,7 @@ pub fn alt_bn128_versioned_pairing_map(
 
 /// Decodes and validates a sequence of `(G1, G2)` pairs and computes the
 /// product of their pairings.
-fn multi_pairing(
-    input: &[u8],
-    endianness: &Endianness,
-) -> Option<<Bn<Config> as Pairing>::TargetField> {
+fn multi_pairing(input: &[u8], endianness: &Endianness) -> Option<Fq12> {
     #[allow(clippy::manual_is_multiple_of)]
     if input.len() % ALT_BN128_PAIRING_ELEMENT_SIZE != 0 {
         return None;
@@ -171,7 +168,8 @@ fn multi_pairing(
 mod tests {
     use {
         super::*,
-        ark_bn254::{Fq12, Fr, G1Affine, G2Affine},
+        crate::ALT_BN128_FQ2_SIZE,
+        ark_bn254::{Fr, G1Affine, G2Affine},
         ark_ec::{AffineRepr, CurveGroup},
         ark_ff::{Field, PrimeField},
         std::ops::Mul,
@@ -180,8 +178,10 @@ mod tests {
     fn g1_le(p: &G1Affine) -> [u8; ALT_BN128_G1_POINT_SIZE] {
         let mut bytes = [0u8; ALT_BN128_G1_POINT_SIZE];
         if !p.is_zero() {
-            p.x.serialize_uncompressed(&mut bytes[..32]).unwrap();
-            p.y.serialize_uncompressed(&mut bytes[32..]).unwrap();
+            p.x.serialize_uncompressed(&mut bytes[..ALT_BN128_FIELD_SIZE])
+                .unwrap();
+            p.y.serialize_uncompressed(&mut bytes[ALT_BN128_FIELD_SIZE..])
+                .unwrap();
         }
         bytes
     }
@@ -189,8 +189,10 @@ mod tests {
     fn g2_le(q: &G2Affine) -> [u8; ALT_BN128_G2_POINT_SIZE] {
         let mut bytes = [0u8; ALT_BN128_G2_POINT_SIZE];
         if !q.is_zero() {
-            q.x.serialize_uncompressed(&mut bytes[..64]).unwrap();
-            q.y.serialize_uncompressed(&mut bytes[64..]).unwrap();
+            q.x.serialize_uncompressed(&mut bytes[..ALT_BN128_FQ2_SIZE])
+                .unwrap();
+            q.y.serialize_uncompressed(&mut bytes[ALT_BN128_FQ2_SIZE..])
+                .unwrap();
         }
         bytes
     }
@@ -204,22 +206,44 @@ mod tests {
             let q_le = g2_le(q);
             le.extend_from_slice(&p_le);
             le.extend_from_slice(&q_le);
-            be.extend_from_slice(&crate::swap_endianness::<32, 64>(p_le));
-            be.extend_from_slice(&crate::swap_endianness::<64, 128>(q_le));
+            be.extend_from_slice(&crate::swap_endianness::<
+                ALT_BN128_FIELD_SIZE,
+                ALT_BN128_G1_POINT_SIZE,
+            >(p_le));
+            be.extend_from_slice(&crate::swap_endianness::<
+                ALT_BN128_FQ2_SIZE,
+                ALT_BN128_G2_POINT_SIZE,
+            >(q_le));
         }
         (le, be)
     }
 
-    fn pairing_map(input: &[u8], endianness: Endianness) -> Option<[u8; 384]> {
+    fn pairing_map(
+        input: &[u8],
+        endianness: Endianness,
+    ) -> Option<[u8; ALT_BN128_PAIRING_MAP_OUTPUT_SIZE]> {
         alt_bn128_versioned_pairing_map(VersionedPairingMap::V0, input, endianness)
     }
 
+    fn gt_identity(endianness: Endianness) -> [u8; ALT_BN128_GT_ELEMENT_SIZE] {
+        let mut bytes = [0u8; ALT_BN128_GT_ELEMENT_SIZE];
+        let one_index = match endianness {
+            Endianness::LE => 0,
+            Endianness::BE => ALT_BN128_GT_ELEMENT_SIZE - 1,
+        };
+        bytes[one_index] = 1;
+        bytes
+    }
+
     /// Independent encoding of an `Fq12` element, coefficient by coefficient.
-    fn gt_le(gt: &Fq12) -> [u8; 384] {
-        let mut bytes = [0u8; 384];
+    fn gt_le(gt: &Fq12) -> [u8; ALT_BN128_GT_ELEMENT_SIZE] {
+        let mut bytes = [0u8; ALT_BN128_GT_ELEMENT_SIZE];
         let coefficients = gt.to_base_prime_field_elements().collect::<Vec<_>>();
         assert_eq!(coefficients.len(), 12);
-        for (chunk, c) in bytes.chunks_exact_mut(32).zip(coefficients) {
+        for (chunk, c) in bytes
+            .chunks_exact_mut(ALT_BN128_FIELD_SIZE)
+            .zip(coefficients)
+        {
             chunk.copy_from_slice(&c.into_bigint().to_bytes_le());
         }
         bytes
@@ -242,12 +266,60 @@ mod tests {
 
     #[test]
     fn pairing_map_empty_input_is_identity() {
-        let mut expected_le = [0u8; 384];
-        expected_le[0] = 1;
-        let mut expected_be = [0u8; 384];
-        expected_be[383] = 1;
-        assert_eq!(pairing_map(&[], Endianness::LE), Some(expected_le));
-        assert_eq!(pairing_map(&[], Endianness::BE), Some(expected_be));
+        assert_eq!(
+            pairing_map(&[], Endianness::LE),
+            Some(gt_identity(Endianness::LE))
+        );
+        assert_eq!(
+            pairing_map(&[], Endianness::BE),
+            Some(gt_identity(Endianness::BE))
+        );
+    }
+
+    #[test]
+    fn pairing_map_generator_matches_fixed_vector() {
+        assert_eq!(ALT_BN128_PAIRING_MAP_OUTPUT_SIZE, 384);
+
+        // Snapshot of Bn254::pairing(G1Affine::generator(), G2Affine::generator())
+        // from ark-bn254 0.5.0, with each base field coefficient encoded in LE.
+        // Keep these bytes fixed to detect changes to the pairing normalization
+        // or encoding when dependencies change.
+        let expected_le: [u8; ALT_BN128_GT_ELEMENT_SIZE] = [
+            0x95, 0x0e, 0x87, 0x9d, 0x73, 0x63, 0x1f, 0x5e, 0xb5, 0x78, 0x85, 0x89, 0xeb, 0x5f,
+            0x7e, 0xf8, 0xd6, 0x3e, 0x0a, 0x28, 0xde, 0x1b, 0xa0, 0x0d, 0xfe, 0x4c, 0xa9, 0xed,
+            0x3f, 0x25, 0x2b, 0x26, 0x4a, 0x8a, 0xfb, 0x8e, 0xb4, 0x34, 0x9d, 0xb4, 0x66, 0xed,
+            0x18, 0x09, 0xea, 0x4d, 0x7c, 0x39, 0xbd, 0xab, 0x79, 0x38, 0x82, 0x1f, 0x1b, 0x0a,
+            0x00, 0xa2, 0x95, 0xc7, 0x2c, 0x2d, 0xe0, 0x02, 0xe0, 0x1d, 0xbd, 0xfd, 0x02, 0x54,
+            0x13, 0x4e, 0xfc, 0xb1, 0xec, 0x87, 0x73, 0x95, 0xd2, 0x5f, 0x93, 0x77, 0x19, 0xb3,
+            0x44, 0xad, 0xb1, 0xa5, 0x8d, 0x12, 0x9b, 0xe2, 0xd6, 0xf2, 0xa9, 0x13, 0x2b, 0x16,
+            0xa1, 0x6e, 0x8a, 0xb0, 0x30, 0xb1, 0x30, 0xe6, 0x9c, 0x69, 0xbd, 0x20, 0xb4, 0xc4,
+            0x59, 0x86, 0xe6, 0x74, 0x4a, 0x98, 0x31, 0x4b, 0x5c, 0x1a, 0x0f, 0x50, 0xfa, 0xa9,
+            0x0b, 0x04, 0xdb, 0xaf, 0x9e, 0xf8, 0xae, 0xee, 0xe3, 0xf5, 0x0b, 0xe3, 0x1c, 0x21,
+            0x0b, 0x59, 0x8f, 0x47, 0x52, 0xf0, 0x73, 0x98, 0x7f, 0x9d, 0x35, 0xbe, 0x8f, 0x67,
+            0x70, 0xd8, 0x3f, 0x2f, 0xfc, 0x0a, 0xf0, 0xd1, 0x8d, 0xd9, 0xd2, 0xdb, 0xcd, 0xf9,
+            0x43, 0x82, 0x5a, 0xcc, 0x12, 0xa7, 0xa9, 0xdd, 0xca, 0x45, 0xe6, 0x29, 0xd9, 0x62,
+            0xc6, 0xbd, 0x64, 0x90, 0x8c, 0x39, 0x30, 0xa5, 0x54, 0x1c, 0xfe, 0x29, 0x24, 0xdc,
+            0xc5, 0x58, 0x0d, 0x5c, 0xef, 0x7a, 0x4b, 0xfd, 0xec, 0x90, 0xa9, 0x1b, 0x59, 0x92,
+            0x6f, 0x85, 0x0d, 0x4a, 0x79, 0x23, 0xc0, 0x1a, 0x5a, 0x5d, 0xbf, 0x0f, 0x5c, 0x09,
+            0x4a, 0x2b, 0x9f, 0xb9, 0xd4, 0x15, 0x82, 0x0f, 0xa6, 0xb4, 0x0c, 0x59, 0xbb, 0x9e,
+            0xad, 0xe9, 0xc9, 0x53, 0x40, 0x7b, 0x0f, 0xc1, 0x1d, 0xa3, 0x50, 0xa9, 0xd8, 0x72,
+            0xca, 0xd6, 0xd3, 0x14, 0x29, 0x74, 0xca, 0x38, 0x58, 0x54, 0xaf, 0xdf, 0x5f, 0x58,
+            0x3c, 0x04, 0x23, 0x1a, 0xdc, 0x59, 0x57, 0xc8, 0x91, 0x4b, 0x6b, 0x20, 0xdc, 0x89,
+            0x66, 0x0e, 0xd7, 0xc3, 0xbb, 0xe7, 0xc0, 0x1d, 0x97, 0x2b, 0xe2, 0xd5, 0x3e, 0xcd,
+            0xb2, 0x7a, 0x1b, 0xcc, 0x16, 0xac, 0x61, 0x0d, 0xb9, 0x5a, 0xa7, 0xd2, 0x37, 0xc8,
+            0xff, 0x55, 0xa8, 0x98, 0xcb, 0x88, 0x64, 0x5a, 0x0e, 0x32, 0x53, 0x0b, 0x23, 0xd7,
+            0xeb, 0xf5, 0xda, 0xfd, 0xd7, 0x9b, 0x0f, 0x9c, 0x2a, 0xc4, 0xba, 0x07, 0xce, 0x18,
+            0xd3, 0xd1, 0x6c, 0xf3, 0x6e, 0x47, 0x91, 0x6c, 0x4c, 0xae, 0x5d, 0x08, 0xd3, 0xaf,
+            0xa8, 0x13, 0x97, 0x2c, 0x76, 0x9e, 0x85, 0x14, 0x53, 0x3e, 0x38, 0x0c, 0x94, 0x43,
+            0xb3, 0xe1, 0xee, 0x5c, 0x96, 0xfa, 0x3a, 0x0a, 0x73, 0xf3, 0x01, 0xb6, 0x26, 0x45,
+            0x47, 0x21, 0x52, 0x7b, 0xf9, 0x00,
+        ];
+        let mut expected_be = expected_le;
+        expected_be.reverse();
+
+        let (le, be) = encode(&[(G1Affine::generator(), G2Affine::generator())]);
+        assert_eq!(pairing_map(&le, Endianness::LE), Some(expected_le));
+        assert_eq!(pairing_map(&be, Endianness::BE), Some(expected_be));
     }
 
     #[test]
@@ -294,27 +366,55 @@ mod tests {
         // e(a G1, G2) * e(-a G1, G2) = 1
         let p = G1Affine::generator().mul(Fr::from(42u64)).into_affine();
         let q = G2Affine::generator();
-        let (le, be) = encode(&[(p, q), (-p, q)]);
+        for (pairs, is_identity) in [
+            (vec![], true),
+            (vec![(p, q), (-p, q)], true),
+            (vec![(p, q)], false),
+        ] {
+            let (le, be) = encode(&pairs);
+            assert_eq!(
+                pairing_map(&le, Endianness::LE).unwrap() == gt_identity(Endianness::LE),
+                is_identity
+            );
+            assert_eq!(
+                pairing_map(&be, Endianness::BE).unwrap() == gt_identity(Endianness::BE),
+                is_identity
+            );
 
-        let mut identity_le = [0u8; 384];
-        identity_le[0] = 1;
-        let mut identity_be = identity_le;
-        identity_be.reverse();
-        assert_eq!(pairing_map(&le, Endianness::LE), Some(identity_le));
-        assert_eq!(pairing_map(&be, Endianness::BE), Some(identity_be));
+            let mut flag_le = [0u8; ALT_BN128_PAIRING_OUTPUT_SIZE];
+            flag_le[0] = u8::from(is_identity);
+            let mut flag_be = flag_le;
+            flag_be.reverse();
+            assert_eq!(
+                alt_bn128_versioned_pairing(VersionedPairing::V1, &le, Endianness::LE),
+                Some(flag_le)
+            );
+            assert_eq!(
+                alt_bn128_versioned_pairing(VersionedPairing::V1, &be, Endianness::BE),
+                Some(flag_be)
+            );
+        }
+    }
 
-        let mut one_le = [0u8; 32];
-        one_le[0] = 1;
-        assert_eq!(
-            alt_bn128_versioned_pairing(VersionedPairing::V1, &le, Endianness::LE),
-            Some(one_le)
-        );
+    #[test]
+    fn pairing_check_rejects_deprecated_version() {
+        let (le, be) = encode(&sample_pairs());
+        for (input, endianness) in [
+            (&[][..], Endianness::LE),
+            (&[][..], Endianness::BE),
+            (&le[..], Endianness::LE),
+            (&be[..], Endianness::BE),
+        ] {
+            assert_eq!(
+                alt_bn128_versioned_pairing(VersionedPairing::V0, input, endianness),
+                None
+            );
+        }
     }
 
     #[test]
     fn pairing_map_point_at_infinity() {
-        let mut identity_le = [0u8; 384];
-        identity_le[0] = 1;
+        let identity_le = gt_identity(Endianness::LE);
 
         // all-zero encodings
         let (le, _) = encode(&[
@@ -325,11 +425,11 @@ mod tests {
 
         // infinity flag (bit 6 of the most significant byte of `y`)
         let (mut le, _) = encode(&[(G1Affine::generator(), G2Affine::generator())]);
-        le[63] |= 0x40;
+        le[ALT_BN128_G1_POINT_SIZE - 1] |= 0x40;
         assert_eq!(pairing_map(&le, Endianness::LE), Some(identity_le));
 
         // both flag bits set
-        le[63] |= 0xc0;
+        le[ALT_BN128_G1_POINT_SIZE - 1] |= 0xc0;
         assert_eq!(pairing_map(&le, Endianness::LE), None);
     }
 
@@ -338,9 +438,22 @@ mod tests {
         let (le, be) = encode(&sample_pairs());
 
         // length is not a multiple of the pair size
-        for len in [1, 191, 193, 383] {
+        for len in [
+            1,
+            ALT_BN128_PAIRING_ELEMENT_SIZE - 1,
+            ALT_BN128_PAIRING_ELEMENT_SIZE + 1,
+            le.len() - 1,
+        ] {
             assert_eq!(pairing_map(&le[..len], Endianness::LE), None);
             assert_eq!(pairing_map(&be[..len], Endianness::BE), None);
+            assert_eq!(
+                alt_bn128_versioned_pairing(VersionedPairing::V1, &le[..len], Endianness::LE),
+                None
+            );
+            assert_eq!(
+                alt_bn128_versioned_pairing(VersionedPairing::V1, &be[..len], Endianness::BE),
+                None
+            );
         }
 
         // G1 point not on the curve
@@ -350,12 +463,12 @@ mod tests {
 
         // G2 point not on the curve
         let mut bad = le.clone();
-        bad[64] ^= 1;
+        bad[ALT_BN128_G1_POINT_SIZE] ^= 1;
         assert_eq!(pairing_map(&bad, Endianness::LE), None);
 
         // field element not below the modulus
         let mut bad = be.clone();
-        bad[..32].fill(0xff);
+        bad[..ALT_BN128_FIELD_SIZE].fill(0xff);
         assert_eq!(pairing_map(&bad, Endianness::BE), None);
 
         // G2 point on the curve but outside the prime-order subgroup
