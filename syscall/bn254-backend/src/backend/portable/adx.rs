@@ -14,7 +14,7 @@ use crate::backend::{Field, U256};
 #[inline(always)]
 pub(super) unsafe fn mul<F: Field>(a: &U256, b: &U256) -> U256 {
     let (r0, r1, r2, r3): (u64, u64, u64, u64);
-    // SAFETY: the caller guarantees ADX/BMI2 on Linux x86_64. Each input pointer
+    // SAFETY: the caller guarantees ADX and BMI2. Each input pointer
     // references four initialized u64 limbs. The assembly reads those limbs,
     // restores all undeclared registers and its stack pointer, and writes only
     // its own temporary stack below the 128-byte red zone. The four result
