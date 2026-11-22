@@ -118,8 +118,8 @@ fn update_coefficient<F: Field>(d: U256, e: U256, [u, v]: [i64; 2]) -> U256 {
     debug_assert!((-1..=1).contains(&result.high));
     if result.high < 0 {
         let mut carry = 0;
-        for i in 0..4 {
-            (result.limbs.0[i], carry) = adc(result.limbs.0[i], F::MODULUS.0[i], carry);
+        for (word, modulus) in result.limbs.0.iter_mut().zip(F::MODULUS.0) {
+            (*word, carry) = adc(*word, modulus, carry);
         }
         debug_assert_eq!(carry, 1);
         result.limbs

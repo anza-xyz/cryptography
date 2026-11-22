@@ -54,6 +54,33 @@ for 1 to 5 inputs, and the Rust e2e crate exposes light-poseidon (the source
 `syscall/bn254-backend` generates its constants from) for circuits to check
 their in-circuit hashes against.
 
+## Threat model
+
+One pool belongs to one institution. Its custodian holds the pool's audit
+key and the full viewing keys (`fvk`) its clients register. Every output
+note carries its full opening encrypted to the audit key, and the circuit
+that creates the note computes that ciphertext itself.
+
+| Party | Sees | Can do | Cannot do |
+| --- | --- | --- | --- |
+| Public (any chain observer) | commitments, nullifiers, ciphertexts, tree roots; the amount and token accounts of a shield or unshield | submit a transaction that carries a valid proof | learn a transfer's value, sender or recipient; link a nullifier to a commitment or two addresses to one key; alter a transaction in flight |
+| Counterparty: sender of a note | the opening of the note it created (value, address, `r`) and its leaf | pay any address, including one of an unregistered key; send a garbled recipient ciphertext (the payment is then lost to the recipient) | spend the note or tell when it is spent (no `ask`, no `nk`); issue two notes with one nullifier; create a note whose opening the custodian cannot read |
+| Counterparty: recipient of a note | the note's value and the address it was paid to | spend it | learn the sender's keys, addresses or other notes |
+| Custodian | the opening of every note in its pool; with the registered `fvk`s, each note's owner and nullifier, so the whole transaction graph among its clients | forfeit a note whose owner's `fvk` it holds (a forced burn, signed by the custodian) | spend or move a note inside the pool (no `ask`); create value (minting is the issuer's, and a forfeiture releases exactly the note's value, once); read another institution's pool |
+
+The custodian is trusted with its clients' privacy and with the forfeiture
+power; it is not trusted for the integrity of balances.
+
+Open: registration is not enforced. Forfeiture needs the owner's `nk`,
+and neither the note format nor the transfer restricts output addresses
+to registered keys, so a client can move notes to a fresh key the
+custodian has never seen. The custodian notices (the output matches no
+registered `ivk`) but cannot derive the nullifier, so cannot forfeit.
+Closing this is a change to the spending circuits, not to the primitives
+here: the candidate is to have every spend prove that its `fvk` is in a
+registry the custodian maintains, so a note at an unregistered key can be
+neither transferred nor unshielded until its key is registered.
+
 ## Keys and notes
 
 The key hierarchy is Sapling's with Poseidon for every hash and PRF, and
@@ -73,9 +100,10 @@ address = (d, pk_d)
 ```
 
 - Spending needs `ask` (to sign) and `nk` (to derive the nullifier).
-  Seeing a note, and forfeiting it through the custodian, needs `fvk` only.
-  Institutions register their clients' `fvk`; that is what makes the
-  custodian able to audit and forfeit.
+  Recognizing a note as a key's and deriving its nullifier needs `fvk`
+  only, and that is all a forfeiture needs: institutions register their
+  clients' `fvk` with the custodian. The note format does not tie an
+  address to a registered key; see the open item under Threat model.
 - One key has as many addresses as diversifiers; without `ivk` two of them
   are unlinkable (`pk_d = [ivk]g_d` with independent bases).
 - `GroupHash(d)`: `x = Poseidon(GD, d, counter)` for the first counter that

@@ -270,11 +270,11 @@ fn poseidon_inner<const T: usize, const HASH_ONLY: bool, const IFMA: bool>(
     // --- Middle: Partial Rounds ---
     // Kept strictly scalar because only state[0] receives the S-box computation,
     // rendering SIMD parallelization overhead highly inefficient here.
-    for sparse_idx in 0..constants.partial_rounds {
+    for sparse_matrix in &constants.sparse_matrices[..constants.partial_rounds] {
         state[0] = B::add(&state[0], &rc[rc_idx]);
         rc_idx += 1;
         state[0] = sbox(&state[0]);
-        apply_sparse_matrix(&mut state, &constants.sparse_matrices[sparse_idx]);
+        apply_sparse_matrix(&mut state, sparse_matrix);
     }
 
     // --- Second Half: Full Rounds ---

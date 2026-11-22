@@ -4,7 +4,7 @@
 use crate::backend::{Field, Fr, U256};
 
 #[inline(always)]
-fn sub_integer(a: &U256, b: &U256) -> (U256, bool) {
+pub(super) fn sub_integer(a: &U256, b: &U256) -> (U256, bool) {
     let mut out = U256::zero();
     let mut borrow = false;
     for (i, limb) in out.0.iter_mut().enumerate() {

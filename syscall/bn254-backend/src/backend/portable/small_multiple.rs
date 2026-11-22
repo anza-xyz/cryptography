@@ -107,6 +107,8 @@ mod tests {
 
     extern crate std;
     use super::*;
+    use ark_bn254::Fq as ArkFq;
+    use ark_ff::PrimeField;
     use num_bigint::BigUint;
     use rand::{RngExt, SeedableRng, rngs::StdRng};
 
@@ -115,5 +117,35 @@ mod tests {
             .iter()
             .rev()
             .fold(BigUint::from(0u8), |v, &w| (v << 64) + w)
+    }
+
+    #[test]
+    fn reduction_matches_integer_oracle_at_quotient_and_carry_boundaries() {
+        assert_eq!(Q, ArkFq::MODULUS.0);
+        let q = integer(&Fq::MODULUS.0);
+        let limit = 10u8 * &q;
+        let b = BigUint::from(1u8) << 252usize;
+        let mut values = std::vec![BigUint::from(0u8), &limit - 1u8];
+        for k in 1u8..=10 {
+            for boundary in [k * &q, 3u8 * k * &b] {
+                values.extend([&boundary - 1u8, boundary.clone(), &boundary + 1u8]);
+            }
+        }
+        for bit in [
+            63usize, 64, 127, 128, 191, 192, 251, 252, 253, 254, 255, 256,
+        ] {
+            let boundary = BigUint::from(1u8) << bit;
+            values.extend([&boundary - 1u8, boundary.clone(), &boundary + 1u8]);
+        }
+        let mut rng = StdRng::seed_from_u64(0x7869_5f72_6564_7631);
+        for _ in 0..4096 {
+            values.push(BigUint::from_bytes_le(&rng.random::<[u8; 40]>()) % &limit);
+        }
+        for value in values.into_iter().filter(|v| v < &limit) {
+            let digits = value.to_u64_digits();
+            let mut wide = [0; 5];
+            wide[..digits.len()].copy_from_slice(&digits);
+            assert_eq!(integer(&reduce(wide).0), &value % &q, "{value}");
+        }
     }
 }

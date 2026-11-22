@@ -3,33 +3,10 @@
 // with Poseidon for every hash and PRF and gnark-crypto's twisted Edwards
 // curve over BN254 Fr (Baby Jubjub in a = -1 form) as the embedded group.
 //
-// # Keys
-//
-//	sk                               spending key, a field element
-//	ask = KeyGen(Poseidon(ASK, sk))  spend authorizing key, EdDSA secret
-//	ak  = [ask]G                     spend authorizing public key
-//	nk  = Poseidon(NK, sk)           nullifier key
-//	fvk = (ak, nk)                   full viewing key
-//	ivk = Poseidon(IVK, ak.x, ak.y, nk)   incoming viewing key, used as a scalar
-//	g_d = GroupHash(d)               diversifier base, d an 11-byte diversifier (replayed in-circuit)
-//	pk_d = [ivk]g_d                  diversified transmission key
-//	address = (d, pk_d)
-//
-// Spending a note needs ask (to sign) and nk (to derive the nullifier);
-// seeing and forfeiting a note needs fvk only. Institutions register their
-// clients' fvk, which is what lets the custodian audit and forfeit.
-//
-// # Note
-//
-//	note = (value, d, pk_d, r)
-//	cm   = Poseidon(CM, value, g_d.x, g_d.y, pk_d.x, pk_d.y, r)
-//	nf   = Poseidon(NF, nk, cm, leaf index)
-//
-// The nullifier takes the note's position, as Sapling's does (rho = cm +
-// [position]J there): two notes with the same opening are different leaves
-// and get different nullifiers, so a sender cannot hand out notes that
-// collide ("Faerie Gold"). Only the holder of nk can derive a nullifier,
-// so a note's creator cannot tell when it is spent.
+// The derivations (keys, addresses, commitment, nullifier) and the reasons
+// behind them are specified once, in the "Keys and notes" section of this
+// module's README (experimental/private-tx/README.md). Each function and
+// gadget here states the formula it implements.
 //
 // Every Poseidon call is domain-separated by its first input; see package
 // domain. The EdDSA challenge hash is MiMC (gnark's native pairing of signer

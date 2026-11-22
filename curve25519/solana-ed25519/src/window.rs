@@ -272,8 +272,8 @@ impl<T: Copy> NafLookupTable8<T> {
 impl<T: Debug> Debug for NafLookupTable8<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         writeln!(f, "NafLookupTable8([")?;
-        for i in 0..64 {
-            writeln!(f, "\t{:?},", self.0[i])?;
+        for x in self.0.iter() {
+            writeln!(f, "\t{:?},", x)?;
         }
         write!(f, "])")
     }

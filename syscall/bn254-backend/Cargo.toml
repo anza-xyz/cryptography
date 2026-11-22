@@ -8,10 +8,6 @@ repository = { workspace = true }
 license = { workspace = true }
 exclude = ["scripts/*"]
 
-[features]
-
-[dependencies]
-
 # Selects the ADX/BMI2 and AVX-512 IFMA kernels at run time.
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 cpufeatures = { workspace = true }
