@@ -469,6 +469,68 @@ fn verify_dalek_rejects_forgeries_under_small_order_keys() {
     );
 }
 
+/// A small-order `R` can satisfy the verification equation under a key that
+/// is not small-order. With `A = [a]B + T` for an order-8 point `T` and
+/// `s = h·a`, the recomputed point is `[-h]T`, so about one message in eight
+/// makes it equal any chosen 8-torsion point. `A` passes its order test, so
+/// for the eight canonical encodings only the small-order test on `R` rejects
+/// these tuples. The six non-canonical encodings can never match the
+/// recomputed encoding, so they only check agreement with `verify_strict`.
+#[test]
+#[allow(non_snake_case)]
+fn verify_dalek_rejects_small_order_r_when_equation_holds() {
+    use crate::constants::ED25519_BASEPOINT_POINT;
+    use crate::ed_sigs::{Error, Signature, VerificationKey};
+    use core::convert::TryFrom;
+
+    let a = Scalar::from(0x5eed_u64);
+    let A = ED25519_BASEPOINT_POINT * a + EIGHT_TORSION[1];
+    assert!(!A.is_small_order());
+    let A_bytes = A.compress().to_bytes();
+    let vk = VerificationKey::try_from(A_bytes).expect("A decodes");
+    let dalek_key = ed25519_dalek::VerifyingKey::from_bytes(&A_bytes).expect("A decodes");
+
+    for R_bytes in low_order_encodings() {
+        let R = CompressedEdwardsY(R_bytes).decompress().expect("decodes");
+
+        // 64 attempts is ~8 times the expected number needed.
+        let mut found = false;
+        for n in 0..64u32 {
+            let msg = std::format!("small-order R {n}").into_bytes();
+            let h = crate::ed_sigs::challenge_scalar(&R_bytes, &A_bytes, &msg);
+            let s = h * a;
+
+            // Compare points rather than encodings, so that the non-canonical
+            // encodings are checked against `verify_strict` too.
+            if EdwardsPoint::vartime_double_scalar_mul_basepoint(&h, &vk.minus_A, &s) != R {
+                continue;
+            }
+            found = true;
+
+            let mut sig_bytes = [0u8; 64];
+            sig_bytes[..32].copy_from_slice(&R_bytes);
+            sig_bytes[32..].copy_from_slice(s.as_bytes());
+            let sig = Signature::from(sig_bytes);
+            assert_eq!(
+                vk.verify_dalek(&sig, &msg),
+                Err(Error::InvalidSignature),
+                "small-order R={} accepted",
+                hex::encode(R_bytes),
+            );
+            assert!(
+                dalek_key.verify_strict(&msg, &sig).is_err(),
+                "ed25519-dalek verify_strict accepted small-order R={}",
+                hex::encode(R_bytes),
+            );
+        }
+        assert!(
+            found,
+            "no message satisfied the equation for R={}",
+            hex::encode(R_bytes)
+        );
+    }
+}
+
 /// `verify_dalek` must be accept/reject identical to
 /// `ed25519_dalek::VerifyingKey::verify_strict` on the small-order vectors,
 /// which are the cases where the two rules used to disagree.

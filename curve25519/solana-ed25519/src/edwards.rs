@@ -319,7 +319,11 @@ impl CompressedEdwardsY {
 
     /// Encode a valid public point represented by (X:Y:Z), in variable time.
     #[inline]
-    fn from_projective_vartime(X: &FieldElement, Y: &FieldElement, Z: &FieldElement) -> Self {
+    pub(crate) fn from_projective_vartime(
+        X: &FieldElement,
+        Y: &FieldElement,
+        Z: &FieldElement,
+    ) -> Self {
         let recip = Z.invert_vartime();
         AffinePoint {
             x: X * &recip,
