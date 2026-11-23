@@ -1,7 +1,7 @@
 use {
     crate::{
-        Endianness, PodG1, PodG2, ALT_BN128_FIELD_SIZE, ALT_BN128_G1_POINT_SIZE,
-        ALT_BN128_G2_POINT_SIZE, G1, G2,
+        Endianness, PodG1, PodG2, ALT_BN128_G1_POINT_SIZE, ALT_BN128_G2_POINT_SIZE,
+        ALT_BN128_GT_ELEMENT_SIZE, G1, G2,
     },
     ark_bn254::{self, Config, Fq12},
     ark_ec::{bn::Bn, pairing::Pairing},
@@ -14,9 +14,6 @@ pub const ALT_BN128_PAIRING_ELEMENT_SIZE: usize = ALT_BN128_G1_POINT_SIZE + ALT_
 
 /// Output size for pairing operation.
 pub const ALT_BN128_PAIRING_OUTPUT_SIZE: usize = 32;
-
-/// Size of a target group (Gt) element: twelve base field coefficients.
-pub const ALT_BN128_GT_ELEMENT_SIZE: usize = ALT_BN128_FIELD_SIZE * 12; // 384
 
 /// Pair element size for the pairing map operation. This is the same as
 /// `ALT_BN128_PAIRING_ELEMENT_SIZE`.
@@ -105,14 +102,10 @@ pub enum VersionedPairingMap {
 /// result in a network fork. See the [crate-level documentation](crate) for strict
 /// guidelines on SIMD approvals and versioning.
 pub fn alt_bn128_versioned_pairing_map(
-    version: VersionedPairingMap,
+    _version: VersionedPairingMap,
     input: &[u8],
     endianness: Endianness,
 ) -> Option<[u8; ALT_BN128_PAIRING_MAP_OUTPUT_SIZE]> {
-    match version {
-        VersionedPairingMap::V0 => {}
-    }
-
     let res = multi_pairing(input, &endianness)?;
 
     // `ark-serialize` writes the canonical (non-Montgomery) little-endian
@@ -168,7 +161,7 @@ fn multi_pairing(input: &[u8], endianness: &Endianness) -> Option<Fq12> {
 mod tests {
     use {
         super::*,
-        crate::ALT_BN128_FQ2_SIZE,
+        crate::{ALT_BN128_FIELD_SIZE, ALT_BN128_FQ2_SIZE},
         ark_bn254::{Fr, G1Affine, G2Affine},
         ark_ec::{AffineRepr, CurveGroup},
         ark_ff::{Field, PrimeField},
@@ -414,25 +407,104 @@ mod tests {
         }
     }
 
+    /// Index, within a pair, of the byte that carries the flag bits of a point:
+    /// the most significant byte of `y` for G1 and of `y.c1` for G2.
+    fn flag_index(g2: bool, endianness: &Endianness) -> usize {
+        match (g2, endianness) {
+            (false, Endianness::LE) => ALT_BN128_G1_POINT_SIZE - 1, // 63
+            (false, Endianness::BE) => ALT_BN128_FIELD_SIZE,        // 32
+            (true, Endianness::LE) => ALT_BN128_PAIRING_ELEMENT_SIZE - 1, // 191
+            (true, Endianness::BE) => ALT_BN128_G1_POINT_SIZE + ALT_BN128_FQ2_SIZE, // 128
+        }
+    }
+
+    /// Range, within a pair, of the first encoded field element of a point
+    /// (`x` for G1; `x.c0` in LE and `x.c1` in BE for G2).
+    fn first_field_range(g2: bool) -> std::ops::Range<usize> {
+        let start = if g2 { ALT_BN128_G1_POINT_SIZE } else { 0 };
+        start..start + ALT_BN128_FIELD_SIZE
+    }
+
+    /// Index, within a pair, of the least significant byte of the first
+    /// encoded field element of a point.
+    fn first_field_lsb_index(g2: bool, endianness: &Endianness) -> usize {
+        let range = first_field_range(g2);
+        match endianness {
+            Endianness::LE => range.start,
+            Endianness::BE => range.end - 1,
+        }
+    }
+
     #[test]
     fn pairing_map_point_at_infinity() {
-        let identity_le = gt_identity(Endianness::LE);
-
         // all-zero encodings
-        let (le, _) = encode(&[
+        let (le, be) = encode(&[
             (G1Affine::zero(), G2Affine::generator()),
             (G1Affine::generator(), G2Affine::zero()),
         ]);
-        assert_eq!(pairing_map(&le, Endianness::LE), Some(identity_le));
+        assert_eq!(
+            pairing_map(&le, Endianness::LE),
+            Some(gt_identity(Endianness::LE))
+        );
+        assert_eq!(
+            pairing_map(&be, Endianness::BE),
+            Some(gt_identity(Endianness::BE))
+        );
+    }
 
-        // infinity flag (bit 6 of the most significant byte of `y`)
-        let (mut le, _) = encode(&[(G1Affine::generator(), G2Affine::generator())]);
-        le[ALT_BN128_G1_POINT_SIZE - 1] |= 0x40;
-        assert_eq!(pairing_map(&le, Endianness::LE), Some(identity_le));
+    #[test]
+    fn pairing_map_flag_bits() {
+        assert_eq!(flag_index(false, &Endianness::LE), 63);
+        assert_eq!(flag_index(false, &Endianness::BE), 32);
+        assert_eq!(flag_index(true, &Endianness::LE), 191);
+        assert_eq!(flag_index(true, &Endianness::BE), 128);
 
-        // both flag bits set
-        le[ALT_BN128_G1_POINT_SIZE - 1] |= 0xc0;
-        assert_eq!(pairing_map(&le, Endianness::LE), None);
+        let (le, be) = encode(&[(G1Affine::generator(), G2Affine::generator())]);
+
+        for (valid, endianness) in [(&le, Endianness::LE), (&be, Endianness::BE)] {
+            let run = |input: &[u8]| match endianness {
+                Endianness::LE => pairing_map(input, Endianness::LE),
+                Endianness::BE => pairing_map(input, Endianness::BE),
+            };
+            let identity = match endianness {
+                Endianness::LE => gt_identity(Endianness::LE),
+                Endianness::BE => gt_identity(Endianness::BE),
+            };
+            let unflagged = run(valid).unwrap();
+            assert_ne!(unflagged, identity);
+
+            // flags on G1 (`y`) and on G2 (`y.c1`)
+            for g2 in [false, true] {
+                let flag = flag_index(g2, &endianness);
+
+                // bit 7 alone
+                let mut input = valid.clone();
+                input[flag] |= 0x80;
+                assert_eq!(run(&input), Some(unflagged));
+
+                // bit 6 alone: the infinity flag
+                let mut input = valid.clone();
+                input[flag] |= 0x40;
+                assert_eq!(run(&input), Some(identity));
+
+                // both flag bits set
+                let mut input = valid.clone();
+                input[flag] |= 0xc0;
+                assert_eq!(run(&input), None);
+
+                // infinity flag on coordinates that are not on the curve
+                let mut input = valid.clone();
+                input[flag] |= 0x40;
+                input[first_field_lsb_index(g2, &endianness)] ^= 1;
+                assert_eq!(run(&input), Some(identity));
+
+                // infinity flag with a field element not below the modulus
+                let mut input = valid.clone();
+                input[flag] |= 0x40;
+                input[first_field_range(g2)].fill(0xff);
+                assert_eq!(run(&input), None);
+            }
+        }
     }
 
     #[test]
