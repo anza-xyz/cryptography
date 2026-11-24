@@ -112,6 +112,7 @@ fn rejects_non_canonical_encodings() {
     let good_vkb = VerificationKeyBytes::from(&sk);
     let msg = b"non-canonical encoding";
     let good_sig: [u8; 64] = sk.sign(msg).into();
+    let dalek_vk = ed25519_dalek::VerifyingKey::from_bytes(&good_vkb.into()).expect("valid key");
 
     let mut checked = 0usize;
     for encoding in util::non_canonical_point_encodings() {
@@ -135,6 +136,21 @@ fn rejects_non_canonical_encodings() {
             vk.verify(&Signature::from(sig_bytes), msg),
             Err(Error::InvalidSignature),
             "accepted non-canonical R={}",
+            hex::encode(encoding),
+        );
+        // `verify_dalek` rejects these in `accepts_point_encoding`, before the
+        // final comparison.
+        assert_eq!(
+            vk.verify_dalek(&Signature::from(sig_bytes), msg),
+            Err(Error::InvalidSignature),
+            "verify_dalek accepted non-canonical R={}",
+            hex::encode(encoding),
+        );
+        assert!(
+            dalek_vk
+                .verify_strict(msg, &Signature::from(sig_bytes))
+                .is_err(),
+            "ed25519-dalek verify_strict accepted non-canonical R={}",
             hex::encode(encoding),
         );
 
@@ -207,6 +223,19 @@ fn rejects_off_curve_points() {
     assert_eq!(
         vk.verify(&Signature::from(sig_bytes), msg),
         Err(Error::InvalidSignature)
+    );
+
+    // `verify_dalek` does not decompress `R`, so the final comparison is what
+    // rejects it.
+    assert_eq!(
+        vk.verify_dalek(&Signature::from(sig_bytes), msg),
+        Err(Error::InvalidSignature)
+    );
+    let dalek_vk = ed25519_dalek::VerifyingKey::from_bytes(&vkb.into()).expect("valid key");
+    assert!(
+        dalek_vk
+            .verify_strict(msg, &Signature::from(sig_bytes))
+            .is_err()
     );
 }
 
