@@ -35,6 +35,9 @@ pub const ALT_BN128_G1_POINT_SIZE: usize = ALT_BN128_FIELD_SIZE * 2;
 /// Elements in G2 is represented by 2 field-extension elements `(x, y)`.
 pub const ALT_BN128_G2_POINT_SIZE: usize = ALT_BN128_FQ2_SIZE * 2;
 
+/// Size of a target group (Gt) element: twelve base field coefficients.
+pub const ALT_BN128_GT_ELEMENT_SIZE: usize = ALT_BN128_FIELD_SIZE * 12; // 384
+
 /// The BN254 (BN128) group element in G1 as a POD type.
 ///
 /// A group element in G1 consists of two field elements `(x, y)`. A `PodG1`
