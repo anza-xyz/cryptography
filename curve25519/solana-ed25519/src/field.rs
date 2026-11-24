@@ -443,6 +443,12 @@ impl FieldElement {
             | bytes.ct_eq(&[0u8; 32])
     }
 
+    /// Test quadratic residuosity, accepting zero, in variable time. For public
+    /// data only.
+    pub(crate) fn is_square_vartime(&self) -> bool {
+        backend::serial::u64::jacobi::is_square_vartime(self)
+    }
+
     /// Given `FieldElements` `u` and `v`, compute either `sqrt(u/v)`
     /// or `sqrt(i*u/v)` in constant time.
     ///
@@ -753,8 +759,14 @@ mod test {
                 bool::from(FieldElement::sqrt_ratio_i(&x, &FieldElement::ONE).0),
                 "x = {x:?}"
             );
+            assert_eq!(
+                x.is_square_vartime(),
+                bool::from(x.is_square()),
+                "x = {x:?}"
+            );
             let square = x.square();
             assert!(bool::from(square.is_square()));
+            assert!(square.is_square_vartime());
             // sqrt(-1) is nonsquare since p = 5 mod 8. Multiplication by it
             // moves every nonzero square into the nonsquare residue class.
             assert_eq!(
