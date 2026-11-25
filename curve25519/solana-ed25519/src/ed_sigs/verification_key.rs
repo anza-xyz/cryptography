@@ -423,30 +423,31 @@ impl VerificationKey {
     #[allow(non_snake_case)]
     fn verify_dalek_prehashed(&self, signature: &Signature, h: Scalar) -> Result<(), Error> {
         // Reject small-order `A` and small-order `R`, exactly as
-        // `verify_strict` does. These are algebraic tests on purpose: a
-        // blacklist of encodings is not equivalent, because every low-order
-        // point has both a sign-bit-clear and a sign-bit-set encoding, and
-        // several also have non-canonical encodings.
+        // `verify_strict` does.
         //
-        // `A` is checked through `minus_A`, which has the same order as `A`.
-        // Cheap tests first: `is_small_order` is three doublings, whereas
-        // decompressing `R` costs a square root.
+        // `A` needs the algebraic test: keys are decoded permissively, and a
+        // blacklist of canonical encodings misses the six non-canonical
+        // encodings of small-order points. `A` is checked through `minus_A`,
+        // which has the same order as `A`.
         if self.minus_A.is_small_order() {
             return Err(Error::InvalidSignature);
         }
 
-        let R = CompressedEdwardsY(*signature.r_bytes())
-            .decompress()
-            .ok_or(Error::InvalidSignature)?;
-        if R.is_small_order() {
+        // `R` gets the same encoding check as in `verify_simd0376`, which
+        // rejects non-canonical and small-order encodings without
+        // decompressing. Skipping decompression does not change the result:
+        // the final comparison only matches the canonical encoding of a curve
+        // point, so an `R` that is non-canonical or not on the curve fails it.
+        if !accepts_point_encoding(signature.r_bytes()) {
             return Err(Error::InvalidSignature);
         }
 
         let s = Option::<Scalar>::from(Scalar::from_canonical_bytes(*signature.s_bytes()))
             .ok_or(Error::InvalidSignature)?;
 
-        let expected_R =
-            EdwardsPoint::vartime_double_scalar_mul_basepoint(&h, &self.minus_A, &s).compress();
+        // All inputs are public, so the inversion can be variable time.
+        let p = EdwardsPoint::vartime_double_scalar_mul_basepoint(&h, &self.minus_A, &s);
+        let expected_R = CompressedEdwardsY::from_projective_vartime(&p.X, &p.Y, &p.Z);
 
         if expected_R.as_bytes() == signature.r_bytes() {
             Ok(())

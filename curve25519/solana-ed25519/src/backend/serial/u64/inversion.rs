@@ -10,7 +10,8 @@
 //!
 //! This is several times faster than the Fermat inversion in `FieldElement`,
 //! but its running time depends on the input, so it is only for public data:
-//! point compression in the curve25519 syscalls, never anything secret.
+//! point compression in the curve25519 syscalls and in `verify_dalek`, never
+//! anything secret.
 
 use super::field::FieldElement51;
 
