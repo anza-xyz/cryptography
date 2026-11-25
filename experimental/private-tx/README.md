@@ -320,8 +320,14 @@ One pool account (4,448 bytes):
 | `next_index`, `filled[32]`, `zeros[32]` | the incremental Merkle tree (depth 32, `Poseidon(NODE, left, right)` via `sol_poseidon`), the same tree `circuits/merkle` defines |
 | `roots[64]` | ring of recent roots a burn may prove against |
 
-Nullifiers are one PDA each, `["nullifier", pool, nullifier]`, created by
-`Burn`; a second burn of the same note fails because the account exists.
+Nullifiers are one PDA each, `["nullifier", pool, nullifier]`, brought into
+existence by the spend (`Transfer` or `Burn`) and owned by the pool program
+from then on; a second spend of the same note fails because the program
+already owns the account. Only that ownership means spent: lamports sent to
+the address beforehand do not, and the spend tops the account up, allocates
+and assigns it rather than calling `create_account`, so nobody can lock a
+note by funding the PDA of a nullifier they saw in a pending or failed
+transaction.
 
 | instruction | accounts | data | effect |
 | --- | --- | --- | --- |
@@ -339,9 +345,10 @@ cannot shield someone else's funds.
 
 Compute units under Mollusk (SBF v2, local): `InitializePool` 39.3k; `Mint`
 135k (verifier CPI, 32 Poseidon syscalls for the append, two wide Poseidon
-syscalls for the hashes, the token transfer); `Transfer` 206k (seven public
+syscalls for the hashes, the token transfer); `Transfer` 211k (seven public
 inputs, 64 Poseidon syscalls for two appends, three wide ones for the
-hashes, two PDA creations); `Burn` 103k (unshield or forfeit). A `Transfer`
+hashes, two nullifier PDAs at three system CPIs each); `Burn` 106k (unshield
+or forfeit). A `Transfer`
 names its root by history slot (one byte) instead of value: with that, the
 instruction is 808 bytes of data and the transaction, with its compute
 budget instruction, 1,217 of the 1,232 bytes a legacy transaction allows.

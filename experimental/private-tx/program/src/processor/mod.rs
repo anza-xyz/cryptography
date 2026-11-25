@@ -174,8 +174,17 @@ pub(crate) fn token_transfer(
 }
 
 /// Records a spend: the nullifier account must be the PDA
-/// `["nullifier", pool, nullifier]` and must not exist yet; it is created
-/// here (rent from `payer`), which is what makes a second spend fail.
+/// `["nullifier", pool, nullifier]`, and it is spent exactly when this
+/// program owns it. Otherwise it is brought into existence here (rent from
+/// `payer`), which is what makes a second spend fail.
+///
+/// A balance alone does not mean spent, and the account is not made with
+/// `create_account`, which fails on a target with a nonzero balance: anyone
+/// can transfer lamports to any address, so either would let one lamport
+/// sent to the PDA of a nullifier seen in a pending or failed transaction
+/// lock its note forever. Top up to rent-exemption if needed, then
+/// `allocate` and `assign`, each signed with the PDA seeds, as the
+/// verifier's `Publish` does.
 pub(crate) fn record_nullifier(
     program_id: &Address,
     pool: &AccountView,
@@ -185,9 +194,11 @@ pub(crate) fn record_nullifier(
 ) -> ProgramResult {
     use {
         crate::state::{NULLIFIER_ACCOUNT_LEN, NULLIFIER_DISCRIMINATOR, NULLIFIER_SEED},
-        pinocchio::cpi::Seed,
-        pinocchio_system::instructions::CreateAccount,
-        solana_groth16_verify::constants::SYSTEM_PROGRAM_ID,
+        pinocchio::{
+            cpi::Seed,
+            sysvars::{rent::Rent, Sysvar},
+        },
+        pinocchio_system::instructions::{Allocate, Assign, Transfer},
     };
     let (expected, bump) = Address::find_program_address(
         &[NULLIFIER_SEED, pool.address().as_ref(), nullifier],
@@ -196,12 +207,21 @@ pub(crate) fn record_nullifier(
     if nullifier_account.address() != &expected {
         return Err(PoolError::NullifierAddressMismatch.into());
     }
-    if nullifier_account.lamports() != 0
-        || nullifier_account.data_len() != 0
-        || !nullifier_account.owned_by(&SYSTEM_PROGRAM_ID)
-    {
+    if nullifier_account.owned_by(program_id) {
         return Err(PoolError::NullifierAlreadySpent.into());
     }
+
+    let required = Rent::get()?.try_minimum_balance(NULLIFIER_ACCOUNT_LEN)?;
+    let shortfall = required.saturating_sub(nullifier_account.lamports());
+    if shortfall > 0 {
+        Transfer {
+            from: payer,
+            to: nullifier_account,
+            lamports: shortfall,
+        }
+        .invoke()?;
+    }
+
     let bump = [bump];
     let seeds = [
         Seed::from(NULLIFIER_SEED),
@@ -209,14 +229,18 @@ pub(crate) fn record_nullifier(
         Seed::from(nullifier.as_slice()),
         Seed::from(&bump),
     ];
-    CreateAccount::with_minimum_balance(
-        payer,
-        nullifier_account,
-        NULLIFIER_ACCOUNT_LEN as u64,
-        program_id,
-        None,
-    )?
-    .invoke_signed(&[Signer::from(&seeds)])?;
+    let signer = Signer::from(&seeds);
+    let signers = core::slice::from_ref(&signer);
+    Allocate {
+        account: nullifier_account,
+        space: NULLIFIER_ACCOUNT_LEN as u64,
+    }
+    .invoke_signed(signers)?;
+    Assign {
+        account: nullifier_account,
+        owner: program_id,
+    }
+    .invoke_signed(signers)?;
     nullifier_account.try_borrow_mut()?[0] = NULLIFIER_DISCRIMINATOR;
     Ok(())
 }

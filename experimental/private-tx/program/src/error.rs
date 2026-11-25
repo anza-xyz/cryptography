@@ -11,7 +11,7 @@ pub enum PoolError {
     AlreadyInitialized = 1,
     /// The published root is not in the pool's root history.
     UnknownRoot = 2,
-    /// The nullifier account already exists: the note was spent.
+    /// The nullifier account is owned by this program: the note was spent.
     NullifierAlreadySpent = 3,
     /// The nullifier account is not the PDA for this nullifier.
     NullifierAddressMismatch = 4,
