@@ -318,7 +318,7 @@ One pool account (4,448 bytes):
 | `audit_pk` | the custodian's audit key; every output's audit ciphertext is checked against it |
 | `supply` | minted minus burned; equals the vault balance |
 | `next_index`, `filled[32]`, `zeros[32]` | the incremental Merkle tree (depth 32, `Poseidon(NODE, left, right)` via `sol_poseidon`), the same tree `circuits/merkle` defines |
-| `roots[64]` | ring of recent roots a burn may prove against |
+| `roots[64]` | ring of recent roots a spend may prove against, one pushed per `Mint` or `Transfer` |
 
 Nullifiers are one PDA each, `["nullifier", pool, nullifier]`, brought into
 existence by the spend (`Transfer` or `Burn`) and owned by the pool program
@@ -329,11 +329,16 @@ and assigns it rather than calling `create_account`, so nobody can lock a
 note by funding the PDA of a nullifier they saw in a pending or failed
 transaction.
 
+The root ring bounds how long a client has to prove and land: a proof is
+made against one of the last 64 roots, and each `Mint` or `Transfer` pushes
+one whatever number of notes it appends (`Burn` pushes none), so a spend
+goes stale once 63 of those instructions land after the root it used.
+
 | instruction | accounts | data | effect |
 | --- | --- | --- | --- |
 | `InitializePool` | pool (s, w), vault, token program | custodian, issuer, mint_key, burn_key, transfer_key, token_mint, audit_pk | token program must be classic SPL Token; checks the vault is an initialized token account of the mint owned by the vault authority; fills the empty tree (32 Poseidon calls), pushes the empty root |
 | `Mint` (shield) | pool (w), issuer (s), verifier, mint key, source token account (w), source owner (s), vault (w), token program | proof, commitment, value, audit blob (160), recipient blob (83) | `audit_hash` from the blobs and `audit_pk`; verify `(commitment, value, audit_hash)`; transfer `value` source → vault (source owner's authority); append; `supply += value` |
-| `Transfer` | pool (w), payer (s, w), nullifier PDA 0 (w), nullifier PDA 1 (w), system, verifier, transfer key | proof, root slot (1), nf_0, nf_1, cm_0, cm_1, audit blob (256), recipient blobs (166) | root = history[slot]; `nf_0 ≠ nf_1`; `audit_hash`, `enc_hash`, `sighash` from the data; verify `(root, nf_0, nf_1, cm_0, cm_1, audit_hash, sighash)`; create both PDAs; append both |
+| `Transfer` | pool (w), payer (s, w), nullifier PDA 0 (w), nullifier PDA 1 (w), system, verifier, transfer key | proof, root slot (1), nf_0, nf_1, cm_0, cm_1, audit blob (256), recipient blobs (166) | root = history[slot]; `nf_0 ≠ nf_1`; `audit_hash`, `enc_hash`, `sighash` from the data; verify `(root, nf_0, nf_1, cm_0, cm_1, audit_hash, sighash)`; create both PDAs; append both, pushing one root |
 | `Burn` (unshield / forfeit) | pool (w), payer (s, w), nullifier PDA (w), system, verifier, burn key, custodian (s iff forced), vault (w), destination token account (w), vault authority, token program | proof, root, nullifier, value, forced | root ∈ history; `sighash = Poseidon(SIGHASH, pool, destination, nullifier, value)` with the destination account's address; verify `(root, nullifier, value, forced, sighash)`; create the PDA; transfer `value` vault → destination (PDA authority); `supply -= value` |
 
 The destination of a burn is a token account named in the instruction, and
@@ -356,7 +361,10 @@ budget instruction, 1,217 of the 1,232 bytes a legacy transaction allows.
 What it does not do yet: Token-2022 is refused at `InitializePool` rather
 than supported (a transfer-fee or transfer-hook extension would make the
 vault receive less than the note minted and break `supply == vault
-balance`; supporting it means accounting by vault balance delta); the
+balance`). Supporting it is the next phase: the pool PDA becomes the mint
+authority of the institution's own Token-2022 mint, shield burns public
+tokens and unshield mints them, so there is no vault and those extensions
+never apply; the
 program id is a placeholder; nothing is emitted for indexers beyond the
 instruction data itself.
 

@@ -18,7 +18,7 @@
 //! So the whole instruction is covered: nothing in it can change without
 //! the proof failing. The root must be in the history; the two nullifiers
 //! must differ and their PDAs are created; the two commitments are
-//! appended. No tokens move and the supply is unchanged: value only
+//! appended, pushing one root. No tokens move and the supply is unchanged: value only
 //! changes hands inside the pool.
 
 use {
@@ -96,7 +96,5 @@ pub fn process(
 
     let mut data = pool.try_borrow_mut()?;
     let mut p = Pool::from_bytes(&mut data)?;
-    p.append(cm0)?;
-    p.append(cm1)?;
-    Ok(())
+    p.append(&[*cm0, *cm1])
 }

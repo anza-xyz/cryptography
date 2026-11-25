@@ -86,6 +86,6 @@ pub fn process(
 
     let mut data = pool.try_borrow_mut()?;
     let mut p = Pool::from_bytes(&mut data)?;
-    p.append(commitment)?;
+    p.append(&[*commitment])?;
     p.add_supply(value)
 }

@@ -43,6 +43,9 @@ use {
 };
 
 pub const DEPTH: usize = 32;
+/// Roots a proof may be made against: the current one and the 63 before it.
+/// Every `Mint` and `Transfer` pushes exactly one, so a client has 63 of
+/// those instructions between reading the tree and landing its spend.
 pub const ROOT_HISTORY: usize = 64;
 pub const FIELD_SIZE: usize = 32;
 
@@ -74,9 +77,15 @@ pub const NULLIFIER_ACCOUNT_LEN: usize = 1;
 pub const NULLIFIER_SEED: &[u8] = b"nullifier";
 /// Vault authority PDA seeds: `[VAULT_SEED, pool address]`.
 pub const VAULT_SEED: &[u8] = b"vault";
-/// The only token program a pool may be created over. Token-2022 is
-/// refused: a transfer-fee or transfer-hook extension would make the vault
-/// receive less than the note minted, breaking `supply == vault balance`.
+/// The only token program a pool may be created over for now.
+///
+/// TODO(next phase): support Token-2022, which is what the pool is meant to
+/// interoperate with. Planned shape: the pool PDA is the mint authority of
+/// the institution's own Token-2022 mint, shield burns public tokens and
+/// unshield mints them, so there is no vault and transfer-fee /
+/// transfer-hook extensions never apply. Until then it is refused: with a
+/// vault, those extensions would make it receive less than the note
+/// minted, breaking `supply == vault balance`.
 pub const TOKEN_PROGRAM_ID: Address =
     Address::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 
@@ -247,9 +256,24 @@ impl<'a> Pool<'a> {
         Ok(())
     }
 
-    /// Appends a leaf, pushes the new root, and returns its leaf index.
-    /// Costs `DEPTH` Poseidon calls.
-    pub fn append(&mut self, leaf: &[u8; 32]) -> Result<u64, ProgramError> {
+    /// Appends `leaves` in order and pushes one root, the root after the
+    /// last of them: an instruction takes one history slot however many
+    /// notes it creates, since no proof is ever made against the tree as it
+    /// stood between two leaves of one instruction. Costs `DEPTH` Poseidon
+    /// calls per leaf.
+    pub fn append(&mut self, leaves: &[[u8; 32]]) -> Result<(), ProgramError> {
+        let mut root = None;
+        for leaf in leaves {
+            root = Some(self.insert(leaf)?);
+        }
+        if let Some(root) = root {
+            self.push_root(&root);
+        }
+        Ok(())
+    }
+
+    /// Inserts one leaf and returns the new root, without recording it.
+    fn insert(&mut self, leaf: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
         let index = self.next_index();
         if index >= 1u64 << DEPTH {
             return Err(PoolError::TreeFull.into());
@@ -267,9 +291,8 @@ impl<'a> Pool<'a> {
             }
             i >>= 1;
         }
-        self.push_root(&cur);
         self.set_u64(NEXT_INDEX_OFFSET, index + 1);
-        Ok(index)
+        Ok(cur)
     }
 
     fn push_root(&mut self, root: &[u8; 32]) {
@@ -476,4 +499,62 @@ pub fn transfer_sighash(
     )
     .map(|h| h.to_bytes())
     .map_err(|_| PoolError::PoseidonFailed.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn new_pool(data: &mut [u8]) -> Pool<'_> {
+        let a = Address::new_from_array([7u8; 32]);
+        Pool::initialize(data, &a, &a, &a, &a, &a, &a, &a, &a, 255, &[0u8; 64]).unwrap()
+    }
+
+    fn leaf(i: u8) -> [u8; 32] {
+        let mut l = [0u8; 32];
+        l[31] = i;
+        l
+    }
+
+    /// Two leaves in one `append` take one history slot, and the root they
+    /// leave is the one two single appends reach.
+    #[test]
+    fn append_pushes_one_root_per_call() {
+        let mut together = [0u8; POOL_ACCOUNT_LEN];
+        let mut p = new_pool(&mut together);
+        assert_eq!(p.root_pos(), 1);
+        p.append(&[leaf(1), leaf(2)]).unwrap();
+        assert_eq!(p.root_pos(), 2);
+        assert_eq!(p.next_index(), 2);
+        assert_eq!(p.root_at(2), None);
+        let root = *p.current_root();
+
+        let mut apart = [0u8; POOL_ACCOUNT_LEN];
+        let mut q = new_pool(&mut apart);
+        q.append(&[leaf(1)]).unwrap();
+        let between = *q.current_root();
+        q.append(&[leaf(2)]).unwrap();
+        assert_eq!(q.root_pos(), 3);
+        assert_eq!(*q.current_root(), root);
+
+        // The root between the two leaves was never recorded.
+        assert!(q.knows_root(&between));
+        assert!(!p.knows_root(&between));
+    }
+
+    /// A root stays provable for `ROOT_HISTORY - 1` later appends.
+    #[test]
+    fn root_goes_stale_after_the_ring_wraps() {
+        let mut data = [0u8; POOL_ACCOUNT_LEN];
+        let mut p = new_pool(&mut data);
+        p.append(&[leaf(1), leaf(2)]).unwrap();
+        let root = *p.current_root();
+        for i in 0..ROOT_HISTORY - 1 {
+            assert!(p.knows_root(&root));
+            p.append(&[leaf(3 + i as u8), leaf(3 + i as u8)]).unwrap();
+        }
+        assert!(p.knows_root(&root));
+        p.append(&[leaf(3)]).unwrap();
+        assert!(!p.knows_root(&root));
+    }
 }
