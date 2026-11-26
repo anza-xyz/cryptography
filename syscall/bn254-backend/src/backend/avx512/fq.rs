@@ -302,7 +302,7 @@ fn sum_g2_coefficients(a: &crate::backend::U256, b: &crate::backend::U256) -> cr
 /// Input/output coefficients are canonical R=2^256 Montgomery Fq residues.
 ///
 /// # Safety
-/// Requires AVX-512 F, DQ and IFMA on the executing CPU.
+/// Call only when [`ifma_supported`](super::ifma_supported) returns true.
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 pub(crate) unsafe fn fq2_two_squares_and_product(
@@ -355,7 +355,7 @@ pub(crate) unsafe fn fq2_two_squares_and_product(
 /// Input/output coefficients are canonical R=2^256 Montgomery Fq residues.
 ///
 /// # Safety
-/// Requires AVX-512 F, DQ and IFMA on the executing CPU.
+/// Call only when [`ifma_supported`](super::ifma_supported) returns true.
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 pub(crate) unsafe fn fq2_three_squares(
@@ -399,8 +399,9 @@ pub(crate) unsafe fn fq2_three_squares(
 /// and they remain strictly below 2q.
 ///
 /// # Safety
-/// Requires AVX-512 F, DQ and IFMA on the executing CPU. Each input coefficient
-/// must be a canonical Fq residue in the external R=2^256 Montgomery domain.
+/// Call only when [`ifma_supported`](super::ifma_supported) returns true.
+/// Each input coefficient must be a canonical Fq residue in the external
+/// R=2^256 Montgomery domain.
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 pub(crate) unsafe fn mul_fq2_6(

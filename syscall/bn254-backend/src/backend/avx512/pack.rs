@@ -15,7 +15,7 @@ const MASK_52: u64 = 0xFFFFFFFFFFFFF;
 /// little-endian storage layouts into our internal 52-bit SIMD math engine.
 ///
 /// # Safety
-/// Requires AVX-512 F, DQ and IFMA on the executing CPU.
+/// Call only when [`ifma_supported`](super::ifma_supported) returns true.
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 pub unsafe fn pack_8x(inputs: &[U256; 8]) -> FieldElement8x52 {
@@ -50,7 +50,7 @@ pub unsafe fn pack_8x(inputs: &[U256; 8]) -> FieldElement8x52 {
 /// the processed 52-bit SIMD lanes.
 ///
 /// # Safety
-/// Requires AVX-512 F, DQ and IFMA on the executing CPU.
+/// Call only when [`ifma_supported`](super::ifma_supported) returns true.
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 pub unsafe fn unpack_8x_into(packed: &FieldElement8x52, outputs: &mut [U256; 8]) {
@@ -79,7 +79,7 @@ pub unsafe fn unpack_8x_into(packed: &FieldElement8x52, outputs: &mut [U256; 8])
 /// Allocates and unpacks a 5-limb AVX-512 vector into an array of 8 scalar U256s.
 ///
 /// # Safety
-/// Requires AVX-512 F, DQ and IFMA on the executing CPU.
+/// Call only when [`ifma_supported`](super::ifma_supported) returns true.
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 pub unsafe fn unpack_8x(packed: &FieldElement8x52) -> [U256; 8] {
@@ -94,7 +94,7 @@ pub unsafe fn unpack_8x(packed: &FieldElement8x52) -> [U256; 8] {
 /// be multiplied against an entire SIMD chunk of the matrix column vector.
 ///
 /// # Safety
-/// Requires AVX-512 F, DQ and IFMA on the executing CPU.
+/// Call only when [`ifma_supported`](super::ifma_supported) returns true.
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 pub unsafe fn broadcast(u: &U256) -> FieldElement8x52 {

@@ -23,7 +23,7 @@ const FR_INV_52: i64 = 0x1f593efffffff;
 /// the result to a routine that requires normalized limbs.
 ///
 /// # Safety
-/// Requires AVX-512 F, DQ and IFMA on the executing CPU.
+/// Call only when [`ifma_supported`](super::ifma_supported) returns true.
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 pub unsafe fn add_lazy(a: &FieldElement8x52, b: &FieldElement8x52) -> FieldElement8x52 {
@@ -167,7 +167,7 @@ unsafe fn cond_sub_modulus(x: &FieldElement8x52) -> FieldElement8x52 {
 /// The operands are not symmetric in cost: `a` is scaled, `b` is not.
 ///
 /// # Safety
-/// Requires AVX-512 F, DQ and IFMA on the executing CPU.
+/// Call only when [`ifma_supported`](super::ifma_supported) returns true.
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 pub unsafe fn mul_8x(a: &FieldElement8x52, b: &FieldElement8x52) -> FieldElement8x52 {
@@ -188,8 +188,8 @@ pub unsafe fn mul_8x(a: &FieldElement8x52, b: &FieldElement8x52) -> FieldElement
 }
 
 /// # Safety
-/// Requires AVX-512F, AVX-512DQ and AVX-512 IFMA, plus canonical Fr operands
-/// with normalized 52-bit limbs.
+/// Call only when [`ifma_supported`](super::ifma_supported) returns true.
+/// The operands must be canonical Fr values with normalized 52-bit limbs.
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 pub unsafe fn sum_of_products_8x<const N: usize>(
@@ -297,7 +297,7 @@ unsafe fn canonical_8x(t: &[__m512i]) -> FieldElement8x52 {
 /// into just 3 massive parallel SIMD dispatches.
 ///
 /// # Safety
-/// Requires AVX-512 F, DQ and IFMA on the executing CPU.
+/// Call only when [`ifma_supported`](super::ifma_supported) returns true.
 #[inline]
 #[target_feature(enable = "avx512f,avx512ifma,avx512dq")]
 pub unsafe fn sbox_8x(x: &FieldElement8x52) -> FieldElement8x52 {

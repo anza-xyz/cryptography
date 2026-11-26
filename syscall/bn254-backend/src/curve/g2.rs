@@ -889,7 +889,8 @@ impl Affine {
 
 impl Projective {
     /// # Safety
-    /// Requires AVX-512 F, DQ and IFMA on the executing CPU.
+    /// Call only when
+    /// [`ifma_supported`](crate::backend::avx512::ifma_supported) returns true.
     #[cfg(target_arch = "x86_64")]
     unsafe fn double_ifma(&mut self) {
         use crate::backend::avx512::fq::{fq2_three_squares, fq2_two_squares_and_product};

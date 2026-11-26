@@ -16,8 +16,12 @@ const fn adc(a: u64, b: u64, carry: u64) -> (u64, u64) {
 }
 
 /// Computes `a - b - borrow`, returning `(result, borrow_out)`.
+///
+/// `borrow` must be 0 or 1. A larger value can need a `borrow_out` of 2, which
+/// is never returned.
 #[inline(always)]
 const fn sbb(a: u64, b: u64, borrow: u64) -> (u64, u64) {
+    debug_assert!(borrow <= 1);
     let (r1, b1) = a.overflowing_sub(b);
     let (r2, b2) = r1.overflowing_sub(borrow);
     (r2, (b1 as u64) | (b2 as u64))
@@ -45,6 +49,10 @@ fn mac_row(t: &mut [u64], s: u64, v: &U256, pending: u64) -> u64 {
 /// Montgomery arithmetic with a portable fallback and optional native Fq and Fr kernel.
 pub struct PortableBackend<F: Field>(PhantomData<F>);
 
+// The kernel is hand-written assembly that manages its own stack and saved
+// registers. Nothing in it depends on the OS, but it is built only for Linux,
+// the one x86_64 platform it has been run on. The IFMA kernels are intrinsics
+// the compiler lowers per target, so they carry no such gate.
 #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
 mod adx;
 mod fq2_sum;
